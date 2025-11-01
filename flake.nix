@@ -16,6 +16,7 @@
         packages = [
           pkgs.rustup
           pkgs.rust-analyzer
+          pkgs.cargo-watch
         ];
       };
     });
