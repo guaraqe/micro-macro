@@ -1,8 +1,11 @@
+mod layout_circular;
+
 use eframe::egui;
 use egui_graphs::{
-    DefaultEdgeShape, DefaultNodeShape, Graph, GraphView,
+    reset_layout, DefaultEdgeShape, DefaultNodeShape, Graph, GraphView,
     SettingsInteraction, SettingsStyle,
 };
+use layout_circular::{LayoutCircular, LayoutStateCircular};
 use petgraph::Directed;
 use petgraph::graph::DefaultIx;
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
@@ -24,8 +27,8 @@ type MyGraphView<'a> = GraphView<
     DefaultIx,
     DefaultNodeShape,
     DefaultEdgeShape,
-    egui_graphs::LayoutStateRandom,
-    egui_graphs::LayoutRandom,
+    LayoutStateCircular,
+    LayoutCircular,
 >;
 
 #[derive(Clone)]
@@ -59,6 +62,7 @@ fn main() -> eframe::Result<()> {
                 dragging_from: None,
                 drag_started: false,
                 show_labels: true,
+                layout_reset_needed: false,
             }))
         }),
     )
@@ -119,6 +123,7 @@ struct GraphEditor {
     dragging_from: Option<(NodeIndex, egui::Pos2)>,
     drag_started: bool,
     show_labels: bool,
+    layout_reset_needed: bool,
 }
 
 impl GraphEditor {
@@ -154,12 +159,11 @@ impl GraphEditor {
         (incoming, outgoing)
     }
 
-    // Returns interaction settings based on current mode: node
-    // dragging in NodeEditor, edge clicking in EdgeEditor
+    // Returns interaction settings based on current mode
     fn get_settings_interaction(&self) -> SettingsInteraction {
         match self.mode {
             EditMode::NodeEditor => SettingsInteraction::new()
-                .with_dragging_enabled(true)
+                .with_dragging_enabled(false)
                 .with_node_clicking_enabled(true)
                 .with_node_selection_enabled(true)
                 .with_edge_selection_enabled(true),
@@ -185,31 +189,24 @@ impl GraphEditor {
         pointer: &egui::PointerState,
     ) -> Option<(egui::Pos2, egui::Pos2)> {
         // Start potential drag from a node
-        if pointer.primary_pressed() {
-            if let Some(hovered) = self.g.hovered_node() {
-                if let Some(press_pos) = pointer.interact_pos() {
+        if pointer.primary_pressed()
+            && let Some(hovered) = self.g.hovered_node()
+                && let Some(press_pos) = pointer.interact_pos() {
                     self.dragging_from = Some((hovered, press_pos));
                     self.drag_started = false;
                 }
-            }
-        }
 
         // Detect if mouse has moved (drag started)
-        if pointer.primary_down() && self.dragging_from.is_some() {
-            if pointer.delta().length() > DRAG_THRESHOLD {
+        if pointer.primary_down() && self.dragging_from.is_some()
+            && pointer.delta().length() > DRAG_THRESHOLD {
                 self.drag_started = true;
             }
-        }
 
         // Determine if preview arrow should be drawn
         let arrow_coords = if self.drag_started {
             if let Some((_src_idx, from_pos)) = self.dragging_from
             {
-                if let Some(to_pos) = pointer.hover_pos() {
-                    Some((from_pos, to_pos))
-                } else {
-                    None
-                }
+                pointer.hover_pos().map(|to_pos| (from_pos, to_pos))
             } else {
                 None
             }
@@ -219,12 +216,11 @@ impl GraphEditor {
 
         // Handle mouse release - create edge if dragged
         if pointer.primary_released() {
-            if let Some((source_node, _pos)) = self.dragging_from {
-                if self.drag_started {
+            if let Some((source_node, _pos)) = self.dragging_from
+                && self.drag_started {
                     // Drag completed - create edge if hovering different node
                     if let Some(target_node) = self.g.hovered_node()
-                    {
-                        if source_node != target_node {
+                        && source_node != target_node {
                             let edge_idx = self.g.add_edge(
                                 source_node,
                                 target_node,
@@ -233,9 +229,7 @@ impl GraphEditor {
                             // Clear edge label to hide it
                             clear_edge_label(&mut self.g, edge_idx);
                         }
-                    }
                 }
-            }
             self.dragging_from = None;
             self.drag_started = false;
         }
@@ -300,6 +294,7 @@ impl eframe::App for GraphEditor {
                 let default_name =
                     format!("Node {}", node_idx.index());
                 set_node_name(&mut self.g, node_idx, default_name);
+                self.layout_reset_needed = true;
             }
 
             ui.label(format!("Nodes: {}", self.g.node_count()));
@@ -357,9 +352,11 @@ impl eframe::App for GraphEditor {
                                 node_idx,
                                 node_name,
                             );
+                            self.layout_reset_needed = true;
                         }
                         if ui.button("🗑").clicked() {
                             self.g.remove_node(node_idx);
+                            self.layout_reset_needed = true;
                         }
                     });
 
@@ -420,6 +417,12 @@ impl eframe::App for GraphEditor {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            // Reset layout if needed
+            if self.layout_reset_needed {
+                reset_layout::<LayoutStateCircular>(ui, None);
+                self.layout_reset_needed = false;
+            }
+
             // Clear edge selections when not in EdgeEditor mode,
             // before creating GraphView
             if self.mode == EditMode::NodeEditor {

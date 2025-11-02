@@ -2493,6 +2493,7 @@ dependencies = [
  "egui_plot",
  "petgraph",
  "rand",
+ "serde",
 ]
 
 [[package]]
