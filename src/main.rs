@@ -5,7 +5,7 @@ use egui_graphs::{
     reset_layout, DefaultEdgeShape, DefaultNodeShape, Graph, GraphView,
     SettingsInteraction, SettingsStyle,
 };
-use layout_circular::{LayoutCircular, LayoutStateCircular};
+use layout_circular::{LayoutCircular, LayoutStateCircular, SortOrder, SpacingConfig};
 use petgraph::Directed;
 use petgraph::graph::DefaultIx;
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
@@ -35,6 +35,58 @@ type MyGraphView<'a> = GraphView<
 struct NodeData {
     name: String,
 }
+
+// ------------------------------------------------------------------
+// Layout Configuration - Customize circular layout behavior here
+// ------------------------------------------------------------------
+
+/// Example: Default configuration (alphabetical sorting, auto-scaling radius)
+#[allow(dead_code)]
+fn default_layout_config() -> LayoutCircular {
+    LayoutCircular::default()
+}
+
+/// Example: Reverse alphabetical sorting
+#[allow(dead_code)]
+fn reverse_alphabetical_config() -> LayoutCircular {
+    LayoutCircular::default()
+        .with_sort_order(SortOrder::ReverseAlphabetical)
+}
+
+/// Example: No sorting (preserve insertion order)
+#[allow(dead_code)]
+fn no_sort_config() -> LayoutCircular {
+    LayoutCircular::default()
+        .without_sorting()
+}
+
+/// Example: Custom spacing - larger circle
+#[allow(dead_code)]
+fn large_circle_config() -> LayoutCircular {
+    LayoutCircular::default()
+        .with_spacing(SpacingConfig::default().with_fixed_radius(300.0))
+}
+
+/// Example: Custom spacing - tighter packing
+#[allow(dead_code)]
+fn tight_packing_config() -> LayoutCircular {
+    LayoutCircular::default()
+        .with_spacing(
+            SpacingConfig::default()
+                .with_base_radius(30.0)
+                .with_radius_per_node(3.0)
+        )
+}
+
+/// Example: Combined configuration - reverse sort with large circle
+#[allow(dead_code)]
+fn combined_config() -> LayoutCircular {
+    LayoutCircular::default()
+        .with_sort_order(SortOrder::ReverseAlphabetical)
+        .with_spacing(SpacingConfig::default().with_fixed_radius(250.0))
+}
+
+// ------------------------------------------------------------------
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions::default();

@@ -12,14 +12,108 @@ pub struct LayoutStateCircular {
 
 impl LayoutState for LayoutStateCircular {}
 
-#[derive(Debug, Default)]
+/// Configuration for spacing/radius of the circular layout
+#[derive(Debug, Clone)]
+pub struct SpacingConfig {
+    /// Base radius when there are few nodes
+    pub base_radius: f32,
+    /// Additional radius per node (for auto-scaling)
+    pub radius_per_node: f32,
+    /// If set, overrides the auto-calculated radius
+    pub fixed_radius: Option<f32>,
+}
+
+impl Default for SpacingConfig {
+    fn default() -> Self {
+        Self {
+            base_radius: 50.0,
+            radius_per_node: 5.0,
+            fixed_radius: None,
+        }
+    }
+}
+
+impl SpacingConfig {
+    pub fn with_base_radius(mut self, base: f32) -> Self {
+        self.base_radius = base;
+        self
+    }
+
+    pub fn with_radius_per_node(mut self, per_node: f32) -> Self {
+        self.radius_per_node = per_node;
+        self
+    }
+
+    pub fn with_fixed_radius(mut self, radius: f32) -> Self {
+        self.fixed_radius = Some(radius);
+        self
+    }
+}
+
+/// Sort order for circular layout nodes
+#[derive(Debug, Clone)]
+pub enum SortOrder {
+    /// Alphabetical by label (ascending)
+    Alphabetical,
+    /// Reverse alphabetical by label (descending)
+    ReverseAlphabetical,
+    /// No sorting - preserve insertion order
+    None,
+}
+
+impl Default for SortOrder {
+    fn default() -> Self {
+        SortOrder::Alphabetical
+    }
+}
+
+/// Circular layout with configurable sorting and spacing
+#[derive(Debug, Clone)]
 pub struct LayoutCircular {
     state: LayoutStateCircular,
+    sort_order: SortOrder,
+    spacing: SpacingConfig,
+}
+
+impl Default for LayoutCircular {
+    fn default() -> Self {
+        Self {
+            state: LayoutStateCircular::default(),
+            sort_order: SortOrder::default(),
+            spacing: SpacingConfig::default(),
+        }
+    }
+}
+
+impl LayoutCircular {
+    #[allow(dead_code)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_sort_order(mut self, sort_order: SortOrder) -> Self {
+        self.sort_order = sort_order;
+        self
+    }
+
+    pub fn without_sorting(mut self) -> Self {
+        self.sort_order = SortOrder::None;
+        self
+    }
+
+    pub fn with_spacing(mut self, spacing: SpacingConfig) -> Self {
+        self.spacing = spacing;
+        self
+    }
 }
 
 impl Layout<LayoutStateCircular> for LayoutCircular {
     fn from_state(state: LayoutStateCircular) -> impl Layout<LayoutStateCircular> {
-        Self { state }
+        Self {
+            state,
+            sort_order: SortOrder::default(),
+            spacing: SpacingConfig::default(),
+        }
     }
 
     fn next<N, E, Ty, Ix, Dn, De>(
@@ -46,8 +140,18 @@ impl Layout<LayoutStateCircular> for LayoutCircular {
             .map(|(idx, node)| (idx, node.label().to_string()))
             .collect();
 
-        // Sort alphabetically by label
-        nodes.sort_by(|a, b| a.1.cmp(&b.1));
+        // Sort according to the configured sort order
+        match self.sort_order {
+            SortOrder::Alphabetical => {
+                nodes.sort_by(|a, b| a.1.cmp(&b.1));
+            }
+            SortOrder::ReverseAlphabetical => {
+                nodes.sort_by(|a, b| b.1.cmp(&a.1));
+            }
+            SortOrder::None => {
+                // Keep insertion order - no sorting
+            }
+        }
 
         let node_count = nodes.len();
         if node_count == 0 {
@@ -59,11 +163,12 @@ impl Layout<LayoutStateCircular> for LayoutCircular {
         let center_x = rect.center().x;
         let center_y = rect.center().y;
 
-        // Calculate radius proportional to number of nodes
-        // Base radius + scaling factor per node
-        let base_radius = 50.0;
-        let radius_per_node = 5.0;
-        let radius = base_radius + (node_count as f32) * radius_per_node;
+        // Calculate radius using configuration
+        let radius = if let Some(fixed) = self.spacing.fixed_radius {
+            fixed
+        } else {
+            self.spacing.base_radius + (node_count as f32) * self.spacing.radius_per_node
+        };
 
         // Place nodes in a circle
         for (i, (node_idx, _label)) in nodes.iter().enumerate() {
