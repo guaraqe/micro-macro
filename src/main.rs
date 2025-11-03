@@ -1,6 +1,8 @@
 mod layout_circular;
+mod heatmap;
 
 use eframe::egui;
+use heatmap::Heatmap;
 use egui_graphs::{
     reset_layout, DefaultEdgeShape, DefaultNodeShape, Graph, GraphView,
     SettingsInteraction, SettingsStyle,
@@ -10,14 +12,11 @@ use petgraph::Directed;
 use petgraph::graph::DefaultIx;
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
 use petgraph::visit::EdgeRef;
-use std::time::Duration;
-
 // UI Constants
 const DRAG_THRESHOLD: f32 = 2.0;
 const EDGE_PREVIEW_STROKE_WIDTH: f32 = 2.0;
 const EDGE_PREVIEW_COLOR: egui::Color32 =
     egui::Color32::from_rgb(100, 100, 255);
-const REPAINT_INTERVAL_MS: u64 = 16; // ~60 FPS
 
 type MyGraphView<'a> = GraphView<
     'a,
@@ -181,6 +180,50 @@ struct GraphEditor {
 }
 
 impl GraphEditor {
+    // Build adjacency matrix and sorted node labels for heatmap
+    fn build_heatmap_data(&self) -> (Vec<String>, Vec<String>, Vec<Vec<bool>>) {
+        // Get all nodes with their labels
+        let mut nodes: Vec<_> = self
+            .g
+            .nodes_iter()
+            .map(|(idx, node)| (idx, node.payload().name.clone()))
+            .collect();
+
+        // Sort alphabetically by label
+        nodes.sort_by(|a, b| a.1.cmp(&b.1));
+
+        if nodes.is_empty() {
+            return (vec![], vec![], vec![]);
+        }
+
+        let labels: Vec<String> = nodes.iter().map(|(_, name)| name.clone()).collect();
+        let node_count = labels.len();
+
+        // Build index map: NodeIndex -> position in sorted list
+        let mut index_map = std::collections::HashMap::new();
+        for (pos, (idx, _)) in nodes.iter().enumerate() {
+            index_map.insert(*idx, pos);
+        }
+
+        // Build adjacency matrix: matrix[y][x] = true if edge from x to y
+        let mut matrix = vec![vec![false; node_count]; node_count];
+
+        // Iterate over all edges in the graph
+        for (node_idx, _) in nodes.iter() {
+            for edge_ref in self.g.edges_directed(*node_idx, petgraph::Direction::Outgoing) {
+                let source_idx = edge_ref.source();
+                let target_idx = edge_ref.target();
+
+                if let (Some(&x_pos), Some(&y_pos)) =
+                    (index_map.get(&source_idx), index_map.get(&target_idx)) {
+                    matrix[y_pos][x_pos] = true;
+                }
+            }
+        }
+
+        (labels.clone(), labels, matrix)
+    }
+
     // Returns (incoming_nodes, outgoing_nodes) for a given node
     fn get_node_connections(
         &self,
@@ -336,8 +379,6 @@ impl eframe::App for GraphEditor {
         ctx: &egui::Context,
         _frame: &mut eframe::Frame,
     ) {
-        let elapsed_time = ctx.input(|i| i.time) as f32;
-
         // Detect Ctrl key to switch modes
         let ctrl_pressed = ctx.input(|i| i.modifiers.ctrl);
         self.mode = if ctrl_pressed {
@@ -354,193 +395,261 @@ impl eframe::App for GraphEditor {
             self.g.set_selected_edges(Vec::new());
         }
 
-        egui::SidePanel::left("left_panel").show(ctx, |ui| {
-            ui.heading("Nodes");
+        // Calculate exact 1/3 split for all three panels
+        let available_width = ctx.available_rect().width();
+        let panel_width = available_width / 3.0;
 
-            if ui.button("Add Node").clicked() {
-                let node_idx = self.g.add_node(NodeData {
-                    name: String::new(),
-                });
-                let default_name =
-                    format!("Node {}", node_idx.index());
-                set_node_name(&mut self.g, node_idx, default_name);
-                // Set size to 75% of default
-                if let Some(node) = self.g.node_mut(node_idx) {
-                    node.display_mut().radius *= 0.75;
+        egui::SidePanel::left("left_panel")
+            .exact_width(panel_width)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
+            .show(ctx, |ui| {
+            ui.vertical(|ui| {
+                // Panel name
+                ui.heading("Nodes");
+                ui.separator();
+
+                // Controls
+                if ui.button("Add Node").clicked() {
+                    let node_idx = self.g.add_node(NodeData {
+                        name: String::new(),
+                    });
+                    let default_name =
+                        format!("Node {}", node_idx.index());
+                    set_node_name(&mut self.g, node_idx, default_name);
+                    // Set size to 75% of default
+                    if let Some(node) = self.g.node_mut(node_idx) {
+                        node.display_mut().radius *= 0.75;
+                    }
+                    self.layout_reset_needed = true;
                 }
-                self.layout_reset_needed = true;
-            }
 
-            ui.label(format!("Nodes: {}", self.g.node_count()));
+                ui.separator();
 
-            ui.checkbox(&mut self.show_labels, "Show Labels");
-
-            ui.separator();
-
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                let nodes: Vec<_> = self
-                    .g
-                    .nodes_iter()
-                    .map(|(idx, node)| {
-                        (idx, node.payload().name.clone())
-                    })
-                    .collect();
-
-                for (node_idx, mut node_name) in nodes {
-                    let is_selected = self
+                // Contents - node list
+                let available_height = ui.available_height() - 40.0; // Reserve space for bottom metadata
+                egui::ScrollArea::vertical()
+                    .max_height(available_height)
+                    .show(ui, |ui| {
+                    let nodes: Vec<_> = self
                         .g
-                        .node(node_idx)
-                        .map(|n| n.selected())
-                        .unwrap_or(false);
+                        .nodes_iter()
+                        .map(|(idx, node)| {
+                            (idx, node.payload().name.clone())
+                        })
+                        .collect();
 
-                    ui.horizontal(|ui| {
-                        // Collapsible arrow button
-                        let arrow = if is_selected { "▼" } else { "▶" };
-                        if ui.small_button(arrow).clicked() {
-                            // Toggle selection
-                            if is_selected {
-                                // Deselect this node
-                                if let Some(node) = self.g.node_mut(node_idx) {
-                                    node.set_selected(false);
-                                }
-                            } else {
-                                // Deselect all other nodes first
-                                let all_nodes: Vec<_> = self.g.nodes_iter().map(|(idx, _)| idx).collect();
-                                for idx in all_nodes {
-                                    if let Some(node) = self.g.node_mut(idx) {
+                    for (node_idx, mut node_name) in nodes {
+                        let is_selected = self
+                            .g
+                            .node(node_idx)
+                            .map(|n| n.selected())
+                            .unwrap_or(false);
+
+                        ui.horizontal(|ui| {
+                            // Collapsible arrow button
+                            let arrow = if is_selected { "▼" } else { "▶" };
+                            if ui.small_button(arrow).clicked() {
+                                // Toggle selection
+                                if is_selected {
+                                    // Deselect this node
+                                    if let Some(node) = self.g.node_mut(node_idx) {
                                         node.set_selected(false);
                                     }
-                                }
-                                // Select this node
-                                if let Some(node) = self.g.node_mut(node_idx) {
-                                    node.set_selected(true);
+                                } else {
+                                    // Deselect all other nodes first
+                                    let all_nodes: Vec<_> = self.g.nodes_iter().map(|(idx, _)| idx).collect();
+                                    for idx in all_nodes {
+                                        if let Some(node) = self.g.node_mut(idx) {
+                                            node.set_selected(false);
+                                        }
+                                    }
+                                    // Select this node
+                                    if let Some(node) = self.g.node_mut(node_idx) {
+                                        node.set_selected(true);
+                                    }
                                 }
                             }
-                        }
 
-                        let response =
-                            ui.text_edit_singleline(&mut node_name);
-                        if response.changed() {
-                            set_node_name(
-                                &mut self.g,
-                                node_idx,
-                                node_name,
-                            );
-                            self.layout_reset_needed = true;
-                        }
-                        if ui.button("🗑").clicked() {
-                            self.g.remove_node(node_idx);
-                            self.layout_reset_needed = true;
-                        }
-                    });
-
-                    // Only show connection info if this node is selected
-                    if is_selected {
-
-                        let (incoming, outgoing) =
-                            self.get_node_connections(node_idx);
-
-                        ui.label(format!(
-                            "Incoming ({}):",
-                            incoming.len()
-                        ));
-                        if incoming.is_empty() {
-                            ui.label("  None");
-                        } else {
-                            for name in incoming {
-                                ui.label(format!("  ← {}", name));
+                            let response =
+                                ui.text_edit_singleline(&mut node_name);
+                            if response.changed() {
+                                set_node_name(
+                                    &mut self.g,
+                                    node_idx,
+                                    node_name,
+                                );
+                                self.layout_reset_needed = true;
                             }
-                        }
+                            if ui.button("🗑").clicked() {
+                                self.g.remove_node(node_idx);
+                                self.layout_reset_needed = true;
+                            }
+                        });
 
-                        ui.label(format!(
-                            "Outgoing ({}):",
-                            outgoing.len()
-                        ));
-                        if outgoing.is_empty() {
-                            ui.label("  None");
-                        } else {
-                            for name in outgoing {
-                                ui.label(format!("  → {}", name));
+                        // Only show connection info if this node is selected
+                        if is_selected {
+
+                            let (incoming, outgoing) =
+                                self.get_node_connections(node_idx);
+
+                            ui.label(format!(
+                                "Incoming ({}):",
+                                incoming.len()
+                            ));
+                            if incoming.is_empty() {
+                                ui.label("  None");
+                            } else {
+                                for name in incoming {
+                                    ui.label(format!("  ← {}", name));
+                                }
+                            }
+
+                            ui.label(format!(
+                                "Outgoing ({}):",
+                                outgoing.len()
+                            ));
+                            if outgoing.is_empty() {
+                                ui.label("  None");
+                            } else {
+                                for name in outgoing {
+                                    ui.label(format!("  → {}", name));
+                                }
                             }
                         }
                     }
-                }
+                });
+
+                // Metadata at bottom
+                ui.with_layout(
+                    egui::Layout::bottom_up(egui::Align::LEFT),
+                    |ui| {
+                        ui.label(format!("Nodes: {}", self.g.node_count()));
+                        ui.separator();
+                    },
+                );
+            });
+        });
+
+        // Right panel for heatmap (1/3 width)
+        egui::SidePanel::right("right_panel")
+            .exact_width(panel_width)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    // Panel name
+                    ui.heading("Heatmap");
+                    ui.separator();
+
+                    // Contents - heatmap
+                    let available_height = ui.available_height() - 40.0; // Reserve space for bottom metadata
+                    ui.allocate_ui_with_layout(
+                        egui::Vec2::new(ui.available_width(), available_height),
+                        egui::Layout::top_down(egui::Align::Center),
+                        |ui| {
+                            // Build heatmap data
+                            let (x_labels, y_labels, matrix) = self.build_heatmap_data();
+
+                            // Create and display heatmap
+                            let mut heatmap = Heatmap::new(x_labels, y_labels, matrix);
+                            heatmap.show(ui);
+                        },
+                    );
+
+                    // Metadata at bottom
+                    ui.with_layout(
+                        egui::Layout::bottom_up(egui::Align::LEFT),
+                        |ui| {
+                            ui.label(format!("Edges: {}", self.g.edge_count()));
+                            ui.separator();
+                        },
+                    );
+                });
             });
 
-            ui.with_layout(
-                egui::Layout::bottom_up(egui::Align::LEFT),
-                |ui| {
-                    ui.label(format!("Time: {:.1} s", elapsed_time));
-                    ui.separator();
+        egui::CentralPanel::default()
+            .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(8.0))
+            .show(ctx, |ui| {
+            ui.vertical(|ui| {
+                // Heading at the top
+                ui.heading("Graph");
+                ui.separator();
 
-                    let (mode_text, hint_text) = match self.mode {
-                        EditMode::NodeEditor => (
-                            "Mode: Node Editor",
-                            "Hold Ctrl for Edge Editor",
-                        ),
-                        EditMode::EdgeEditor => (
-                            "Mode: Edge Editor",
-                            "Release Ctrl for Node Editor",
-                        ),
-                    };
-                    ui.label(mode_text);
-                    ui.label(hint_text);
-                    ui.separator();
-                },
-            );
-        });
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // Reset layout if needed
-            if self.layout_reset_needed {
-                reset_layout::<LayoutStateCircular>(ui, None);
-                self.layout_reset_needed = false;
-            }
-
-            // Clear edge selections when not in EdgeEditor mode,
-            // before creating GraphView
-            if self.mode == EditMode::NodeEditor {
-                self.g.set_selected_edges(Vec::new());
-            }
-
-            let settings_interaction = self.get_settings_interaction();
-            let settings_style = self.get_settings_style();
-
-            ui.add(
-                &mut MyGraphView::new(&mut self.g)
-                    .with_interactions(&settings_interaction)
-                    .with_styles(&settings_style),
-            );
-
-            // Edge editing functionality (only in Edge Editor mode)
-            if self.mode == EditMode::EdgeEditor {
-                let pointer = ui.input(|i| i.pointer.clone());
-
-                // Handle edge creation and draw preview line if needed
-                if let Some((from_pos, to_pos)) =
-                    self.handle_edge_creation(&pointer)
-                {
-                    ui.painter().line_segment(
-                        [from_pos, to_pos],
-                        egui::Stroke::new(
-                            EDGE_PREVIEW_STROKE_WIDTH,
-                            EDGE_PREVIEW_COLOR,
-                        ),
-                    );
+                // Reset layout if needed
+                if self.layout_reset_needed {
+                    reset_layout::<LayoutStateCircular>(ui, None);
+                    self.layout_reset_needed = false;
                 }
 
-                self.handle_edge_deletion(&pointer);
-            } else {
-                // Reset dragging state and clear selections when not in Edge Editor mode
-                self.dragging_from = None;
-                self.drag_started = false;
-                self.g.set_selected_edges(Vec::new());
-            }
-        });
+                // Clear edge selections when not in EdgeEditor mode,
+                // before creating GraphView
+                if self.mode == EditMode::NodeEditor {
+                    self.g.set_selected_edges(Vec::new());
+                }
 
-        ctx.request_repaint_after(Duration::from_millis(
-            REPAINT_INTERVAL_MS,
-        ));
+                let settings_interaction = self.get_settings_interaction();
+                let settings_style = self.get_settings_style();
+
+                // Allocate remaining space for the graph
+                let available_height = ui.available_height() - 60.0; // Reserve space for bottom instructions
+                ui.allocate_ui_with_layout(
+                    egui::Vec2::new(ui.available_width(), available_height),
+                    egui::Layout::top_down(egui::Align::Center),
+                    |ui| {
+                        ui.add(
+                            &mut MyGraphView::new(&mut self.g)
+                                .with_interactions(&settings_interaction)
+                                .with_styles(&settings_style),
+                        );
+
+                        // Edge editing functionality (only in Edge Editor mode)
+                        if self.mode == EditMode::EdgeEditor {
+                            let pointer = ui.input(|i| i.pointer.clone());
+
+                            // Handle edge creation and draw preview line if needed
+                            if let Some((from_pos, to_pos)) =
+                                self.handle_edge_creation(&pointer)
+                            {
+                                ui.painter().line_segment(
+                                    [from_pos, to_pos],
+                                    egui::Stroke::new(
+                                        EDGE_PREVIEW_STROKE_WIDTH,
+                                        EDGE_PREVIEW_COLOR,
+                                    ),
+                                );
+                            }
+
+                            self.handle_edge_deletion(&pointer);
+                        } else {
+                            // Reset dragging state and clear selections when not in Edge Editor mode
+                            self.dragging_from = None;
+                            self.drag_started = false;
+                            self.g.set_selected_edges(Vec::new());
+                        }
+                    },
+                );
+
+                // Controls and metadata at the bottom
+                ui.with_layout(
+                    egui::Layout::bottom_up(egui::Align::LEFT),
+                    |ui| {
+                        let (mode_text, hint_text) = match self.mode {
+                            EditMode::NodeEditor => (
+                                "Mode: Node Editor",
+                                "Hold Ctrl for Edge Editor",
+                            ),
+                            EditMode::EdgeEditor => (
+                                "Mode: Edge Editor",
+                                "Release Ctrl for Node Editor",
+                            ),
+                        };
+                        ui.label(hint_text);
+                        ui.label(mode_text);
+                        ui.separator();
+                        ui.checkbox(&mut self.show_labels, "Show Labels");
+                    },
+                );
+            });
+        });
 
         // Update previous mode for next frame
         self.prev_mode = self.mode;
