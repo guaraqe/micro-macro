@@ -2,7 +2,6 @@ mod layout_circular;
 mod heatmap;
 
 use eframe::egui;
-use heatmap::Heatmap;
 use egui_graphs::{
     reset_layout, DefaultEdgeShape, DefaultNodeShape, Graph, GraphView,
     SettingsInteraction, SettingsStyle,
@@ -116,6 +115,7 @@ fn main() -> eframe::Result<()> {
                 drag_started: false,
                 show_labels: true,
                 layout_reset_needed: false,
+                heatmap_hovered_cell: None,
             }))
         }),
     )
@@ -177,6 +177,7 @@ struct GraphEditor {
     drag_started: bool,
     show_labels: bool,
     layout_reset_needed: bool,
+    heatmap_hovered_cell: Option<(usize, usize)>,
 }
 
 impl GraphEditor {
@@ -423,8 +424,6 @@ impl eframe::App for GraphEditor {
                     self.layout_reset_needed = true;
                 }
 
-                ui.separator();
-
                 // Contents - node list
                 let available_height = ui.available_height() - 40.0; // Reserve space for bottom metadata
                 egui::ScrollArea::vertical()
@@ -549,9 +548,14 @@ impl eframe::App for GraphEditor {
                             // Build heatmap data
                             let (x_labels, y_labels, matrix) = self.build_heatmap_data();
 
-                            // Create and display heatmap
-                            let mut heatmap = Heatmap::new(x_labels, y_labels, matrix);
-                            heatmap.show(ui);
+                            // Display heatmap and get new hover state
+                            self.heatmap_hovered_cell = heatmap::show_heatmap(
+                                ui,
+                                &x_labels,
+                                &y_labels,
+                                &matrix,
+                                self.heatmap_hovered_cell,
+                            );
                         },
                     );
 
@@ -644,8 +648,8 @@ impl eframe::App for GraphEditor {
                         };
                         ui.label(hint_text);
                         ui.label(mode_text);
-                        ui.separator();
                         ui.checkbox(&mut self.show_labels, "Show Labels");
+                        ui.separator();
                     },
                 );
             });
