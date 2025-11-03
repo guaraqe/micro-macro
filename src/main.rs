@@ -43,12 +43,14 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|_cc| {
             let g = generate_graph();
-            let mut graph = Graph::from(&g);
-            // Set labels for all nodes
+            let mut graph: Graph<NodeData, (), Directed, DefaultIx, DefaultNodeShape, DefaultEdgeShape> = Graph::from(&g);
+            // Set labels and size for all nodes
             for (idx, node) in g.node_indices().zip(g.node_weights())
             {
                 if let Some(graph_node) = graph.node_mut(idx) {
                     graph_node.set_label(node.name.clone());
+                    // Reduce node size to 75% of default
+                    graph_node.display_mut().radius *= 0.75;
                 }
             }
             // Clear labels for all edges
@@ -178,7 +180,23 @@ impl GraphEditor {
     // Returns style settings: controls whether node labels are
     // always visible
     fn get_settings_style(&self) -> SettingsStyle {
-        SettingsStyle::new().with_labels_always(self.show_labels)
+        SettingsStyle::new()
+            .with_labels_always(self.show_labels)
+            .with_node_stroke_hook(|selected, _dragged, _node_color, _current_stroke, _style| {
+                if selected {
+                    // Elegant blood red for selected nodes
+                    egui::Stroke::new(4.0, egui::Color32::from_rgb(180, 50, 60))
+                } else {
+                    egui::Stroke::new(2.0, egui::Color32::from_rgb(180, 180, 180))
+                }
+            })
+            .with_edge_stroke_hook(|selected, _order, _current_stroke, _style| {
+                if selected {
+                    egui::Stroke::new(2.0, egui::Color32::from_rgb(120, 120, 120))
+                } else {
+                    egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 80))
+                }
+            })
     }
 
     // Drag-to-create edge workflow: click on source node, drag
@@ -294,6 +312,10 @@ impl eframe::App for GraphEditor {
                 let default_name =
                     format!("Node {}", node_idx.index());
                 set_node_name(&mut self.g, node_idx, default_name);
+                // Set size to 75% of default
+                if let Some(node) = self.g.node_mut(node_idx) {
+                    node.display_mut().radius *= 0.75;
+                }
                 self.layout_reset_needed = true;
             }
 
