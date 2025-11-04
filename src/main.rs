@@ -685,14 +685,12 @@ impl GraphEditor {
 
         // Update names of Source nodes (in case of renames)
         for (_, dyn_name) in &dyn_nodes {
-            if let Some(&source_idx) = source_map.get(dyn_name) {
-                if let Some(source_node) = self.mapping_g.node_mut(source_idx) {
-                    if source_node.payload().name != *dyn_name {
+            if let Some(&source_idx) = source_map.get(dyn_name)
+                && let Some(source_node) = self.mapping_g.node_mut(source_idx)
+                    && source_node.payload().name != *dyn_name {
                         source_node.payload_mut().name = dyn_name.clone();
                         source_node.set_label(dyn_name.clone());
                     }
-                }
-            }
         }
     }
 
@@ -1033,12 +1031,11 @@ impl GraphEditor {
                                     }
 
                                     let response = ui.text_edit_singleline(&mut node_name);
-                                    if response.changed() {
-                                        if let Some(node) = self.mapping_g.node_mut(node_idx) {
+                                    if response.changed()
+                                        && let Some(node) = self.mapping_g.node_mut(node_idx) {
                                             node.payload_mut().name = node_name.clone();
                                             node.set_label(node_name);
                                         }
-                                    }
                                     if ui.button("🗑").clicked() {
                                         self.mapping_g.remove_node(node_idx);
                                     }

@@ -38,19 +38,12 @@ impl Default for BipartiteSpacingConfig {
 
 /// Bipartite layout with Source nodes on left, Destination nodes on right
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct LayoutBipartite {
     state: LayoutStateBipartite,
     spacing: BipartiteSpacingConfig,
 }
 
-impl Default for LayoutBipartite {
-    fn default() -> Self {
-        Self {
-            state: LayoutStateBipartite::default(),
-            spacing: BipartiteSpacingConfig::default(),
-        }
-    }
-}
 
 impl LayoutBipartite {
     #[allow(dead_code)]
