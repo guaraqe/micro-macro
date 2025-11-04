@@ -1,4 +1,5 @@
 mod layout_circular;
+mod layout_bipartite;
 mod heatmap;
 
 use eframe::egui;
@@ -7,6 +8,7 @@ use egui_graphs::{
     SettingsInteraction, SettingsStyle,
 };
 use layout_circular::{LayoutCircular, LayoutStateCircular, SortOrder, SpacingConfig};
+use layout_bipartite::{LayoutBipartite, LayoutStateBipartite};
 use petgraph::Directed;
 use petgraph::graph::DefaultIx;
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
@@ -29,9 +31,33 @@ type MyGraphView<'a> = GraphView<
     LayoutCircular,
 >;
 
+type MappingGraphView<'a> = GraphView<
+    'a,
+    MappingNodeData,
+    (),
+    Directed,
+    DefaultIx,
+    DefaultNodeShape,
+    DefaultEdgeShape,
+    LayoutStateBipartite,
+    LayoutBipartite,
+>;
+
 #[derive(Clone)]
 struct NodeData {
     name: String,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum NodeType {
+    Source,
+    Destination,
+}
+
+#[derive(Clone)]
+struct MappingNodeData {
+    name: String,
+    node_type: NodeType,
 }
 
 // ------------------------------------------------------------------
@@ -107,22 +133,42 @@ fn main() -> eframe::Result<()> {
             for edge_idx in g.edge_indices() {
                 clear_edge_label(&mut graph, edge_idx);
             }
+
+            // Initialize mapping graph
+            let mg = generate_mapping_graph(&g);
+            let mut mapping_graph: Graph<MappingNodeData, (), Directed, DefaultIx, DefaultNodeShape, DefaultEdgeShape> = Graph::from(&mg);
+            // Set labels and size for all nodes
+            for (idx, node) in mg.node_indices().zip(mg.node_weights())
+            {
+                if let Some(graph_node) = mapping_graph.node_mut(idx) {
+                    graph_node.set_label(node.name.clone());
+                    graph_node.display_mut().radius *= 0.75;
+                }
+            }
+            // Clear labels for all edges
+            for edge_idx in mg.edge_indices() {
+                clear_edge_label(&mut mapping_graph, edge_idx);
+            }
+
             Ok(Box::new(GraphEditor {
                 g: graph,
+                mapping_g: mapping_graph,
                 mode: EditMode::NodeEditor,
                 prev_mode: EditMode::NodeEditor,
+                active_tab: ActiveTab::DynamicalSystem,
                 dragging_from: None,
                 drag_started: false,
                 show_labels: true,
                 layout_reset_needed: false,
+                mapping_layout_reset_needed: false,
                 heatmap_hovered_cell: None,
             }))
         }),
     )
 }
 
-fn clear_edge_label(
-    graph: &mut Graph<NodeData>,
+fn clear_edge_label<N: Clone>(
+    graph: &mut Graph<N>,
     edge_idx: EdgeIndex,
 ) {
     if let Some(edge) = graph.edge_mut(edge_idx) {
@@ -161,6 +207,30 @@ fn generate_graph() -> StableGraph<NodeData, ()> {
     g
 }
 
+fn generate_mapping_graph(source_graph: &StableGraph<NodeData, ()>) -> StableGraph<MappingNodeData, ()> {
+    let mut g = StableGraph::new();
+
+    // Add Source nodes mirroring the dynamical system
+    for node in source_graph.node_weights() {
+        g.add_node(MappingNodeData {
+            name: node.name.clone(),
+            node_type: NodeType::Source,
+        });
+    }
+
+    // Add two default Destination nodes
+    g.add_node(MappingNodeData {
+        name: String::from("Value 0"),
+        node_type: NodeType::Destination,
+    });
+    g.add_node(MappingNodeData {
+        name: String::from("Value 1"),
+        node_type: NodeType::Destination,
+    });
+
+    g
+}
+
 // ------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -169,14 +239,23 @@ enum EditMode {
     EdgeEditor,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ActiveTab {
+    DynamicalSystem,
+    ObservableEditor,
+}
+
 struct GraphEditor {
     g: Graph<NodeData>,
+    mapping_g: Graph<MappingNodeData>,
     mode: EditMode,
     prev_mode: EditMode,
+    active_tab: ActiveTab,
     dragging_from: Option<(NodeIndex, egui::Pos2)>,
     drag_started: bool,
     show_labels: bool,
     layout_reset_needed: bool,
+    mapping_layout_reset_needed: bool,
     heatmap_hovered_cell: Option<(usize, usize)>,
 }
 
@@ -372,6 +451,86 @@ impl GraphEditor {
             // selection automatically
         }
     }
+
+    // Edge creation for mapping graph with Source->Destination constraint
+    fn handle_mapping_edge_creation(
+        &mut self,
+        pointer: &egui::PointerState,
+    ) -> Option<(egui::Pos2, egui::Pos2)> {
+        // Start potential drag from a node
+        if pointer.primary_pressed()
+            && let Some(hovered) = self.mapping_g.hovered_node()
+                && let Some(press_pos) = pointer.interact_pos() {
+                    self.dragging_from = Some((hovered, press_pos));
+                    self.drag_started = false;
+                }
+
+        // Detect if mouse has moved (drag started)
+        if pointer.primary_down() && self.dragging_from.is_some()
+            && pointer.delta().length() > DRAG_THRESHOLD {
+                self.drag_started = true;
+            }
+
+        // Determine if preview arrow should be drawn
+        let arrow_coords = if self.drag_started {
+            if let Some((_src_idx, from_pos)) = self.dragging_from
+            {
+                pointer.hover_pos().map(|to_pos| (from_pos, to_pos))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Handle mouse release - create edge if dragged
+        if pointer.primary_released() {
+            if let Some((source_node, _pos)) = self.dragging_from
+                && self.drag_started {
+                    // Drag completed - create edge if hovering different node
+                    if let Some(target_node) = self.mapping_g.hovered_node()
+                        && source_node != target_node {
+                            // Check node types: only allow Source -> Destination
+                            let source_type = self.mapping_g.node(source_node)
+                                .map(|n| n.payload().node_type);
+                            let target_type = self.mapping_g.node(target_node)
+                                .map(|n| n.payload().node_type);
+
+                            if let (Some(NodeType::Source), Some(NodeType::Destination)) = (source_type, target_type) {
+                                let edge_idx = self.mapping_g.add_edge(
+                                    source_node,
+                                    target_node,
+                                    (),
+                                );
+                                // Clear edge label to hide it
+                                clear_edge_label(&mut self.mapping_g, edge_idx);
+                            }
+                            // Silently ignore invalid edge attempts (Dest->Source, Source->Source, Dest->Dest)
+                        }
+                }
+            self.dragging_from = None;
+            self.drag_started = false;
+        }
+
+        arrow_coords
+    }
+
+    // Edge deletion for mapping graph
+    fn handle_mapping_edge_deletion(
+        &mut self,
+        pointer: &egui::PointerState,
+    ) {
+        if pointer.primary_clicked() && self.dragging_from.is_none()
+        {
+            let selected_edges: Vec<_> =
+                self.mapping_g.selected_edges().to_vec();
+
+            if selected_edges.len() == 1 {
+                let clicked_edge = selected_edges[0];
+                self.mapping_g.remove_edge(clicked_edge);
+            }
+        }
+    }
 }
 
 impl eframe::App for GraphEditor {
@@ -380,6 +539,14 @@ impl eframe::App for GraphEditor {
         ctx: &egui::Context,
         _frame: &mut eframe::Frame,
     ) {
+        // Tab navigation at the top
+        egui::TopBottomPanel::top("tabs").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.active_tab, ActiveTab::DynamicalSystem, "Dynamical System");
+                ui.selectable_value(&mut self.active_tab, ActiveTab::ObservableEditor, "Observable Editor");
+            });
+        });
+
         // Detect Ctrl key to switch modes
         let ctrl_pressed = ctx.input(|i| i.modifiers.ctrl);
         self.mode = if ctrl_pressed {
@@ -396,6 +563,140 @@ impl eframe::App for GraphEditor {
             self.g.set_selected_edges(Vec::new());
         }
 
+        // Render the appropriate view based on active tab
+        match self.active_tab {
+            ActiveTab::DynamicalSystem => self.render_dynamical_system_tab(ctx),
+            ActiveTab::ObservableEditor => self.render_observable_editor_tab(ctx),
+        }
+
+        // Update previous mode for next frame
+        self.prev_mode = self.mode;
+    }
+}
+
+impl GraphEditor {
+    // Build heatmap data for mapping graph: Sources (x-axis), Destinations (y-axis)
+    fn build_mapping_heatmap_data(&self) -> (Vec<String>, Vec<String>, Vec<Vec<bool>>) {
+        // Get Source nodes (columns/x-axis)
+        let mut source_nodes: Vec<_> = self
+            .mapping_g
+            .nodes_iter()
+            .filter(|(_, node)| node.payload().node_type == NodeType::Source)
+            .map(|(idx, node)| (idx, node.payload().name.clone()))
+            .collect();
+
+        // Get Destination nodes (rows/y-axis)
+        let mut dest_nodes: Vec<_> = self
+            .mapping_g
+            .nodes_iter()
+            .filter(|(_, node)| node.payload().node_type == NodeType::Destination)
+            .map(|(idx, node)| (idx, node.payload().name.clone()))
+            .collect();
+
+        // Sort alphabetically
+        source_nodes.sort_by(|a, b| a.1.cmp(&b.1));
+        dest_nodes.sort_by(|a, b| a.1.cmp(&b.1));
+
+        if source_nodes.is_empty() || dest_nodes.is_empty() {
+            return (vec![], vec![], vec![]);
+        }
+
+        let x_labels: Vec<String> = source_nodes.iter().map(|(_, name)| name.clone()).collect();
+        let y_labels: Vec<String> = dest_nodes.iter().map(|(_, name)| name.clone()).collect();
+
+        // Build index maps
+        let mut source_index_map = std::collections::HashMap::new();
+        for (pos, (idx, _)) in source_nodes.iter().enumerate() {
+            source_index_map.insert(*idx, pos);
+        }
+
+        let mut dest_index_map = std::collections::HashMap::new();
+        for (pos, (idx, _)) in dest_nodes.iter().enumerate() {
+            dest_index_map.insert(*idx, pos);
+        }
+
+        // Build adjacency matrix: matrix[y][x] = true if edge from Source x to Destination y
+        let mut matrix = vec![vec![false; source_nodes.len()]; dest_nodes.len()];
+
+        // Iterate over all edges
+        for (source_idx, _) in source_nodes.iter() {
+            for edge_ref in self.mapping_g.edges_directed(*source_idx, petgraph::Direction::Outgoing) {
+                let src = edge_ref.source();
+                let tgt = edge_ref.target();
+
+                if let (Some(&x_pos), Some(&y_pos)) =
+                    (source_index_map.get(&src), dest_index_map.get(&tgt)) {
+                    matrix[y_pos][x_pos] = true;
+                }
+            }
+        }
+
+        (x_labels, y_labels, matrix)
+    }
+
+    // Synchronize mapping graph Source nodes with dynamical system nodes
+    fn sync_source_nodes(&mut self) {
+        // Get current dynamical system nodes
+        let dyn_nodes: Vec<(NodeIndex, String)> = self
+            .g
+            .nodes_iter()
+            .map(|(idx, node)| (idx, node.payload().name.clone()))
+            .collect();
+
+        // Get current Source nodes in mapping graph
+        let source_nodes: Vec<(NodeIndex, String)> = self
+            .mapping_g
+            .nodes_iter()
+            .filter(|(_, node)| node.payload().node_type == NodeType::Source)
+            .map(|(idx, node)| (idx, node.payload().name.clone()))
+            .collect();
+
+        // Build a map of Source nodes by name for quick lookup
+        let source_map: std::collections::HashMap<String, NodeIndex> = source_nodes
+            .iter()
+            .map(|(idx, name)| (name.clone(), *idx))
+            .collect();
+
+        // Add missing Source nodes
+        for (_, dyn_name) in &dyn_nodes {
+            if !source_map.contains_key(dyn_name) {
+                let new_idx = self.mapping_g.add_node(MappingNodeData {
+                    name: dyn_name.clone(),
+                    node_type: NodeType::Source,
+                });
+                if let Some(node) = self.mapping_g.node_mut(new_idx) {
+                    node.set_label(dyn_name.clone());
+                    node.display_mut().radius *= 0.75;
+                }
+            }
+        }
+
+        // Remove Source nodes that no longer exist in dynamical system
+        let dyn_names: std::collections::HashSet<String> = dyn_nodes
+            .iter()
+            .map(|(_, name)| name.clone())
+            .collect();
+
+        for (source_idx, source_name) in source_nodes {
+            if !dyn_names.contains(&source_name) {
+                self.mapping_g.remove_node(source_idx);
+            }
+        }
+
+        // Update names of Source nodes (in case of renames)
+        for (_, dyn_name) in &dyn_nodes {
+            if let Some(&source_idx) = source_map.get(dyn_name) {
+                if let Some(source_node) = self.mapping_g.node_mut(source_idx) {
+                    if source_node.payload().name != *dyn_name {
+                        source_node.payload_mut().name = dyn_name.clone();
+                        source_node.set_label(dyn_name.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    fn render_dynamical_system_tab(&mut self, ctx: &egui::Context) {
         // Calculate exact 1/3 split for all three panels
         let available_width = ctx.available_rect().width();
         let panel_width = available_width / 3.0;
@@ -422,6 +723,7 @@ impl eframe::App for GraphEditor {
                         node.display_mut().radius *= 0.75;
                     }
                     self.layout_reset_needed = true;
+                    self.sync_source_nodes();
                 }
 
                 // Contents - node list
@@ -478,10 +780,12 @@ impl eframe::App for GraphEditor {
                                     node_name,
                                 );
                                 self.layout_reset_needed = true;
+                                self.sync_source_nodes();
                             }
                             if ui.button("🗑").clicked() {
                                 self.g.remove_node(node_idx);
                                 self.layout_reset_needed = true;
+                                self.sync_source_nodes();
                             }
                         });
 
@@ -654,8 +958,256 @@ impl eframe::App for GraphEditor {
                 );
             });
         });
+    }
 
-        // Update previous mode for next frame
-        self.prev_mode = self.mode;
+    fn render_observable_editor_tab(&mut self, ctx: &egui::Context) {
+        // Calculate exact 1/3 split for all three panels
+        let available_width = ctx.available_rect().width();
+        let panel_width = available_width / 3.0;
+
+        // Left panel: Destination node management
+        egui::SidePanel::left("observable_left_panel")
+            .exact_width(panel_width)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    ui.heading("Observable Values");
+                    ui.separator();
+
+                    // Add Destination button
+                    if ui.button("Add Value").clicked() {
+                        let node_idx = self.mapping_g.add_node(MappingNodeData {
+                            name: String::new(),
+                            node_type: NodeType::Destination,
+                        });
+                        let default_name = format!("Value {}", node_idx.index());
+                        if let Some(node) = self.mapping_g.node_mut(node_idx) {
+                            node.payload_mut().name = default_name.clone();
+                            node.set_label(default_name);
+                            node.display_mut().radius *= 0.75;
+                        }
+                    }
+
+                    // Contents - Destination node list
+                    let available_height = ui.available_height() - 40.0;
+                    egui::ScrollArea::vertical()
+                        .max_height(available_height)
+                        .show(ui, |ui| {
+                            // Collect Destination nodes
+                            let dest_nodes: Vec<_> = self
+                                .mapping_g
+                                .nodes_iter()
+                                .filter(|(_, node)| node.payload().node_type == NodeType::Destination)
+                                .map(|(idx, node)| (idx, node.payload().name.clone()))
+                                .collect();
+
+                            for (node_idx, mut node_name) in dest_nodes {
+                                let is_selected = self
+                                    .mapping_g
+                                    .node(node_idx)
+                                    .map(|n| n.selected())
+                                    .unwrap_or(false);
+
+                                ui.horizontal(|ui| {
+                                    // Collapsible arrow button
+                                    let arrow = if is_selected { "▼" } else { "▶" };
+                                    if ui.small_button(arrow).clicked() {
+                                        // Toggle selection
+                                        if is_selected {
+                                            if let Some(node) = self.mapping_g.node_mut(node_idx) {
+                                                node.set_selected(false);
+                                            }
+                                        } else {
+                                            // Deselect all other nodes first
+                                            let all_nodes: Vec<_> = self.mapping_g.nodes_iter().map(|(idx, _)| idx).collect();
+                                            for idx in all_nodes {
+                                                if let Some(node) = self.mapping_g.node_mut(idx) {
+                                                    node.set_selected(false);
+                                                }
+                                            }
+                                            // Select this node
+                                            if let Some(node) = self.mapping_g.node_mut(node_idx) {
+                                                node.set_selected(true);
+                                            }
+                                        }
+                                    }
+
+                                    let response = ui.text_edit_singleline(&mut node_name);
+                                    if response.changed() {
+                                        if let Some(node) = self.mapping_g.node_mut(node_idx) {
+                                            node.payload_mut().name = node_name.clone();
+                                            node.set_label(node_name);
+                                        }
+                                    }
+                                    if ui.button("🗑").clicked() {
+                                        self.mapping_g.remove_node(node_idx);
+                                    }
+                                });
+
+                                // Show incoming Source nodes when selected
+                                if is_selected {
+                                    let incoming_sources: Vec<String> = self
+                                        .mapping_g
+                                        .edges_directed(node_idx, petgraph::Direction::Incoming)
+                                        .map(|edge_ref| {
+                                            let source_idx = edge_ref.source();
+                                            self.mapping_g
+                                                .node(source_idx)
+                                                .map(|n| n.payload().name.clone())
+                                                .unwrap_or_else(|| String::from("???"))
+                                        })
+                                        .collect();
+
+                                    ui.label(format!("Incoming ({}):", incoming_sources.len()));
+                                    if incoming_sources.is_empty() {
+                                        ui.label("  None");
+                                    } else {
+                                        for name in incoming_sources {
+                                            ui.label(format!("  ← {}", name));
+                                        }
+                                    }
+                                }
+                            }
+                        });
+
+                    // Metadata at bottom
+                    ui.with_layout(
+                        egui::Layout::bottom_up(egui::Align::LEFT),
+                        |ui| {
+                            let dest_count = self
+                                .mapping_g
+                                .nodes_iter()
+                                .filter(|(_, node)| node.payload().node_type == NodeType::Destination)
+                                .count();
+                            ui.label(format!("Values: {}", dest_count));
+                            ui.separator();
+                        },
+                    );
+                });
+            });
+
+        // Right panel: Heatmap
+        egui::SidePanel::right("observable_right_panel")
+            .exact_width(panel_width)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    ui.heading("Mapping Heatmap");
+                    ui.separator();
+
+                    // Contents - heatmap
+                    let available_height = ui.available_height() - 40.0;
+                    ui.allocate_ui_with_layout(
+                        egui::Vec2::new(ui.available_width(), available_height),
+                        egui::Layout::top_down(egui::Align::Center),
+                        |ui| {
+                            // Build heatmap data
+                            let (x_labels, y_labels, matrix) = self.build_mapping_heatmap_data();
+
+                            // Display heatmap
+                            self.heatmap_hovered_cell = heatmap::show_heatmap(
+                                ui,
+                                &x_labels,
+                                &y_labels,
+                                &matrix,
+                                self.heatmap_hovered_cell,
+                            );
+                        },
+                    );
+
+                    // Metadata at bottom
+                    ui.with_layout(
+                        egui::Layout::bottom_up(egui::Align::LEFT),
+                        |ui| {
+                            ui.label(format!("Mappings: {}", self.mapping_g.edge_count()));
+                            ui.separator();
+                        },
+                    );
+                });
+            });
+
+        // Center panel: Bipartite graph visualization
+        egui::CentralPanel::default()
+            .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(8.0))
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    ui.heading("Observable Mapping");
+                    ui.separator();
+
+                    // Reset layout if needed
+                    if self.mapping_layout_reset_needed {
+                        reset_layout::<LayoutStateBipartite>(ui, None);
+                        self.mapping_layout_reset_needed = false;
+                    }
+
+                    // Clear edge selections when not in EdgeEditor mode
+                    if self.mode == EditMode::NodeEditor {
+                        self.mapping_g.set_selected_edges(Vec::new());
+                    }
+
+                    let settings_interaction = self.get_settings_interaction();
+                    let settings_style = self.get_settings_style();
+
+                    // Allocate remaining space for the graph
+                    let available_height = ui.available_height() - 60.0;
+                    ui.allocate_ui_with_layout(
+                        egui::Vec2::new(ui.available_width(), available_height),
+                        egui::Layout::top_down(egui::Align::Center),
+                        |ui| {
+                            ui.add(
+                                &mut MappingGraphView::new(&mut self.mapping_g)
+                                    .with_interactions(&settings_interaction)
+                                    .with_styles(&settings_style),
+                            );
+
+                            // Edge editing functionality (only in Edge Editor mode)
+                            if self.mode == EditMode::EdgeEditor {
+                                let pointer = ui.input(|i| i.pointer.clone());
+
+                                // Handle edge creation and draw preview line if needed
+                                if let Some((from_pos, to_pos)) =
+                                    self.handle_mapping_edge_creation(&pointer)
+                                {
+                                    ui.painter().line_segment(
+                                        [from_pos, to_pos],
+                                        egui::Stroke::new(
+                                            EDGE_PREVIEW_STROKE_WIDTH,
+                                            EDGE_PREVIEW_COLOR,
+                                        ),
+                                    );
+                                }
+
+                                self.handle_mapping_edge_deletion(&pointer);
+                            } else {
+                                // Reset dragging state and clear selections when not in Edge Editor mode
+                                self.dragging_from = None;
+                                self.drag_started = false;
+                                self.mapping_g.set_selected_edges(Vec::new());
+                            }
+                        },
+                    );
+
+                    // Controls and metadata at the bottom
+                    ui.with_layout(
+                        egui::Layout::bottom_up(egui::Align::LEFT),
+                        |ui| {
+                            let (mode_text, hint_text) = match self.mode {
+                                EditMode::NodeEditor => (
+                                    "Mode: Node Editor",
+                                    "Hold Ctrl for Edge Editor",
+                                ),
+                                EditMode::EdgeEditor => (
+                                    "Mode: Edge Editor",
+                                    "Release Ctrl for Node Editor",
+                                ),
+                            };
+                            ui.label(hint_text);
+                            ui.label(mode_text);
+                            ui.checkbox(&mut self.show_labels, "Show Labels");
+                            ui.separator();
+                        },
+                    );
+                });
+            });
     }
 }
