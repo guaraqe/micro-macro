@@ -15,12 +15,8 @@ impl LayoutState for LayoutStateBipartite {}
 /// Configuration for spacing in the bipartite layout
 #[derive(Debug, Clone)]
 pub struct BipartiteSpacingConfig {
-    /// Horizontal spacing between the two columns
-    pub column_spacing: f32,
     /// Vertical spacing between nodes
     pub vertical_spacing: f32,
-    /// Left margin from the edge
-    pub left_margin: f32,
     /// Top margin from the edge
     pub top_margin: f32,
 }
@@ -28,9 +24,7 @@ pub struct BipartiteSpacingConfig {
 impl Default for BipartiteSpacingConfig {
     fn default() -> Self {
         Self {
-            column_spacing: 200.0,  // Base spacing, will be adjusted dynamically
             vertical_spacing: 60.0,
-            left_margin: 100.0,
             top_margin: 100.0,
         }
     }

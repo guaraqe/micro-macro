@@ -57,8 +57,7 @@ pub fn show_heatmap(
                 );
 
                 // Grid cells for this row
-                for x_idx in 0..x_labels.len() {
-                    let has_edge = matrix[y_idx][x_idx];
+                for (x_idx, &has_edge) in matrix[y_idx].iter().enumerate() {
 
                         let cell_color = if has_edge {
                             egui::Color32::from_rgb(200, 60, 70)
