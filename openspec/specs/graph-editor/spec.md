@@ -1,5 +1,8 @@
-## MODIFIED Requirements
+# graph-editor Specification
 
+## Purpose
+TBD - created by archiving change add-observable-definition. Update Purpose after archive.
+## Requirements
 ### Requirement: Application Tab Navigation
 
 The system SHALL provide tab navigation between Dynamical System and Observable Editor views.
@@ -22,8 +25,6 @@ The system SHALL provide tab navigation between Dynamical System and Observable 
 - **THEN** the Dynamical System tab is displayed by default
 - **AND** the Observable Editor tab is available but not shown
 
-## ADDED Requirements
-
 ### Requirement: Node Change Propagation
 
 The system SHALL propagate node changes from the Dynamical System graph to the Observable Editor's Source nodes.
@@ -45,3 +46,4 @@ The system SHALL propagate node changes from the Dynamical System graph to the O
 - **WHEN** a node is renamed in the Dynamical System tab
 - **THEN** the corresponding Source node name is updated in the Observable Editor
 - **AND** the update is visible when switching to the Observable Editor tab
+
