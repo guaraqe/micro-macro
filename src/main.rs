@@ -12,7 +12,9 @@ use layout_bipartite::{LayoutBipartite, LayoutStateBipartite};
 use petgraph::Directed;
 use petgraph::graph::DefaultIx;
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
-use petgraph::visit::EdgeRef;
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+use serde::{Deserialize, Serialize};
+use std::path::Path;
 // UI Constants
 const DRAG_THRESHOLD: f32 = 2.0;
 const EDGE_PREVIEW_STROKE_WIDTH: f32 = 2.0;
@@ -48,16 +50,56 @@ struct NodeData {
     name: String,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum NodeType {
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum NodeType {
     Source,
     Destination,
 }
 
 #[derive(Clone)]
-struct MappingNodeData {
+pub struct MappingNodeData {
+    pub name: String,
+    pub node_type: NodeType,
+}
+
+
+// ------------------------------------------------------------------
+// Serialization structures
+// ------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize)]
+struct SerializableNode {
+    name: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializableEdge {
+    source: usize,
+    target: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializableGraphState {
+    nodes: Vec<SerializableNode>,
+    edges: Vec<SerializableEdge>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializableMappingNode {
     name: String,
     node_type: NodeType,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializableObservableState {
+    nodes: Vec<SerializableMappingNode>,
+    edges: Vec<SerializableEdge>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializableState {
+    dynamical_system: SerializableGraphState,
+    observable: SerializableObservableState,
 }
 
 // ------------------------------------------------------------------
@@ -111,6 +153,76 @@ fn combined_config() -> LayoutCircular {
 }
 
 // ------------------------------------------------------------------
+// Initialization helpers
+// ------------------------------------------------------------------
+
+fn setup_graph(g: &StableGraph<NodeData, ()>) -> Graph<NodeData> {
+    let mut graph: Graph<NodeData, (), Directed, DefaultIx, DefaultNodeShape, DefaultEdgeShape> = Graph::from(g);
+    // Set labels and size for all nodes
+    for (idx, node) in g.node_indices().zip(g.node_weights())
+    {
+        if let Some(graph_node) = graph.node_mut(idx) {
+            graph_node.set_label(node.name.clone());
+            // Reduce node size to 75% of default
+            graph_node.display_mut().radius *= 0.75;
+        }
+    }
+    // Clear labels for all edges
+    for edge_idx in g.edge_indices() {
+        clear_edge_label(&mut graph, edge_idx);
+    }
+    graph
+}
+
+fn setup_mapping_graph(mg: &StableGraph<MappingNodeData, ()>) -> Graph<MappingNodeData> {
+    let mut mapping_graph: Graph<MappingNodeData, (), Directed, DefaultIx, DefaultNodeShape, DefaultEdgeShape> = Graph::from(mg);
+    // Set labels and size for all nodes
+    for (idx, node) in mg.node_indices().zip(mg.node_weights())
+    {
+        if let Some(graph_node) = mapping_graph.node_mut(idx) {
+            graph_node.set_label(node.name.clone());
+            graph_node.display_mut().radius *= 0.75;
+        }
+    }
+    // Clear labels for all edges
+    for edge_idx in mg.edge_indices() {
+        clear_edge_label(&mut mapping_graph, edge_idx);
+    }
+    mapping_graph
+}
+
+fn load_or_create_default_state() -> (Graph<NodeData>, Graph<MappingNodeData>) {
+    const STATE_FILE: &str = "state.json";
+
+    if std::path::Path::new(STATE_FILE).exists() {
+        // Try to load from state.json
+        match std::fs::read_to_string(STATE_FILE) {
+            Ok(json_str) => {
+                match serde_json::from_str::<SerializableState>(&json_str) {
+                    Ok(state) => {
+                        // Successfully loaded state
+                        let g = serializable_to_graph(&state.dynamical_system);
+                        let mg = serializable_to_mapping_graph(&state.observable);
+                        return (setup_graph(&g), setup_mapping_graph(&mg));
+                    }
+                    Err(e) => {
+                        eprintln!("Error parsing state.json: {}. Using default state.", e);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Error reading state.json: {}. Using default state.", e);
+            }
+        }
+    }
+
+    // Fall back to default state
+    let g = generate_graph();
+    let mg = generate_mapping_graph(&g);
+    (setup_graph(&g), setup_mapping_graph(&mg))
+}
+
+// ------------------------------------------------------------------
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions::default();
@@ -118,37 +230,7 @@ fn main() -> eframe::Result<()> {
         "Graph Editor",
         options,
         Box::new(|_cc| {
-            let g = generate_graph();
-            let mut graph: Graph<NodeData, (), Directed, DefaultIx, DefaultNodeShape, DefaultEdgeShape> = Graph::from(&g);
-            // Set labels and size for all nodes
-            for (idx, node) in g.node_indices().zip(g.node_weights())
-            {
-                if let Some(graph_node) = graph.node_mut(idx) {
-                    graph_node.set_label(node.name.clone());
-                    // Reduce node size to 75% of default
-                    graph_node.display_mut().radius *= 0.75;
-                }
-            }
-            // Clear labels for all edges
-            for edge_idx in g.edge_indices() {
-                clear_edge_label(&mut graph, edge_idx);
-            }
-
-            // Initialize mapping graph
-            let mg = generate_mapping_graph(&g);
-            let mut mapping_graph: Graph<MappingNodeData, (), Directed, DefaultIx, DefaultNodeShape, DefaultEdgeShape> = Graph::from(&mg);
-            // Set labels and size for all nodes
-            for (idx, node) in mg.node_indices().zip(mg.node_weights())
-            {
-                if let Some(graph_node) = mapping_graph.node_mut(idx) {
-                    graph_node.set_label(node.name.clone());
-                    graph_node.display_mut().radius *= 0.75;
-                }
-            }
-            // Clear labels for all edges
-            for edge_idx in mg.edge_indices() {
-                clear_edge_label(&mut mapping_graph, edge_idx);
-            }
+            let (graph, mapping_graph) = load_or_create_default_state();
 
             Ok(Box::new(GraphEditor {
                 g: graph,
@@ -162,6 +244,7 @@ fn main() -> eframe::Result<()> {
                 layout_reset_needed: false,
                 mapping_layout_reset_needed: false,
                 heatmap_hovered_cell: None,
+                error_message: None,
             }))
         }),
     )
@@ -232,6 +315,102 @@ fn generate_mapping_graph(source_graph: &StableGraph<NodeData, ()>) -> StableGra
 }
 
 // ------------------------------------------------------------------
+// Serialization conversion functions
+// ------------------------------------------------------------------
+
+fn graph_to_serializable(graph: &Graph<NodeData>) -> SerializableGraphState {
+    let stable_graph = graph.g();
+    let mut nodes = Vec::new();
+    let mut node_index_map = std::collections::HashMap::new();
+
+    // Collect nodes and build index mapping using the nodes_iter from Graph
+    for (new_idx, (node_idx, node)) in graph.nodes_iter().enumerate() {
+        nodes.push(SerializableNode {
+            name: node.payload().name.clone(),
+        });
+        node_index_map.insert(node_idx, new_idx);
+    }
+
+    // Collect edges using petgraph's edge_references
+    let mut edges = Vec::new();
+    for edge in stable_graph.edge_references() {
+        edges.push(SerializableEdge {
+            source: node_index_map[&edge.source()],
+            target: node_index_map[&edge.target()],
+        });
+    }
+
+    SerializableGraphState { nodes, edges }
+}
+
+fn serializable_to_graph(state: &SerializableGraphState) -> StableGraph<NodeData, ()> {
+    let mut g = StableGraph::new();
+    let mut node_indices = Vec::new();
+
+    // Add nodes
+    for node in &state.nodes {
+        let idx = g.add_node(NodeData {
+            name: node.name.clone(),
+        });
+        node_indices.push(idx);
+    }
+
+    // Add edges
+    for edge in &state.edges {
+        g.add_edge(node_indices[edge.source], node_indices[edge.target], ());
+    }
+
+    g
+}
+
+fn mapping_graph_to_serializable(graph: &Graph<MappingNodeData>) -> SerializableObservableState {
+    let stable_graph = graph.g();
+    let mut nodes = Vec::new();
+    let mut node_index_map = std::collections::HashMap::new();
+
+    // Collect nodes and build index mapping using the nodes_iter from Graph
+    for (new_idx, (node_idx, node)) in graph.nodes_iter().enumerate() {
+        nodes.push(SerializableMappingNode {
+            name: node.payload().name.clone(),
+            node_type: node.payload().node_type,
+        });
+        node_index_map.insert(node_idx, new_idx);
+    }
+
+    // Collect edges using petgraph's edge_references
+    let mut edges = Vec::new();
+    for edge in stable_graph.edge_references() {
+        edges.push(SerializableEdge {
+            source: node_index_map[&edge.source()],
+            target: node_index_map[&edge.target()],
+        });
+    }
+
+    SerializableObservableState { nodes, edges }
+}
+
+fn serializable_to_mapping_graph(state: &SerializableObservableState) -> StableGraph<MappingNodeData, ()> {
+    let mut g = StableGraph::new();
+    let mut node_indices = Vec::new();
+
+    // Add nodes
+    for node in &state.nodes {
+        let idx = g.add_node(MappingNodeData {
+            name: node.name.clone(),
+            node_type: node.node_type,
+        });
+        node_indices.push(idx);
+    }
+
+    // Add edges
+    for edge in &state.edges {
+        g.add_edge(node_indices[edge.source], node_indices[edge.target], ());
+    }
+
+    g
+}
+
+// ------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum EditMode {
@@ -257,6 +436,7 @@ struct GraphEditor {
     layout_reset_needed: bool,
     mapping_layout_reset_needed: bool,
     heatmap_hovered_cell: Option<(usize, usize)>,
+    error_message: Option<String>,
 }
 
 impl GraphEditor {
@@ -531,6 +711,42 @@ impl GraphEditor {
             }
         }
     }
+
+    fn save_to_file(&self, path: &Path) -> Result<(), String> {
+        let state = SerializableState {
+            dynamical_system: graph_to_serializable(&self.g),
+            observable: mapping_graph_to_serializable(&self.mapping_g),
+        };
+
+        let json = serde_json::to_string_pretty(&state)
+            .map_err(|e| format!("Failed to serialize state: {}", e))?;
+
+        std::fs::write(path, json)
+            .map_err(|e| format!("Failed to write file: {}", e))?;
+
+        Ok(())
+    }
+
+    fn load_from_file(&mut self, path: &Path) -> Result<(), String> {
+        let json_str = std::fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read file: {}", e))?;
+
+        let state: SerializableState = serde_json::from_str(&json_str)
+            .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+        // Convert to StableGraph first, then setup with proper display properties
+        let g = serializable_to_graph(&state.dynamical_system);
+        let mg = serializable_to_mapping_graph(&state.observable);
+
+        self.g = setup_graph(&g);
+        self.mapping_g = setup_mapping_graph(&mg);
+
+        // Reset layouts to display new graphs
+        self.layout_reset_needed = true;
+        self.mapping_layout_reset_needed = true;
+
+        Ok(())
+    }
 }
 
 impl eframe::App for GraphEditor {
@@ -539,7 +755,36 @@ impl eframe::App for GraphEditor {
         ctx: &egui::Context,
         _frame: &mut eframe::Frame,
     ) {
-        // Tab navigation at the top
+        // Menu bar at the very top
+        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Save").clicked() {
+                        ui.close();
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("JSON", &["json"])
+                            .save_file()
+                            && let Err(e) = self.save_to_file(&path)
+                        {
+                            self.error_message = Some(e);
+                        }
+                    }
+
+                    if ui.button("Load").clicked() {
+                        ui.close();
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("JSON", &["json"])
+                            .pick_file()
+                            && let Err(e) = self.load_from_file(&path)
+                        {
+                            self.error_message = Some(e);
+                        }
+                    }
+                });
+            });
+        });
+
+        // Tab navigation below menu bar
         egui::TopBottomPanel::top("tabs").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.active_tab, ActiveTab::DynamicalSystem, "Dynamical System");
@@ -567,6 +812,19 @@ impl eframe::App for GraphEditor {
         match self.active_tab {
             ActiveTab::DynamicalSystem => self.render_dynamical_system_tab(ctx),
             ActiveTab::ObservableEditor => self.render_observable_editor_tab(ctx),
+        }
+
+        // Display error dialog if there's an error message
+        if let Some(error) = self.error_message.clone() {
+            egui::Window::new("Error")
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label(&error);
+                    if ui.button("OK").clicked() {
+                        self.error_message = None;
+                    }
+                });
         }
 
         // Update previous mode for next frame

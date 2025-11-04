@@ -5,6 +5,8 @@ use petgraph::EdgeType;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
+use crate::{MappingNodeData, NodeType};
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LayoutStateBipartite {
     applied: bool,
@@ -78,24 +80,27 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
             return;
         }
 
-        // Collect all nodes with their labels
-        let mut all_nodes: Vec<_> = Vec::new();
-
-        for (idx, node) in g.nodes_iter() {
-            let label = node.label().to_string();
-            all_nodes.push((idx, label));
-        }
-
-        // Separate into Source and Destination based on label patterns
-        // Source nodes are those that start with "Node", Destination are "Value"
+        // Separate Source and Destination nodes based on node_type field
+        //
+        // NOTE: This layout is specifically designed for MappingNodeData.
+        // The unsafe cast is required because:
+        // 1. The Layout trait is generic over N but doesn't allow adding trait bounds
+        // 2. This layout is only ever used with MappingNodeData (enforced by MappingGraphView type alias)
+        // 3. The memory layout is compatible (we're just reinterpreting the reference)
+        // 4. This is safer than the alternative of string parsing node labels
         let mut source_nodes: Vec<_> = Vec::new();
         let mut dest_nodes: Vec<_> = Vec::new();
 
-        for (idx, label) in all_nodes {
-            if label.starts_with("Node") {
-                source_nodes.push((idx, label));
-            } else {
-                dest_nodes.push((idx, label));
+        for (idx, node) in g.nodes_iter() {
+            let label = node.label().to_string();
+            let payload = node.payload();
+
+            // SAFETY: This layout is only instantiated with N = MappingNodeData via MappingGraphView
+            let node_data = unsafe { &*(payload as *const N as *const MappingNodeData) };
+
+            match node_data.node_type {
+                NodeType::Source => source_nodes.push((idx, label)),
+                NodeType::Destination => dest_nodes.push((idx, label)),
             }
         }
 
