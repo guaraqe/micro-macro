@@ -4,9 +4,10 @@ mod heatmap;
 
 use eframe::egui;
 use egui_graphs::{
-    reset_layout, DefaultEdgeShape, DefaultNodeShape, Graph, GraphView,
-    SettingsInteraction, SettingsStyle,
+    reset_layout, DefaultEdgeShape, DefaultNodeShape, DisplayEdge, DisplayNode, DrawContext,
+    EdgeProps, Graph, GraphView, Node, SettingsInteraction, SettingsStyle,
 };
+use petgraph::{stable_graph::IndexType, EdgeType};
 use layout_circular::{LayoutCircular, LayoutStateCircular, SortOrder, SpacingConfig};
 use layout_bipartite::{LayoutBipartite, LayoutStateBipartite};
 use petgraph::Directed;
@@ -24,11 +25,11 @@ const EDGE_PREVIEW_COLOR: egui::Color32 =
 type MyGraphView<'a> = GraphView<
     'a,
     NodeData,
-    (),
+    f32,
     Directed,
     DefaultIx,
     DefaultNodeShape,
-    DefaultEdgeShape,
+    WeightedEdgeShape,
     LayoutStateCircular,
     LayoutCircular,
 >;
@@ -36,11 +37,11 @@ type MyGraphView<'a> = GraphView<
 type MappingGraphView<'a> = GraphView<
     'a,
     MappingNodeData,
-    (),
+    f32,
     Directed,
     DefaultIx,
     DefaultNodeShape,
-    DefaultEdgeShape,
+    WeightedEdgeShape,
     LayoutStateBipartite,
     LayoutBipartite,
 >;
@@ -76,6 +77,7 @@ struct SerializableNode {
 struct SerializableEdge {
     source: usize,
     target: usize,
+    weight: f32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -156,8 +158,8 @@ fn combined_config() -> LayoutCircular {
 // Initialization helpers
 // ------------------------------------------------------------------
 
-fn setup_graph(g: &StableGraph<NodeData, ()>) -> Graph<NodeData> {
-    let mut graph: Graph<NodeData, (), Directed, DefaultIx, DefaultNodeShape, DefaultEdgeShape> = Graph::from(g);
+fn setup_graph(g: &StableGraph<NodeData, f32>) -> Graph<NodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape> {
+    let mut graph: Graph<NodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape> = Graph::from(g);
     // Set labels and size for all nodes
     for (idx, node) in g.node_indices().zip(g.node_weights())
     {
@@ -168,14 +170,15 @@ fn setup_graph(g: &StableGraph<NodeData, ()>) -> Graph<NodeData> {
         }
     }
     // Clear labels for all edges
-    for edge_idx in g.edge_indices() {
+    for edge_ref in g.edge_references() {
+        let edge_idx = edge_ref.id();
         clear_edge_label(&mut graph, edge_idx);
     }
     graph
 }
 
-fn setup_mapping_graph(mg: &StableGraph<MappingNodeData, ()>) -> Graph<MappingNodeData> {
-    let mut mapping_graph: Graph<MappingNodeData, (), Directed, DefaultIx, DefaultNodeShape, DefaultEdgeShape> = Graph::from(mg);
+fn setup_mapping_graph(mg: &StableGraph<MappingNodeData, f32>) -> Graph<MappingNodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape> {
+    let mut mapping_graph: Graph<MappingNodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape> = Graph::from(mg);
     // Set labels and size for all nodes
     for (idx, node) in mg.node_indices().zip(mg.node_weights())
     {
@@ -185,13 +188,14 @@ fn setup_mapping_graph(mg: &StableGraph<MappingNodeData, ()>) -> Graph<MappingNo
         }
     }
     // Clear labels for all edges
-    for edge_idx in mg.edge_indices() {
+    for edge_ref in mg.edge_references() {
+        let edge_idx = edge_ref.id();
         clear_edge_label(&mut mapping_graph, edge_idx);
     }
     mapping_graph
 }
 
-fn load_or_create_default_state() -> (Graph<NodeData>, Graph<MappingNodeData>) {
+fn load_or_create_default_state() -> (Graph<NodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape>, Graph<MappingNodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape>) {
     const STATE_FILE: &str = "state.json";
 
     if std::path::Path::new(STATE_FILE).exists() {
@@ -244,24 +248,26 @@ fn main() -> eframe::Result<()> {
                 layout_reset_needed: false,
                 mapping_layout_reset_needed: false,
                 heatmap_hovered_cell: None,
+                heatmap_editing_cell: None,
+                heatmap_edit_buffer: String::new(),
                 error_message: None,
             }))
         }),
     )
 }
 
-fn clear_edge_label<N: Clone>(
-    graph: &mut Graph<N>,
-    edge_idx: EdgeIndex,
+fn clear_edge_label<N: Clone, E: Clone, Ty: EdgeType, Ix: IndexType, Dn: DisplayNode<N, E, Ty, Ix>, De: DisplayEdge<N, E, Ty, Ix, Dn>>(
+    graph: &mut Graph<N, E, Ty, Ix, Dn, De>,
+    edge_idx: EdgeIndex<Ix>,
 ) {
     if let Some(edge) = graph.edge_mut(edge_idx) {
         edge.set_label(String::new());
     }
 }
 
-fn set_node_name(
-    graph: &mut Graph<NodeData>,
-    node_idx: NodeIndex,
+fn set_node_name<Ty: EdgeType, Ix: IndexType, Dn: DisplayNode<NodeData, f32, Ty, Ix>, De: DisplayEdge<NodeData, f32, Ty, Ix, Dn>>(
+    graph: &mut Graph<NodeData, f32, Ty, Ix, Dn, De>,
+    node_idx: NodeIndex<Ix>,
     name: String,
 ) {
     if let Some(node) = graph.node_mut(node_idx) {
@@ -270,7 +276,7 @@ fn set_node_name(
     }
 }
 
-fn generate_graph() -> StableGraph<NodeData, ()> {
+fn generate_graph() -> StableGraph<NodeData, f32> {
     let mut g = StableGraph::new();
 
     let a = g.add_node(NodeData {
@@ -283,14 +289,14 @@ fn generate_graph() -> StableGraph<NodeData, ()> {
         name: format!("Node {}", 2),
     });
 
-    g.add_edge(a, b, ());
-    g.add_edge(b, c, ());
-    g.add_edge(c, a, ());
+    g.add_edge(a, b, 1.0);
+    g.add_edge(b, c, 1.0);
+    g.add_edge(c, a, 1.0);
 
     g
 }
 
-fn generate_mapping_graph(source_graph: &StableGraph<NodeData, ()>) -> StableGraph<MappingNodeData, ()> {
+fn generate_mapping_graph(source_graph: &StableGraph<NodeData, f32>) -> StableGraph<MappingNodeData, f32> {
     let mut g = StableGraph::new();
 
     // Add Source nodes mirroring the dynamical system
@@ -318,7 +324,9 @@ fn generate_mapping_graph(source_graph: &StableGraph<NodeData, ()>) -> StableGra
 // Serialization conversion functions
 // ------------------------------------------------------------------
 
-fn graph_to_serializable(graph: &Graph<NodeData>) -> SerializableGraphState {
+fn graph_to_serializable<Ty: EdgeType, Ix: IndexType, Dn: DisplayNode<NodeData, f32, Ty, Ix>, De: DisplayEdge<NodeData, f32, Ty, Ix, Dn>>(
+    graph: &Graph<NodeData, f32, Ty, Ix, Dn, De>
+) -> SerializableGraphState {
     let stable_graph = graph.g();
     let mut nodes = Vec::new();
     let mut node_index_map = std::collections::HashMap::new();
@@ -333,17 +341,18 @@ fn graph_to_serializable(graph: &Graph<NodeData>) -> SerializableGraphState {
 
     // Collect edges using petgraph's edge_references
     let mut edges = Vec::new();
-    for edge in stable_graph.edge_references() {
+    for edge_ref in stable_graph.edge_references() {
         edges.push(SerializableEdge {
-            source: node_index_map[&edge.source()],
-            target: node_index_map[&edge.target()],
+            source: node_index_map[&edge_ref.source()],
+            target: node_index_map[&edge_ref.target()],
+            weight: *edge_ref.weight().payload(),
         });
     }
 
     SerializableGraphState { nodes, edges }
 }
 
-fn serializable_to_graph(state: &SerializableGraphState) -> StableGraph<NodeData, ()> {
+fn serializable_to_graph(state: &SerializableGraphState) -> StableGraph<NodeData, f32> {
     let mut g = StableGraph::new();
     let mut node_indices = Vec::new();
 
@@ -357,13 +366,15 @@ fn serializable_to_graph(state: &SerializableGraphState) -> StableGraph<NodeData
 
     // Add edges
     for edge in &state.edges {
-        g.add_edge(node_indices[edge.source], node_indices[edge.target], ());
+        g.add_edge(node_indices[edge.source], node_indices[edge.target], edge.weight);
     }
 
     g
 }
 
-fn mapping_graph_to_serializable(graph: &Graph<MappingNodeData>) -> SerializableObservableState {
+fn mapping_graph_to_serializable<Ty: EdgeType, Ix: IndexType, Dn: DisplayNode<MappingNodeData, f32, Ty, Ix>, De: DisplayEdge<MappingNodeData, f32, Ty, Ix, Dn>>(
+    graph: &Graph<MappingNodeData, f32, Ty, Ix, Dn, De>
+) -> SerializableObservableState {
     let stable_graph = graph.g();
     let mut nodes = Vec::new();
     let mut node_index_map = std::collections::HashMap::new();
@@ -379,17 +390,18 @@ fn mapping_graph_to_serializable(graph: &Graph<MappingNodeData>) -> Serializable
 
     // Collect edges using petgraph's edge_references
     let mut edges = Vec::new();
-    for edge in stable_graph.edge_references() {
+    for edge_ref in stable_graph.edge_references() {
         edges.push(SerializableEdge {
-            source: node_index_map[&edge.source()],
-            target: node_index_map[&edge.target()],
+            source: node_index_map[&edge_ref.source()],
+            target: node_index_map[&edge_ref.target()],
+            weight: *edge_ref.weight().payload(),
         });
     }
 
     SerializableObservableState { nodes, edges }
 }
 
-fn serializable_to_mapping_graph(state: &SerializableObservableState) -> StableGraph<MappingNodeData, ()> {
+fn serializable_to_mapping_graph(state: &SerializableObservableState) -> StableGraph<MappingNodeData, f32> {
     let mut g = StableGraph::new();
     let mut node_indices = Vec::new();
 
@@ -404,7 +416,7 @@ fn serializable_to_mapping_graph(state: &SerializableObservableState) -> StableG
 
     // Add edges
     for edge in &state.edges {
-        g.add_edge(node_indices[edge.source], node_indices[edge.target], ());
+        g.add_edge(node_indices[edge.source], node_indices[edge.target], edge.weight);
     }
 
     g
@@ -425,8 +437,8 @@ enum ActiveTab {
 }
 
 struct GraphEditor {
-    g: Graph<NodeData>,
-    mapping_g: Graph<MappingNodeData>,
+    g: Graph<NodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape>,
+    mapping_g: Graph<MappingNodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape>,
     mode: EditMode,
     prev_mode: EditMode,
     active_tab: ActiveTab,
@@ -436,12 +448,14 @@ struct GraphEditor {
     layout_reset_needed: bool,
     mapping_layout_reset_needed: bool,
     heatmap_hovered_cell: Option<(usize, usize)>,
+    heatmap_editing_cell: Option<(usize, usize)>,
+    heatmap_edit_buffer: String,
     error_message: Option<String>,
 }
 
 impl GraphEditor {
     // Build adjacency matrix and sorted node labels for heatmap
-    fn build_heatmap_data(&self) -> (Vec<String>, Vec<String>, Vec<Vec<bool>>) {
+    fn build_heatmap_data(&self) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>) {
         // Get all nodes with their labels
         let mut nodes: Vec<_> = self
             .g
@@ -465,19 +479,19 @@ impl GraphEditor {
             index_map.insert(*idx, pos);
         }
 
-        // Build adjacency matrix: matrix[y][x] = true if edge from x to y
-        let mut matrix = vec![vec![false; node_count]; node_count];
+        // Build adjacency matrix: matrix[y][x] = Some(weight) if edge from x to y, None otherwise
+        let mut matrix = vec![vec![None; node_count]; node_count];
 
         // Iterate over all edges in the graph
-        for (node_idx, _) in nodes.iter() {
-            for edge_ref in self.g.edges_directed(*node_idx, petgraph::Direction::Outgoing) {
-                let source_idx = edge_ref.source();
-                let target_idx = edge_ref.target();
+        let stable_g = self.g.g();
+        for edge_ref in stable_g.edge_references() {
+            let source_idx = edge_ref.source();
+            let target_idx = edge_ref.target();
+            let weight = *edge_ref.weight().payload();
 
-                if let (Some(&x_pos), Some(&y_pos)) =
-                    (index_map.get(&source_idx), index_map.get(&target_idx)) {
-                    matrix[y_pos][x_pos] = true;
-                }
+            if let (Some(&x_pos), Some(&y_pos)) =
+                (index_map.get(&source_idx), index_map.get(&target_idx)) {
+                matrix[y_pos][x_pos] = Some(weight);
             }
         }
 
@@ -545,11 +559,13 @@ impl GraphEditor {
                     egui::Stroke::new(2.0, egui::Color32::from_rgb(180, 180, 180))
                 }
             })
-            .with_edge_stroke_hook(|selected, _order, _current_stroke, _style| {
+            .with_edge_stroke_hook(|selected, _order, current_stroke, _style| {
+                // Use the width from current_stroke (which comes from WeightedEdgeShape)
+                // but change color based on selection
                 if selected {
-                    egui::Stroke::new(2.0, egui::Color32::from_rgb(120, 120, 120))
+                    egui::Stroke::new(current_stroke.width, egui::Color32::from_rgb(120, 120, 120))
                 } else {
-                    egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 80))
+                    egui::Stroke::new(current_stroke.width, egui::Color32::from_rgb(80, 80, 80))
                 }
             })
     }
@@ -597,7 +613,7 @@ impl GraphEditor {
                             let edge_idx = self.g.add_edge(
                                 source_node,
                                 target_node,
-                                (),
+                                1.0,
                             );
                             // Clear edge label to hide it
                             clear_edge_label(&mut self.g, edge_idx);
@@ -680,7 +696,7 @@ impl GraphEditor {
                                 let edge_idx = self.mapping_g.add_edge(
                                     source_node,
                                     target_node,
-                                    (),
+                                    1.0,
                                 );
                                 // Clear edge label to hide it
                                 clear_edge_label(&mut self.mapping_g, edge_idx);
@@ -834,7 +850,7 @@ impl eframe::App for GraphEditor {
 
 impl GraphEditor {
     // Build heatmap data for mapping graph: Sources (x-axis), Destinations (y-axis)
-    fn build_mapping_heatmap_data(&self) -> (Vec<String>, Vec<String>, Vec<Vec<bool>>) {
+    fn build_mapping_heatmap_data(&self) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>) {
         // Get Source nodes (columns/x-axis)
         let mut source_nodes: Vec<_> = self
             .mapping_g
@@ -873,23 +889,105 @@ impl GraphEditor {
             dest_index_map.insert(*idx, pos);
         }
 
-        // Build adjacency matrix: matrix[y][x] = true if edge from Source x to Destination y
-        let mut matrix = vec![vec![false; source_nodes.len()]; dest_nodes.len()];
+        // Build adjacency matrix: matrix[y][x] = Some(weight) if edge from Source x to Destination y, None otherwise
+        let mut matrix = vec![vec![None; source_nodes.len()]; dest_nodes.len()];
 
         // Iterate over all edges
-        for (source_idx, _) in source_nodes.iter() {
-            for edge_ref in self.mapping_g.edges_directed(*source_idx, petgraph::Direction::Outgoing) {
-                let src = edge_ref.source();
-                let tgt = edge_ref.target();
+        let stable_mg = self.mapping_g.g();
+        for edge_ref in stable_mg.edge_references() {
+            let src = edge_ref.source();
+            let tgt = edge_ref.target();
+            let weight = *edge_ref.weight().payload();
 
-                if let (Some(&x_pos), Some(&y_pos)) =
-                    (source_index_map.get(&src), dest_index_map.get(&tgt)) {
-                    matrix[y_pos][x_pos] = true;
-                }
+            if let (Some(&x_pos), Some(&y_pos)) =
+                (source_index_map.get(&src), dest_index_map.get(&tgt)) {
+                matrix[y_pos][x_pos] = Some(weight);
             }
         }
 
         (x_labels, y_labels, matrix)
+    }
+
+    // Apply weight change from heatmap to dynamical system graph
+    fn apply_weight_change_to_graph(
+        &mut self,
+        change: heatmap::WeightChange,
+        x_labels: &[String],
+        y_labels: &[String],
+    ) {
+        // Find node indices by name
+        let source_name = &x_labels[change.x];
+        let target_name = &y_labels[change.y];
+
+        let source_idx = self.g.nodes_iter()
+            .find(|(_, node)| &node.payload().name == source_name)
+            .map(|(idx, _)| idx);
+
+        let target_idx = self.g.nodes_iter()
+            .find(|(_, node)| &node.payload().name == target_name)
+            .map(|(idx, _)| idx);
+
+        if let (Some(src), Some(tgt)) = (source_idx, target_idx) {
+            if change.new_weight == 0.0 {
+                // Remove edge
+                if let Some(edge_idx) = self.g.g().find_edge(src, tgt) {
+                    self.g.remove_edge(edge_idx);
+                }
+            } else {
+                // Add or update edge
+                if let Some(edge_idx) = self.g.g().find_edge(src, tgt) {
+                    // Update existing edge weight
+                    if let Some(edge) = self.g.edge_mut(edge_idx) {
+                        *edge.payload_mut() = change.new_weight;
+                    }
+                } else {
+                    // Add new edge
+                    let edge_idx = self.g.add_edge(src, tgt, change.new_weight);
+                    clear_edge_label(&mut self.g, edge_idx);
+                }
+            }
+        }
+    }
+
+    // Apply weight change from heatmap to mapping graph
+    fn apply_weight_change_to_mapping_graph(
+        &mut self,
+        change: heatmap::WeightChange,
+        x_labels: &[String],
+        y_labels: &[String],
+    ) {
+        // Find node indices by name
+        let source_name = &x_labels[change.x];
+        let target_name = &y_labels[change.y];
+
+        let source_idx = self.mapping_g.nodes_iter()
+            .find(|(_, node)| &node.payload().name == source_name)
+            .map(|(idx, _)| idx);
+
+        let target_idx = self.mapping_g.nodes_iter()
+            .find(|(_, node)| &node.payload().name == target_name)
+            .map(|(idx, _)| idx);
+
+        if let (Some(src), Some(tgt)) = (source_idx, target_idx) {
+            if change.new_weight == 0.0 {
+                // Remove edge
+                if let Some(edge_idx) = self.mapping_g.g().find_edge(src, tgt) {
+                    self.mapping_g.remove_edge(edge_idx);
+                }
+            } else {
+                // Add or update edge
+                if let Some(edge_idx) = self.mapping_g.g().find_edge(src, tgt) {
+                    // Update existing edge weight
+                    if let Some(edge) = self.mapping_g.edge_mut(edge_idx) {
+                        *edge.payload_mut() = change.new_weight;
+                    }
+                } else {
+                    // Add new edge
+                    let edge_idx = self.mapping_g.add_edge(src, tgt, change.new_weight);
+                    clear_edge_label(&mut self.mapping_g, edge_idx);
+                }
+            }
+        }
     }
 
     // Synchronize mapping graph Source nodes with dynamical system nodes
@@ -1108,14 +1206,29 @@ impl GraphEditor {
                             // Build heatmap data
                             let (x_labels, y_labels, matrix) = self.build_heatmap_data();
 
-                            // Display heatmap and get new hover state
-                            self.heatmap_hovered_cell = heatmap::show_heatmap(
+                            // Display heatmap with editing support
+                            let editing_state = heatmap::EditingState {
+                                editing_cell: self.heatmap_editing_cell,
+                                edit_buffer: self.heatmap_edit_buffer.clone(),
+                            };
+
+                            let (new_hover, new_editing, weight_change) = heatmap::show_heatmap(
                                 ui,
                                 &x_labels,
                                 &y_labels,
                                 &matrix,
                                 self.heatmap_hovered_cell,
+                                editing_state,
                             );
+
+                            self.heatmap_hovered_cell = new_hover;
+                            self.heatmap_editing_cell = new_editing.editing_cell;
+                            self.heatmap_edit_buffer = new_editing.edit_buffer;
+
+                            // Handle weight changes
+                            if let Some(change) = weight_change {
+                                self.apply_weight_change_to_graph(change, &x_labels, &y_labels);
+                            }
                         },
                     );
 
@@ -1155,6 +1268,7 @@ impl GraphEditor {
 
                 // Allocate remaining space for the graph
                 let available_height = ui.available_height() - 60.0; // Reserve space for bottom instructions
+
                 ui.allocate_ui_with_layout(
                     egui::Vec2::new(ui.available_width(), available_height),
                     egui::Layout::top_down(egui::Align::Center),
@@ -1359,14 +1473,29 @@ impl GraphEditor {
                             // Build heatmap data
                             let (x_labels, y_labels, matrix) = self.build_mapping_heatmap_data();
 
-                            // Display heatmap
-                            self.heatmap_hovered_cell = heatmap::show_heatmap(
+                            // Display heatmap with editing support
+                            let editing_state = heatmap::EditingState {
+                                editing_cell: self.heatmap_editing_cell,
+                                edit_buffer: self.heatmap_edit_buffer.clone(),
+                            };
+
+                            let (new_hover, new_editing, weight_change) = heatmap::show_heatmap(
                                 ui,
                                 &x_labels,
                                 &y_labels,
                                 &matrix,
                                 self.heatmap_hovered_cell,
+                                editing_state,
                             );
+
+                            self.heatmap_hovered_cell = new_hover;
+                            self.heatmap_editing_cell = new_editing.editing_cell;
+                            self.heatmap_edit_buffer = new_editing.edit_buffer;
+
+                            // Handle weight changes
+                            if let Some(change) = weight_change {
+                                self.apply_weight_change_to_mapping_graph(change, &x_labels, &y_labels);
+                            }
                         },
                     );
 
@@ -1464,5 +1593,62 @@ impl GraphEditor {
                     );
                 });
             });
+    }
+}
+
+// Custom edge shape that calculates width from edge weight
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct WeightedEdgeShape {
+    default_impl: DefaultEdgeShape,
+    weight: f32,
+}
+
+impl From<EdgeProps<f32>> for WeightedEdgeShape {
+    fn from(props: EdgeProps<f32>) -> Self {
+        let weight = props.payload;
+        let mut default_impl = DefaultEdgeShape::from(props);
+        // Calculate width from weight: 1.0 + min(weight, 4.0)
+        default_impl.width = 1.0 + weight.min(4.0);
+        Self {
+            default_impl,
+            weight,
+        }
+    }
+}
+
+impl<N: Clone, Ty: EdgeType, Ix: IndexType, D: DisplayNode<N, f32, Ty, Ix>>
+    DisplayEdge<N, f32, Ty, Ix, D> for WeightedEdgeShape
+{
+    fn is_inside(
+        &self,
+        start: &Node<N, f32, Ty, Ix, D>,
+        end: &Node<N, f32, Ty, Ix, D>,
+        pos: egui::Pos2,
+    ) -> bool {
+        self.default_impl.is_inside(start, end, pos)
+    }
+
+    fn shapes(
+        &mut self,
+        start: &Node<N, f32, Ty, Ix, D>,
+        end: &Node<N, f32, Ty, Ix, D>,
+        ctx: &DrawContext,
+    ) -> Vec<egui::Shape> {
+        self.default_impl.shapes(start, end, ctx)
+    }
+
+    fn update(&mut self, state: &EdgeProps<f32>) {
+        self.weight = state.payload;
+        // Recalculate width when edge is updated
+        self.default_impl.width = 1.0 + self.weight.min(4.0);
+        DisplayEdge::<N, f32, Ty, Ix, D>::update(&mut self.default_impl, state);
+    }
+
+    fn extra_bounds(
+        &self,
+        start: &Node<N, f32, Ty, Ix, D>,
+        end: &Node<N, f32, Ty, Ix, D>,
+    ) -> Option<(egui::Pos2, egui::Pos2)> {
+        self.default_impl.extra_bounds(start, end)
     }
 }
