@@ -282,6 +282,56 @@ fn apply_weight_change_to_graph<N>(
     }
 }
 
+fn build_heatmap_data<N>(
+    graph: &graph_view::GraphDisplay<N>,
+) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>)
+where
+    N: Clone,
+    N: graph_state::HasName,
+{
+    // Get all nodes with their labels
+    let mut nodes: Vec<_> = graph
+        .nodes_iter()
+        .map(|(idx, node)| (idx, node.payload().name()))
+        .collect();
+
+    // Sort alphabetically by label
+    nodes.sort_by(|a, b| a.1.cmp(&b.1));
+
+    if nodes.is_empty() {
+        return (vec![], vec![], vec![]);
+    }
+
+    let labels: Vec<String> =
+        nodes.iter().map(|(_, name)| name.clone()).collect();
+    let node_count = labels.len();
+
+    // Build index map: NodeIndex -> position in sorted list
+    let mut index_map = std::collections::HashMap::new();
+    for (pos, (idx, _)) in nodes.iter().enumerate() {
+        index_map.insert(*idx, pos);
+    }
+
+    // Build adjacency matrix: matrix[y][x] = Some(weight) if edge from x to y, None otherwise
+    let mut matrix = vec![vec![None; node_count]; node_count];
+
+    // Iterate over all edges in the graph
+    let stable_g = graph.g();
+    for edge_ref in stable_g.edge_references() {
+        let source_idx = edge_ref.source();
+        let target_idx = edge_ref.target();
+        let weight = *edge_ref.weight().payload();
+
+        if let (Some(&x_pos), Some(&y_pos)) =
+            (index_map.get(&source_idx), index_map.get(&target_idx))
+        {
+            matrix[y_pos][x_pos] = Some(weight);
+        }
+    }
+
+    (labels.clone(), labels, matrix)
+}
+
 impl GraphEditor {
     // Helper to recompute observed graph from current state
     fn recompute_observed_graph(&mut self) {
@@ -292,55 +342,6 @@ impl GraphEditor {
         self.observed_graph =
             setup_graph_display(&observed_graph_raw);
         self.observed_layout_reset_needed = true;
-    }
-
-    // Build adjacency matrix and sorted node labels for heatmap
-    fn build_heatmap_data(
-        &self,
-    ) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>) {
-        // Get all nodes with their labels
-        let mut nodes: Vec<_> = self
-            .state_graph
-            .nodes_iter()
-            .map(|(idx, node)| (idx, node.payload().name.clone()))
-            .collect();
-
-        // Sort alphabetically by label
-        nodes.sort_by(|a, b| a.1.cmp(&b.1));
-
-        if nodes.is_empty() {
-            return (vec![], vec![], vec![]);
-        }
-
-        let labels: Vec<String> =
-            nodes.iter().map(|(_, name)| name.clone()).collect();
-        let node_count = labels.len();
-
-        // Build index map: NodeIndex -> position in sorted list
-        let mut index_map = std::collections::HashMap::new();
-        for (pos, (idx, _)) in nodes.iter().enumerate() {
-            index_map.insert(*idx, pos);
-        }
-
-        // Build adjacency matrix: matrix[y][x] = Some(weight) if edge from x to y, None otherwise
-        let mut matrix = vec![vec![None; node_count]; node_count];
-
-        // Iterate over all edges in the graph
-        let stable_g = self.state_graph.g();
-        for edge_ref in stable_g.edge_references() {
-            let source_idx = edge_ref.source();
-            let target_idx = edge_ref.target();
-            let weight = *edge_ref.weight().payload();
-
-            if let (Some(&x_pos), Some(&y_pos)) = (
-                index_map.get(&source_idx),
-                index_map.get(&target_idx),
-            ) {
-                matrix[y_pos][x_pos] = Some(weight);
-            }
-        }
-
-        (labels.clone(), labels, matrix)
     }
 
     // Returns (incoming_nodes, outgoing_nodes) for a given node
@@ -750,108 +751,6 @@ impl eframe::App for GraphEditor {
 }
 
 impl GraphEditor {
-    // Build heatmap data for mapping graph: Sources (x-axis), Destinations (y-axis)
-    fn build_mapping_heatmap_data(
-        &self,
-    ) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>) {
-        // Get Source nodes (columns/x-axis)
-        let mut source_nodes: Vec<_> = self
-            .observable_graph
-            .nodes_iter()
-            .filter(|(_, node)| {
-                node.payload().node_type == ObservableNodeType::Source
-            })
-            .map(|(idx, node)| (idx, node.payload().name.clone()))
-            .collect();
-
-        // Get Destination nodes (rows/y-axis)
-        let mut dest_nodes: Vec<_> = self
-            .observable_graph
-            .nodes_iter()
-            .filter(|(_, node)| {
-                node.payload().node_type
-                    == ObservableNodeType::Destination
-            })
-            .map(|(idx, node)| (idx, node.payload().name.clone()))
-            .collect();
-
-        // Sort alphabetically
-        source_nodes.sort_by(|a, b| a.1.cmp(&b.1));
-        dest_nodes.sort_by(|a, b| a.1.cmp(&b.1));
-
-        if source_nodes.is_empty() || dest_nodes.is_empty() {
-            return (vec![], vec![], vec![]);
-        }
-
-        let x_labels: Vec<String> = source_nodes
-            .iter()
-            .map(|(_, name)| name.clone())
-            .collect();
-        let y_labels: Vec<String> =
-            dest_nodes.iter().map(|(_, name)| name.clone()).collect();
-
-        // Build index maps
-        let mut source_index_map = std::collections::HashMap::new();
-        for (pos, (idx, _)) in source_nodes.iter().enumerate() {
-            source_index_map.insert(*idx, pos);
-        }
-
-        let mut dest_index_map = std::collections::HashMap::new();
-        for (pos, (idx, _)) in dest_nodes.iter().enumerate() {
-            dest_index_map.insert(*idx, pos);
-        }
-
-        // Build adjacency matrix: matrix[y][x] = Some(weight) if edge from Source x to Destination y, None otherwise
-        let mut matrix =
-            vec![vec![None; source_nodes.len()]; dest_nodes.len()];
-
-        // Iterate over all edges
-        let stable_mg = self.observable_graph.g();
-        for edge_ref in stable_mg.edge_references() {
-            let src = edge_ref.source();
-            let tgt = edge_ref.target();
-            let weight = *edge_ref.weight().payload();
-
-            if let (Some(&x_pos), Some(&y_pos)) =
-                (source_index_map.get(&src), dest_index_map.get(&tgt))
-            {
-                matrix[y_pos][x_pos] = Some(weight);
-            }
-        }
-
-        (x_labels, y_labels, matrix)
-    }
-
-    // Apply weight change from heatmap to dynamical system graph
-    fn apply_weight_change_to_state_graph(
-        &mut self,
-        change: heatmap::WeightChange,
-        x_labels: &[String],
-        y_labels: &[String],
-    ) {
-        apply_weight_change_to_graph(
-            &mut self.state_graph,
-            change,
-            x_labels,
-            y_labels,
-        );
-    }
-
-    // Apply weight change from heatmap to mapping graph
-    fn apply_weight_change_to_observable_graph(
-        &mut self,
-        change: heatmap::WeightChange,
-        x_labels: &[String],
-        y_labels: &[String],
-    ) {
-        apply_weight_change_to_graph(
-            &mut self.observable_graph,
-            change,
-            x_labels,
-            y_labels,
-        );
-    }
-
     // Synchronize mapping graph Source nodes with dynamical system nodes
     fn sync_source_nodes(&mut self) {
         // Get current dynamical system nodes
@@ -1084,7 +983,7 @@ impl GraphEditor {
                         |ui| {
                             // Build heatmap data
                             let (x_labels, y_labels, matrix) =
-                                self.build_heatmap_data();
+                                build_heatmap_data(&self.state_graph);
 
                             // Display heatmap with editing support
                             let editing_state =
@@ -1117,8 +1016,11 @@ impl GraphEditor {
 
                             // Handle weight changes
                             if let Some(change) = weight_change {
-                                self.apply_weight_change_to_state_graph(
-                                    change, &x_labels, &y_labels,
+                                apply_weight_change_to_graph(
+                                    &mut self.state_graph,
+                                    change,
+                                    &x_labels,
+                                    &y_labels,
                                 );
                             }
                         },
@@ -1379,28 +1281,46 @@ impl GraphEditor {
         // Right panel: Heatmap
         egui::SidePanel::right("observable_right_panel")
             .exact_width(panel_width)
-            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
+            .frame(
+                egui::Frame::side_top_panel(&ctx.style())
+                    .inner_margin(8.0),
+            )
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
                     ui.heading("Mapping Heatmap");
                     ui.separator();
 
                     // Contents - heatmap
-                    let available_height = ui.available_height() - 40.0;
+                    let available_height =
+                        ui.available_height() - 40.0;
                     ui.allocate_ui_with_layout(
-                        egui::Vec2::new(ui.available_width(), available_height),
+                        egui::Vec2::new(
+                            ui.available_width(),
+                            available_height,
+                        ),
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             // Build heatmap data
-                            let (x_labels, y_labels, matrix) = self.build_mapping_heatmap_data();
+                            let (x_labels, y_labels, matrix) =
+                                build_heatmap_data(
+                                    &self.observable_graph,
+                                );
 
                             // Display heatmap with editing support
-                            let editing_state = heatmap::EditingState {
-                                editing_cell: self.heatmap_editing_cell,
-                                edit_buffer: self.heatmap_edit_buffer.clone(),
-                            };
+                            let editing_state =
+                                heatmap::EditingState {
+                                    editing_cell: self
+                                        .heatmap_editing_cell,
+                                    edit_buffer: self
+                                        .heatmap_edit_buffer
+                                        .clone(),
+                                };
 
-                            let (new_hover, new_editing, weight_change) = heatmap::show_heatmap(
+                            let (
+                                new_hover,
+                                new_editing,
+                                weight_change,
+                            ) = heatmap::show_heatmap(
                                 ui,
                                 &x_labels,
                                 &y_labels,
@@ -1410,12 +1330,19 @@ impl GraphEditor {
                             );
 
                             self.heatmap_hovered_cell = new_hover;
-                            self.heatmap_editing_cell = new_editing.editing_cell;
-                            self.heatmap_edit_buffer = new_editing.edit_buffer;
+                            self.heatmap_editing_cell =
+                                new_editing.editing_cell;
+                            self.heatmap_edit_buffer =
+                                new_editing.edit_buffer;
 
                             // Handle weight changes
                             if let Some(change) = weight_change {
-                                self.apply_weight_change_to_observable_graph(change, &x_labels, &y_labels);
+                                apply_weight_change_to_graph(
+                                    &mut self.observable_graph,
+                                    change,
+                                    &x_labels,
+                                    &y_labels,
+                                );
                             }
                         },
                     );
@@ -1424,7 +1351,10 @@ impl GraphEditor {
                     ui.with_layout(
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
-                            ui.label(format!("Mappings: {}", self.observable_graph.edge_count()));
+                            ui.label(format!(
+                                "Mappings: {}",
+                                self.observable_graph.edge_count()
+                            ));
                             ui.separator();
                         },
                     );
@@ -1540,54 +1470,6 @@ impl GraphEditor {
                     );
                 });
             });
-    }
-
-    // Build heatmap data for observed graph
-    fn build_observed_heatmap_data(
-        &self,
-    ) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>) {
-        // Get all nodes with their labels
-        let mut nodes: Vec<_> = self
-            .observed_graph
-            .nodes_iter()
-            .map(|(idx, node)| (idx, node.payload().name.clone()))
-            .collect();
-
-        // Sort alphabetically by label
-        nodes.sort_by(|a, b| a.1.cmp(&b.1));
-
-        if nodes.is_empty() {
-            return (vec![], vec![], vec![]);
-        }
-
-        let labels: Vec<String> =
-            nodes.iter().map(|(_, name)| name.clone()).collect();
-        let node_count = labels.len();
-
-        // Build index map: NodeIndex -> position in sorted list
-        let mut index_map = std::collections::HashMap::new();
-        for (pos, (idx, _)) in nodes.iter().enumerate() {
-            index_map.insert(*idx, pos);
-        }
-
-        // Build adjacency matrix
-        let mut matrix = vec![vec![None; node_count]; node_count];
-
-        let stable_g = self.observed_graph.g();
-        for edge_ref in stable_g.edge_references() {
-            let source_idx = edge_ref.source();
-            let target_idx = edge_ref.target();
-            let weight = *edge_ref.weight().payload();
-
-            if let (Some(&x_pos), Some(&y_pos)) = (
-                index_map.get(&source_idx),
-                index_map.get(&target_idx),
-            ) {
-                matrix[y_pos][x_pos] = Some(weight);
-            }
-        }
-
-        (labels.clone(), labels, matrix)
     }
 
     fn render_observed_dynamics_tab(&mut self, ctx: &egui::Context) {
@@ -1729,7 +1611,9 @@ impl GraphEditor {
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             let (x_labels, y_labels, matrix) =
-                                self.build_observed_heatmap_data();
+                                build_heatmap_data(
+                                    &self.observed_graph,
+                                );
 
                             // Display heatmap without editing
                             let editing_state =
