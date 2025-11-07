@@ -1,7 +1,9 @@
 use eframe::egui;
-use egui_graphs::{DisplayEdge, DisplayNode, Graph, Layout, LayoutState};
-use petgraph::graph::IndexType;
+use egui_graphs::{
+    DisplayEdge, DisplayNode, Graph, Layout, LayoutState,
+};
 use petgraph::EdgeType;
+use petgraph::graph::IndexType;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
@@ -33,13 +35,11 @@ impl Default for BipartiteSpacingConfig {
 }
 
 /// Bipartite layout with Source nodes on left, Destination nodes on right
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct LayoutBipartite {
     state: LayoutStateBipartite,
     spacing: BipartiteSpacingConfig,
 }
-
 
 impl LayoutBipartite {
     #[allow(dead_code)]
@@ -48,14 +48,19 @@ impl LayoutBipartite {
     }
 
     #[allow(dead_code)]
-    pub fn with_spacing(mut self, spacing: BipartiteSpacingConfig) -> Self {
+    pub fn with_spacing(
+        mut self,
+        spacing: BipartiteSpacingConfig,
+    ) -> Self {
         self.spacing = spacing;
         self
     }
 }
 
 impl Layout<LayoutStateBipartite> for LayoutBipartite {
-    fn from_state(state: LayoutStateBipartite) -> impl Layout<LayoutStateBipartite> {
+    fn from_state(
+        state: LayoutStateBipartite,
+    ) -> impl Layout<LayoutStateBipartite> {
         Self {
             state,
             spacing: BipartiteSpacingConfig::default(),
@@ -66,8 +71,7 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
         &mut self,
         g: &mut Graph<N, E, Ty, Ix, Dn, De>,
         ui: &egui::Ui,
-    )
-    where
+    ) where
         N: Clone,
         E: Clone,
         Ty: EdgeType,
@@ -96,11 +100,15 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
             let payload = node.payload();
 
             // SAFETY: This layout is only instantiated with N = MappingNodeData via MappingGraphView
-            let node_data = unsafe { &*(payload as *const N as *const MappingNodeData) };
+            let node_data = unsafe {
+                &*(payload as *const N as *const MappingNodeData)
+            };
 
             match node_data.node_type {
                 NodeType::Source => source_nodes.push((idx, label)),
-                NodeType::Destination => dest_nodes.push((idx, label)),
+                NodeType::Destination => {
+                    dest_nodes.push((idx, label))
+                }
             }
         }
 
@@ -113,7 +121,8 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
 
         // Calculate dynamic column spacing based on number of Source nodes
         let source_count = source_nodes.len();
-        let dynamic_spacing = (80.0 + (source_count as f32) * 10.0).min(300.0);
+        let dynamic_spacing =
+            (80.0 + (source_count as f32) * 10.0).min(300.0);
 
         // Calculate positions for left column (Source)
         let left_x = center_x - dynamic_spacing / 2.0;
@@ -122,8 +131,10 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
         let right_x = center_x + dynamic_spacing / 2.0;
 
         // Place Source nodes in left column
-        for (i, (node_idx, _label)) in source_nodes.iter().enumerate() {
-            let y = self.spacing.top_margin + (i as f32) * self.spacing.vertical_spacing;
+        for (i, (node_idx, _label)) in source_nodes.iter().enumerate()
+        {
+            let y = self.spacing.top_margin
+                + (i as f32) * self.spacing.vertical_spacing;
             if let Some(node) = g.node_mut(*node_idx) {
                 node.set_location(egui::Pos2::new(left_x, y));
             }
@@ -131,7 +142,8 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
 
         // Place Destination nodes in right column
         for (i, (node_idx, _label)) in dest_nodes.iter().enumerate() {
-            let y = self.spacing.top_margin + (i as f32) * self.spacing.vertical_spacing;
+            let y = self.spacing.top_margin
+                + (i as f32) * self.spacing.vertical_spacing;
             if let Some(node) = g.node_mut(*node_idx) {
                 node.set_location(egui::Pos2::new(right_x, y));
             }

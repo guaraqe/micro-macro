@@ -1,19 +1,22 @@
-mod layout_circular;
-mod layout_bipartite;
 mod heatmap;
+mod layout_bipartite;
+mod layout_circular;
 
 use eframe::egui;
 use egui_graphs::{
-    reset_layout, DefaultEdgeShape, DefaultNodeShape, DisplayEdge, DisplayNode, DrawContext,
-    EdgeProps, Graph, GraphView, Node, SettingsInteraction, SettingsStyle,
+    DefaultEdgeShape, DefaultNodeShape, DisplayEdge, DisplayNode,
+    DrawContext, EdgeProps, Graph, GraphView, Node,
+    SettingsInteraction, SettingsStyle, reset_layout,
 };
-use petgraph::{stable_graph::IndexType, EdgeType};
-use layout_circular::{LayoutCircular, LayoutStateCircular, SortOrder, SpacingConfig};
 use layout_bipartite::{LayoutBipartite, LayoutStateBipartite};
+use layout_circular::{
+    LayoutCircular, LayoutStateCircular, SortOrder, SpacingConfig,
+};
 use petgraph::Directed;
 use petgraph::graph::DefaultIx;
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+use petgraph::{EdgeType, stable_graph::IndexType};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 // UI Constants
@@ -62,7 +65,6 @@ pub struct MappingNodeData {
     pub name: String,
     pub node_type: NodeType,
 }
-
 
 // ------------------------------------------------------------------
 // Serialization structures
@@ -124,26 +126,25 @@ fn reverse_alphabetical_config() -> LayoutCircular {
 /// Example: No sorting (preserve insertion order)
 #[allow(dead_code)]
 fn no_sort_config() -> LayoutCircular {
-    LayoutCircular::default()
-        .without_sorting()
+    LayoutCircular::default().without_sorting()
 }
 
 /// Example: Custom spacing - larger circle
 #[allow(dead_code)]
 fn large_circle_config() -> LayoutCircular {
-    LayoutCircular::default()
-        .with_spacing(SpacingConfig::default().with_fixed_radius(300.0))
+    LayoutCircular::default().with_spacing(
+        SpacingConfig::default().with_fixed_radius(300.0),
+    )
 }
 
 /// Example: Custom spacing - tighter packing
 #[allow(dead_code)]
 fn tight_packing_config() -> LayoutCircular {
-    LayoutCircular::default()
-        .with_spacing(
-            SpacingConfig::default()
-                .with_base_radius(30.0)
-                .with_radius_per_node(3.0)
-        )
+    LayoutCircular::default().with_spacing(
+        SpacingConfig::default()
+            .with_base_radius(30.0)
+            .with_radius_per_node(3.0),
+    )
 }
 
 /// Example: Combined configuration - reverse sort with large circle
@@ -151,18 +152,35 @@ fn tight_packing_config() -> LayoutCircular {
 fn combined_config() -> LayoutCircular {
     LayoutCircular::default()
         .with_sort_order(SortOrder::ReverseAlphabetical)
-        .with_spacing(SpacingConfig::default().with_fixed_radius(250.0))
+        .with_spacing(
+            SpacingConfig::default().with_fixed_radius(250.0),
+        )
 }
 
 // ------------------------------------------------------------------
 // Initialization helpers
 // ------------------------------------------------------------------
 
-fn setup_graph(g: &StableGraph<NodeData, f32>) -> Graph<NodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape> {
-    let mut graph: Graph<NodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape> = Graph::from(g);
+fn setup_graph(
+    g: &StableGraph<NodeData, f32>,
+) -> Graph<
+    NodeData,
+    f32,
+    Directed,
+    DefaultIx,
+    DefaultNodeShape,
+    WeightedEdgeShape,
+> {
+    let mut graph: Graph<
+        NodeData,
+        f32,
+        Directed,
+        DefaultIx,
+        DefaultNodeShape,
+        WeightedEdgeShape,
+    > = Graph::from(g);
     // Set labels and size for all nodes
-    for (idx, node) in g.node_indices().zip(g.node_weights())
-    {
+    for (idx, node) in g.node_indices().zip(g.node_weights()) {
         if let Some(graph_node) = graph.node_mut(idx) {
             graph_node.set_label(node.name.clone());
             // Reduce node size to 75% of default
@@ -177,11 +195,26 @@ fn setup_graph(g: &StableGraph<NodeData, f32>) -> Graph<NodeData, f32, Directed,
     graph
 }
 
-fn setup_mapping_graph(mg: &StableGraph<MappingNodeData, f32>) -> Graph<MappingNodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape> {
-    let mut mapping_graph: Graph<MappingNodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape> = Graph::from(mg);
+fn setup_mapping_graph(
+    mg: &StableGraph<MappingNodeData, f32>,
+) -> Graph<
+    MappingNodeData,
+    f32,
+    Directed,
+    DefaultIx,
+    DefaultNodeShape,
+    WeightedEdgeShape,
+> {
+    let mut mapping_graph: Graph<
+        MappingNodeData,
+        f32,
+        Directed,
+        DefaultIx,
+        DefaultNodeShape,
+        WeightedEdgeShape,
+    > = Graph::from(mg);
     // Set labels and size for all nodes
-    for (idx, node) in mg.node_indices().zip(mg.node_weights())
-    {
+    for (idx, node) in mg.node_indices().zip(mg.node_weights()) {
         if let Some(graph_node) = mapping_graph.node_mut(idx) {
             graph_node.set_label(node.name.clone());
             graph_node.display_mut().radius *= 0.75;
@@ -195,27 +228,59 @@ fn setup_mapping_graph(mg: &StableGraph<MappingNodeData, f32>) -> Graph<MappingN
     mapping_graph
 }
 
-fn load_or_create_default_state() -> (Graph<NodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape>, Graph<MappingNodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape>) {
+fn load_or_create_default_state() -> (
+    Graph<
+        NodeData,
+        f32,
+        Directed,
+        DefaultIx,
+        DefaultNodeShape,
+        WeightedEdgeShape,
+    >,
+    Graph<
+        MappingNodeData,
+        f32,
+        Directed,
+        DefaultIx,
+        DefaultNodeShape,
+        WeightedEdgeShape,
+    >,
+) {
     const STATE_FILE: &str = "state.json";
 
     if std::path::Path::new(STATE_FILE).exists() {
         // Try to load from state.json
         match std::fs::read_to_string(STATE_FILE) {
             Ok(json_str) => {
-                match serde_json::from_str::<SerializableState>(&json_str) {
+                match serde_json::from_str::<SerializableState>(
+                    &json_str,
+                ) {
                     Ok(state) => {
                         // Successfully loaded state
-                        let g = serializable_to_graph(&state.dynamical_system);
-                        let mg = serializable_to_mapping_graph(&state.observable);
-                        return (setup_graph(&g), setup_mapping_graph(&mg));
+                        let g = serializable_to_graph(
+                            &state.dynamical_system,
+                        );
+                        let mg = serializable_to_mapping_graph(
+                            &state.observable,
+                        );
+                        return (
+                            setup_graph(&g),
+                            setup_mapping_graph(&mg),
+                        );
                     }
                     Err(e) => {
-                        eprintln!("Error parsing state.json: {}. Using default state.", e);
+                        eprintln!(
+                            "Error parsing state.json: {}. Using default state.",
+                            e
+                        );
                     }
                 }
             }
             Err(e) => {
-                eprintln!("Error reading state.json: {}. Using default state.", e);
+                eprintln!(
+                    "Error reading state.json: {}. Using default state.",
+                    e
+                );
             }
         }
     }
@@ -234,7 +299,8 @@ fn main() -> eframe::Result<()> {
         "Graph Editor",
         options,
         Box::new(|_cc| {
-            let (graph, mapping_graph) = load_or_create_default_state();
+            let (graph, mapping_graph) =
+                load_or_create_default_state();
 
             Ok(Box::new(GraphEditor {
                 g: graph,
@@ -256,7 +322,14 @@ fn main() -> eframe::Result<()> {
     )
 }
 
-fn clear_edge_label<N: Clone, E: Clone, Ty: EdgeType, Ix: IndexType, Dn: DisplayNode<N, E, Ty, Ix>, De: DisplayEdge<N, E, Ty, Ix, Dn>>(
+fn clear_edge_label<
+    N: Clone,
+    E: Clone,
+    Ty: EdgeType,
+    Ix: IndexType,
+    Dn: DisplayNode<N, E, Ty, Ix>,
+    De: DisplayEdge<N, E, Ty, Ix, Dn>,
+>(
     graph: &mut Graph<N, E, Ty, Ix, Dn, De>,
     edge_idx: EdgeIndex<Ix>,
 ) {
@@ -265,7 +338,12 @@ fn clear_edge_label<N: Clone, E: Clone, Ty: EdgeType, Ix: IndexType, Dn: Display
     }
 }
 
-fn set_node_name<Ty: EdgeType, Ix: IndexType, Dn: DisplayNode<NodeData, f32, Ty, Ix>, De: DisplayEdge<NodeData, f32, Ty, Ix, Dn>>(
+fn set_node_name<
+    Ty: EdgeType,
+    Ix: IndexType,
+    Dn: DisplayNode<NodeData, f32, Ty, Ix>,
+    De: DisplayEdge<NodeData, f32, Ty, Ix, Dn>,
+>(
     graph: &mut Graph<NodeData, f32, Ty, Ix, Dn, De>,
     node_idx: NodeIndex<Ix>,
     name: String,
@@ -296,7 +374,9 @@ fn generate_graph() -> StableGraph<NodeData, f32> {
     g
 }
 
-fn generate_mapping_graph(source_graph: &StableGraph<NodeData, f32>) -> StableGraph<MappingNodeData, f32> {
+fn generate_mapping_graph(
+    source_graph: &StableGraph<NodeData, f32>,
+) -> StableGraph<MappingNodeData, f32> {
     let mut g = StableGraph::new();
 
     // Add Source nodes mirroring the dynamical system
@@ -324,15 +404,21 @@ fn generate_mapping_graph(source_graph: &StableGraph<NodeData, f32>) -> StableGr
 // Serialization conversion functions
 // ------------------------------------------------------------------
 
-fn graph_to_serializable<Ty: EdgeType, Ix: IndexType, Dn: DisplayNode<NodeData, f32, Ty, Ix>, De: DisplayEdge<NodeData, f32, Ty, Ix, Dn>>(
-    graph: &Graph<NodeData, f32, Ty, Ix, Dn, De>
+fn graph_to_serializable<
+    Ty: EdgeType,
+    Ix: IndexType,
+    Dn: DisplayNode<NodeData, f32, Ty, Ix>,
+    De: DisplayEdge<NodeData, f32, Ty, Ix, Dn>,
+>(
+    graph: &Graph<NodeData, f32, Ty, Ix, Dn, De>,
 ) -> SerializableGraphState {
     let stable_graph = graph.g();
     let mut nodes = Vec::new();
     let mut node_index_map = std::collections::HashMap::new();
 
     // Collect nodes and build index mapping using the nodes_iter from Graph
-    for (new_idx, (node_idx, node)) in graph.nodes_iter().enumerate() {
+    for (new_idx, (node_idx, node)) in graph.nodes_iter().enumerate()
+    {
         nodes.push(SerializableNode {
             name: node.payload().name.clone(),
         });
@@ -352,7 +438,9 @@ fn graph_to_serializable<Ty: EdgeType, Ix: IndexType, Dn: DisplayNode<NodeData, 
     SerializableGraphState { nodes, edges }
 }
 
-fn serializable_to_graph(state: &SerializableGraphState) -> StableGraph<NodeData, f32> {
+fn serializable_to_graph(
+    state: &SerializableGraphState,
+) -> StableGraph<NodeData, f32> {
     let mut g = StableGraph::new();
     let mut node_indices = Vec::new();
 
@@ -366,21 +454,31 @@ fn serializable_to_graph(state: &SerializableGraphState) -> StableGraph<NodeData
 
     // Add edges
     for edge in &state.edges {
-        g.add_edge(node_indices[edge.source], node_indices[edge.target], edge.weight);
+        g.add_edge(
+            node_indices[edge.source],
+            node_indices[edge.target],
+            edge.weight,
+        );
     }
 
     g
 }
 
-fn mapping_graph_to_serializable<Ty: EdgeType, Ix: IndexType, Dn: DisplayNode<MappingNodeData, f32, Ty, Ix>, De: DisplayEdge<MappingNodeData, f32, Ty, Ix, Dn>>(
-    graph: &Graph<MappingNodeData, f32, Ty, Ix, Dn, De>
+fn mapping_graph_to_serializable<
+    Ty: EdgeType,
+    Ix: IndexType,
+    Dn: DisplayNode<MappingNodeData, f32, Ty, Ix>,
+    De: DisplayEdge<MappingNodeData, f32, Ty, Ix, Dn>,
+>(
+    graph: &Graph<MappingNodeData, f32, Ty, Ix, Dn, De>,
 ) -> SerializableObservableState {
     let stable_graph = graph.g();
     let mut nodes = Vec::new();
     let mut node_index_map = std::collections::HashMap::new();
 
     // Collect nodes and build index mapping using the nodes_iter from Graph
-    for (new_idx, (node_idx, node)) in graph.nodes_iter().enumerate() {
+    for (new_idx, (node_idx, node)) in graph.nodes_iter().enumerate()
+    {
         nodes.push(SerializableMappingNode {
             name: node.payload().name.clone(),
             node_type: node.payload().node_type,
@@ -401,7 +499,9 @@ fn mapping_graph_to_serializable<Ty: EdgeType, Ix: IndexType, Dn: DisplayNode<Ma
     SerializableObservableState { nodes, edges }
 }
 
-fn serializable_to_mapping_graph(state: &SerializableObservableState) -> StableGraph<MappingNodeData, f32> {
+fn serializable_to_mapping_graph(
+    state: &SerializableObservableState,
+) -> StableGraph<MappingNodeData, f32> {
     let mut g = StableGraph::new();
     let mut node_indices = Vec::new();
 
@@ -416,7 +516,11 @@ fn serializable_to_mapping_graph(state: &SerializableObservableState) -> StableG
 
     // Add edges
     for edge in &state.edges {
-        g.add_edge(node_indices[edge.source], node_indices[edge.target], edge.weight);
+        g.add_edge(
+            node_indices[edge.source],
+            node_indices[edge.target],
+            edge.weight,
+        );
     }
 
     g
@@ -437,8 +541,22 @@ enum ActiveTab {
 }
 
 struct GraphEditor {
-    g: Graph<NodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape>,
-    mapping_g: Graph<MappingNodeData, f32, Directed, DefaultIx, DefaultNodeShape, WeightedEdgeShape>,
+    g: Graph<
+        NodeData,
+        f32,
+        Directed,
+        DefaultIx,
+        DefaultNodeShape,
+        WeightedEdgeShape,
+    >,
+    mapping_g: Graph<
+        MappingNodeData,
+        f32,
+        Directed,
+        DefaultIx,
+        DefaultNodeShape,
+        WeightedEdgeShape,
+    >,
     mode: EditMode,
     prev_mode: EditMode,
     active_tab: ActiveTab,
@@ -455,7 +573,9 @@ struct GraphEditor {
 
 impl GraphEditor {
     // Build adjacency matrix and sorted node labels for heatmap
-    fn build_heatmap_data(&self) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>) {
+    fn build_heatmap_data(
+        &self,
+    ) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>) {
         // Get all nodes with their labels
         let mut nodes: Vec<_> = self
             .g
@@ -470,7 +590,8 @@ impl GraphEditor {
             return (vec![], vec![], vec![]);
         }
 
-        let labels: Vec<String> = nodes.iter().map(|(_, name)| name.clone()).collect();
+        let labels: Vec<String> =
+            nodes.iter().map(|(_, name)| name.clone()).collect();
         let node_count = labels.len();
 
         // Build index map: NodeIndex -> position in sorted list
@@ -489,8 +610,10 @@ impl GraphEditor {
             let target_idx = edge_ref.target();
             let weight = *edge_ref.weight().payload();
 
-            if let (Some(&x_pos), Some(&y_pos)) =
-                (index_map.get(&source_idx), index_map.get(&target_idx)) {
+            if let (Some(&x_pos), Some(&y_pos)) = (
+                index_map.get(&source_idx),
+                index_map.get(&target_idx),
+            ) {
                 matrix[y_pos][x_pos] = Some(weight);
             }
         }
@@ -551,23 +674,43 @@ impl GraphEditor {
     fn get_settings_style(&self) -> SettingsStyle {
         SettingsStyle::new()
             .with_labels_always(self.show_labels)
-            .with_node_stroke_hook(|selected, _dragged, _node_color, _current_stroke, _style| {
-                if selected {
-                    // Elegant blood red for selected nodes
-                    egui::Stroke::new(4.0, egui::Color32::from_rgb(180, 50, 60))
-                } else {
-                    egui::Stroke::new(2.0, egui::Color32::from_rgb(180, 180, 180))
-                }
-            })
-            .with_edge_stroke_hook(|selected, _order, current_stroke, _style| {
-                // Use the width from current_stroke (which comes from WeightedEdgeShape)
-                // but change color based on selection
-                if selected {
-                    egui::Stroke::new(current_stroke.width, egui::Color32::from_rgb(120, 120, 120))
-                } else {
-                    egui::Stroke::new(current_stroke.width, egui::Color32::from_rgb(80, 80, 80))
-                }
-            })
+            .with_node_stroke_hook(
+                |selected,
+                 _dragged,
+                 _node_color,
+                 _current_stroke,
+                 _style| {
+                    if selected {
+                        // Elegant blood red for selected nodes
+                        egui::Stroke::new(
+                            4.0,
+                            egui::Color32::from_rgb(180, 50, 60),
+                        )
+                    } else {
+                        egui::Stroke::new(
+                            2.0,
+                            egui::Color32::from_rgb(180, 180, 180),
+                        )
+                    }
+                },
+            )
+            .with_edge_stroke_hook(
+                |selected, _order, current_stroke, _style| {
+                    // Use the width from current_stroke (which comes from WeightedEdgeShape)
+                    // but change color based on selection
+                    if selected {
+                        egui::Stroke::new(
+                            current_stroke.width,
+                            egui::Color32::from_rgb(120, 120, 120),
+                        )
+                    } else {
+                        egui::Stroke::new(
+                            current_stroke.width,
+                            egui::Color32::from_rgb(80, 80, 80),
+                        )
+                    }
+                },
+            )
     }
 
     // Drag-to-create edge workflow: click on source node, drag
@@ -580,21 +723,23 @@ impl GraphEditor {
         // Start potential drag from a node
         if pointer.primary_pressed()
             && let Some(hovered) = self.g.hovered_node()
-                && let Some(press_pos) = pointer.interact_pos() {
-                    self.dragging_from = Some((hovered, press_pos));
-                    self.drag_started = false;
-                }
+            && let Some(press_pos) = pointer.interact_pos()
+        {
+            self.dragging_from = Some((hovered, press_pos));
+            self.drag_started = false;
+        }
 
         // Detect if mouse has moved (drag started)
-        if pointer.primary_down() && self.dragging_from.is_some()
-            && pointer.delta().length() > DRAG_THRESHOLD {
-                self.drag_started = true;
-            }
+        if pointer.primary_down()
+            && self.dragging_from.is_some()
+            && pointer.delta().length() > DRAG_THRESHOLD
+        {
+            self.drag_started = true;
+        }
 
         // Determine if preview arrow should be drawn
         let arrow_coords = if self.drag_started {
-            if let Some((_src_idx, from_pos)) = self.dragging_from
-            {
+            if let Some((_src_idx, from_pos)) = self.dragging_from {
                 pointer.hover_pos().map(|to_pos| (from_pos, to_pos))
             } else {
                 None
@@ -606,19 +751,21 @@ impl GraphEditor {
         // Handle mouse release - create edge if dragged
         if pointer.primary_released() {
             if let Some((source_node, _pos)) = self.dragging_from
-                && self.drag_started {
-                    // Drag completed - create edge if hovering different node
-                    if let Some(target_node) = self.g.hovered_node()
-                        && source_node != target_node {
-                            let edge_idx = self.g.add_edge(
-                                source_node,
-                                target_node,
-                                1.0,
-                            );
-                            // Clear edge label to hide it
-                            clear_edge_label(&mut self.g, edge_idx);
-                        }
+                && self.drag_started
+            {
+                // Drag completed - create edge if hovering different node
+                if let Some(target_node) = self.g.hovered_node()
+                    && source_node != target_node
+                {
+                    let edge_idx = self.g.add_edge(
+                        source_node,
+                        target_node,
+                        1.0,
+                    );
+                    // Clear edge label to hide it
+                    clear_edge_label(&mut self.g, edge_idx);
                 }
+            }
             self.dragging_from = None;
             self.drag_started = false;
         }
@@ -628,12 +775,8 @@ impl GraphEditor {
 
     // Two-click edge deletion: first click selects, second click
     // deletes. Uses graph library's selection state.
-    fn handle_edge_deletion(
-        &mut self,
-        pointer: &egui::PointerState,
-    ) {
-        if pointer.primary_clicked() && self.dragging_from.is_none()
-        {
+    fn handle_edge_deletion(&mut self, pointer: &egui::PointerState) {
+        if pointer.primary_clicked() && self.dragging_from.is_none() {
             let selected_edges: Vec<_> =
                 self.g.selected_edges().to_vec();
 
@@ -656,21 +799,23 @@ impl GraphEditor {
         // Start potential drag from a node
         if pointer.primary_pressed()
             && let Some(hovered) = self.mapping_g.hovered_node()
-                && let Some(press_pos) = pointer.interact_pos() {
-                    self.dragging_from = Some((hovered, press_pos));
-                    self.drag_started = false;
-                }
+            && let Some(press_pos) = pointer.interact_pos()
+        {
+            self.dragging_from = Some((hovered, press_pos));
+            self.drag_started = false;
+        }
 
         // Detect if mouse has moved (drag started)
-        if pointer.primary_down() && self.dragging_from.is_some()
-            && pointer.delta().length() > DRAG_THRESHOLD {
-                self.drag_started = true;
-            }
+        if pointer.primary_down()
+            && self.dragging_from.is_some()
+            && pointer.delta().length() > DRAG_THRESHOLD
+        {
+            self.drag_started = true;
+        }
 
         // Determine if preview arrow should be drawn
         let arrow_coords = if self.drag_started {
-            if let Some((_src_idx, from_pos)) = self.dragging_from
-            {
+            if let Some((_src_idx, from_pos)) = self.dragging_from {
                 pointer.hover_pos().map(|to_pos| (from_pos, to_pos))
             } else {
                 None
@@ -682,28 +827,42 @@ impl GraphEditor {
         // Handle mouse release - create edge if dragged
         if pointer.primary_released() {
             if let Some((source_node, _pos)) = self.dragging_from
-                && self.drag_started {
-                    // Drag completed - create edge if hovering different node
-                    if let Some(target_node) = self.mapping_g.hovered_node()
-                        && source_node != target_node {
-                            // Check node types: only allow Source -> Destination
-                            let source_type = self.mapping_g.node(source_node)
-                                .map(|n| n.payload().node_type);
-                            let target_type = self.mapping_g.node(target_node)
-                                .map(|n| n.payload().node_type);
+                && self.drag_started
+            {
+                // Drag completed - create edge if hovering different node
+                if let Some(target_node) =
+                    self.mapping_g.hovered_node()
+                    && source_node != target_node
+                {
+                    // Check node types: only allow Source -> Destination
+                    let source_type = self
+                        .mapping_g
+                        .node(source_node)
+                        .map(|n| n.payload().node_type);
+                    let target_type = self
+                        .mapping_g
+                        .node(target_node)
+                        .map(|n| n.payload().node_type);
 
-                            if let (Some(NodeType::Source), Some(NodeType::Destination)) = (source_type, target_type) {
-                                let edge_idx = self.mapping_g.add_edge(
-                                    source_node,
-                                    target_node,
-                                    1.0,
-                                );
-                                // Clear edge label to hide it
-                                clear_edge_label(&mut self.mapping_g, edge_idx);
-                            }
-                            // Silently ignore invalid edge attempts (Dest->Source, Source->Source, Dest->Dest)
-                        }
+                    if let (
+                        Some(NodeType::Source),
+                        Some(NodeType::Destination),
+                    ) = (source_type, target_type)
+                    {
+                        let edge_idx = self.mapping_g.add_edge(
+                            source_node,
+                            target_node,
+                            1.0,
+                        );
+                        // Clear edge label to hide it
+                        clear_edge_label(
+                            &mut self.mapping_g,
+                            edge_idx,
+                        );
+                    }
+                    // Silently ignore invalid edge attempts (Dest->Source, Source->Source, Dest->Dest)
                 }
+            }
             self.dragging_from = None;
             self.drag_started = false;
         }
@@ -716,8 +875,7 @@ impl GraphEditor {
         &mut self,
         pointer: &egui::PointerState,
     ) {
-        if pointer.primary_clicked() && self.dragging_from.is_none()
-        {
+        if pointer.primary_clicked() && self.dragging_from.is_none() {
             let selected_edges: Vec<_> =
                 self.mapping_g.selected_edges().to_vec();
 
@@ -731,11 +889,15 @@ impl GraphEditor {
     fn save_to_file(&self, path: &Path) -> Result<(), String> {
         let state = SerializableState {
             dynamical_system: graph_to_serializable(&self.g),
-            observable: mapping_graph_to_serializable(&self.mapping_g),
+            observable: mapping_graph_to_serializable(
+                &self.mapping_g,
+            ),
         };
 
-        let json = serde_json::to_string_pretty(&state)
-            .map_err(|e| format!("Failed to serialize state: {}", e))?;
+        let json =
+            serde_json::to_string_pretty(&state).map_err(|e| {
+                format!("Failed to serialize state: {}", e)
+            })?;
 
         std::fs::write(path, json)
             .map_err(|e| format!("Failed to write file: {}", e))?;
@@ -747,8 +909,10 @@ impl GraphEditor {
         let json_str = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read file: {}", e))?;
 
-        let state: SerializableState = serde_json::from_str(&json_str)
-            .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        let state: SerializableState =
+            serde_json::from_str(&json_str).map_err(|e| {
+                format!("Failed to parse JSON: {}", e)
+            })?;
 
         // Convert to StableGraph first, then setup with proper display properties
         let g = serializable_to_graph(&state.dynamical_system);
@@ -803,8 +967,16 @@ impl eframe::App for GraphEditor {
         // Tab navigation below menu bar
         egui::TopBottomPanel::top("tabs").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.active_tab, ActiveTab::DynamicalSystem, "Dynamical System");
-                ui.selectable_value(&mut self.active_tab, ActiveTab::ObservableEditor, "Observable Editor");
+                ui.selectable_value(
+                    &mut self.active_tab,
+                    ActiveTab::DynamicalSystem,
+                    "Dynamical System",
+                );
+                ui.selectable_value(
+                    &mut self.active_tab,
+                    ActiveTab::ObservableEditor,
+                    "Observable Editor",
+                );
             });
         });
 
@@ -826,8 +998,12 @@ impl eframe::App for GraphEditor {
 
         // Render the appropriate view based on active tab
         match self.active_tab {
-            ActiveTab::DynamicalSystem => self.render_dynamical_system_tab(ctx),
-            ActiveTab::ObservableEditor => self.render_observable_editor_tab(ctx),
+            ActiveTab::DynamicalSystem => {
+                self.render_dynamical_system_tab(ctx)
+            }
+            ActiveTab::ObservableEditor => {
+                self.render_observable_editor_tab(ctx)
+            }
         }
 
         // Display error dialog if there's an error message
@@ -850,12 +1026,16 @@ impl eframe::App for GraphEditor {
 
 impl GraphEditor {
     // Build heatmap data for mapping graph: Sources (x-axis), Destinations (y-axis)
-    fn build_mapping_heatmap_data(&self) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>) {
+    fn build_mapping_heatmap_data(
+        &self,
+    ) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>) {
         // Get Source nodes (columns/x-axis)
         let mut source_nodes: Vec<_> = self
             .mapping_g
             .nodes_iter()
-            .filter(|(_, node)| node.payload().node_type == NodeType::Source)
+            .filter(|(_, node)| {
+                node.payload().node_type == NodeType::Source
+            })
             .map(|(idx, node)| (idx, node.payload().name.clone()))
             .collect();
 
@@ -863,7 +1043,9 @@ impl GraphEditor {
         let mut dest_nodes: Vec<_> = self
             .mapping_g
             .nodes_iter()
-            .filter(|(_, node)| node.payload().node_type == NodeType::Destination)
+            .filter(|(_, node)| {
+                node.payload().node_type == NodeType::Destination
+            })
             .map(|(idx, node)| (idx, node.payload().name.clone()))
             .collect();
 
@@ -875,8 +1057,12 @@ impl GraphEditor {
             return (vec![], vec![], vec![]);
         }
 
-        let x_labels: Vec<String> = source_nodes.iter().map(|(_, name)| name.clone()).collect();
-        let y_labels: Vec<String> = dest_nodes.iter().map(|(_, name)| name.clone()).collect();
+        let x_labels: Vec<String> = source_nodes
+            .iter()
+            .map(|(_, name)| name.clone())
+            .collect();
+        let y_labels: Vec<String> =
+            dest_nodes.iter().map(|(_, name)| name.clone()).collect();
 
         // Build index maps
         let mut source_index_map = std::collections::HashMap::new();
@@ -890,7 +1076,8 @@ impl GraphEditor {
         }
 
         // Build adjacency matrix: matrix[y][x] = Some(weight) if edge from Source x to Destination y, None otherwise
-        let mut matrix = vec![vec![None; source_nodes.len()]; dest_nodes.len()];
+        let mut matrix =
+            vec![vec![None; source_nodes.len()]; dest_nodes.len()];
 
         // Iterate over all edges
         let stable_mg = self.mapping_g.g();
@@ -900,7 +1087,8 @@ impl GraphEditor {
             let weight = *edge_ref.weight().payload();
 
             if let (Some(&x_pos), Some(&y_pos)) =
-                (source_index_map.get(&src), dest_index_map.get(&tgt)) {
+                (source_index_map.get(&src), dest_index_map.get(&tgt))
+            {
                 matrix[y_pos][x_pos] = Some(weight);
             }
         }
@@ -919,30 +1107,37 @@ impl GraphEditor {
         let source_name = &x_labels[change.x];
         let target_name = &y_labels[change.y];
 
-        let source_idx = self.g.nodes_iter()
+        let source_idx = self
+            .g
+            .nodes_iter()
             .find(|(_, node)| &node.payload().name == source_name)
             .map(|(idx, _)| idx);
 
-        let target_idx = self.g.nodes_iter()
+        let target_idx = self
+            .g
+            .nodes_iter()
             .find(|(_, node)| &node.payload().name == target_name)
             .map(|(idx, _)| idx);
 
         if let (Some(src), Some(tgt)) = (source_idx, target_idx) {
             if change.new_weight == 0.0 {
                 // Remove edge
-                if let Some(edge_idx) = self.g.g().find_edge(src, tgt) {
+                if let Some(edge_idx) = self.g.g().find_edge(src, tgt)
+                {
                     self.g.remove_edge(edge_idx);
                 }
             } else {
                 // Add or update edge
-                if let Some(edge_idx) = self.g.g().find_edge(src, tgt) {
+                if let Some(edge_idx) = self.g.g().find_edge(src, tgt)
+                {
                     // Update existing edge weight
                     if let Some(edge) = self.g.edge_mut(edge_idx) {
                         *edge.payload_mut() = change.new_weight;
                     }
                 } else {
                     // Add new edge
-                    let edge_idx = self.g.add_edge(src, tgt, change.new_weight);
+                    let edge_idx =
+                        self.g.add_edge(src, tgt, change.new_weight);
                     clear_edge_label(&mut self.g, edge_idx);
                 }
             }
@@ -960,30 +1155,44 @@ impl GraphEditor {
         let source_name = &x_labels[change.x];
         let target_name = &y_labels[change.y];
 
-        let source_idx = self.mapping_g.nodes_iter()
+        let source_idx = self
+            .mapping_g
+            .nodes_iter()
             .find(|(_, node)| &node.payload().name == source_name)
             .map(|(idx, _)| idx);
 
-        let target_idx = self.mapping_g.nodes_iter()
+        let target_idx = self
+            .mapping_g
+            .nodes_iter()
             .find(|(_, node)| &node.payload().name == target_name)
             .map(|(idx, _)| idx);
 
         if let (Some(src), Some(tgt)) = (source_idx, target_idx) {
             if change.new_weight == 0.0 {
                 // Remove edge
-                if let Some(edge_idx) = self.mapping_g.g().find_edge(src, tgt) {
+                if let Some(edge_idx) =
+                    self.mapping_g.g().find_edge(src, tgt)
+                {
                     self.mapping_g.remove_edge(edge_idx);
                 }
             } else {
                 // Add or update edge
-                if let Some(edge_idx) = self.mapping_g.g().find_edge(src, tgt) {
+                if let Some(edge_idx) =
+                    self.mapping_g.g().find_edge(src, tgt)
+                {
                     // Update existing edge weight
-                    if let Some(edge) = self.mapping_g.edge_mut(edge_idx) {
+                    if let Some(edge) =
+                        self.mapping_g.edge_mut(edge_idx)
+                    {
                         *edge.payload_mut() = change.new_weight;
                     }
                 } else {
                     // Add new edge
-                    let edge_idx = self.mapping_g.add_edge(src, tgt, change.new_weight);
+                    let edge_idx = self.mapping_g.add_edge(
+                        src,
+                        tgt,
+                        change.new_weight,
+                    );
                     clear_edge_label(&mut self.mapping_g, edge_idx);
                 }
             }
@@ -1003,23 +1212,27 @@ impl GraphEditor {
         let source_nodes: Vec<(NodeIndex, String)> = self
             .mapping_g
             .nodes_iter()
-            .filter(|(_, node)| node.payload().node_type == NodeType::Source)
+            .filter(|(_, node)| {
+                node.payload().node_type == NodeType::Source
+            })
             .map(|(idx, node)| (idx, node.payload().name.clone()))
             .collect();
 
         // Build a map of Source nodes by name for quick lookup
-        let source_map: std::collections::HashMap<String, NodeIndex> = source_nodes
-            .iter()
-            .map(|(idx, name)| (name.clone(), *idx))
-            .collect();
+        let source_map: std::collections::HashMap<String, NodeIndex> =
+            source_nodes
+                .iter()
+                .map(|(idx, name)| (name.clone(), *idx))
+                .collect();
 
         // Add missing Source nodes
         for (_, dyn_name) in &dyn_nodes {
             if !source_map.contains_key(dyn_name) {
-                let new_idx = self.mapping_g.add_node(MappingNodeData {
-                    name: dyn_name.clone(),
-                    node_type: NodeType::Source,
-                });
+                let new_idx =
+                    self.mapping_g.add_node(MappingNodeData {
+                        name: dyn_name.clone(),
+                        node_type: NodeType::Source,
+                    });
                 if let Some(node) = self.mapping_g.node_mut(new_idx) {
                     node.set_label(dyn_name.clone());
                     node.display_mut().radius *= 0.75;
@@ -1028,10 +1241,8 @@ impl GraphEditor {
         }
 
         // Remove Source nodes that no longer exist in dynamical system
-        let dyn_names: std::collections::HashSet<String> = dyn_nodes
-            .iter()
-            .map(|(_, name)| name.clone())
-            .collect();
+        let dyn_names: std::collections::HashSet<String> =
+            dyn_nodes.iter().map(|(_, name)| name.clone()).collect();
 
         for (source_idx, source_name) in source_nodes {
             if !dyn_names.contains(&source_name) {
@@ -1042,11 +1253,13 @@ impl GraphEditor {
         // Update names of Source nodes (in case of renames)
         for (_, dyn_name) in &dyn_nodes {
             if let Some(&source_idx) = source_map.get(dyn_name)
-                && let Some(source_node) = self.mapping_g.node_mut(source_idx)
-                    && source_node.payload().name != *dyn_name {
-                        source_node.payload_mut().name = dyn_name.clone();
-                        source_node.set_label(dyn_name.clone());
-                    }
+                && let Some(source_node) =
+                    self.mapping_g.node_mut(source_idx)
+                && source_node.payload().name != *dyn_name
+            {
+                source_node.payload_mut().name = dyn_name.clone();
+                source_node.set_label(dyn_name.clone());
+            }
         }
     }
 
@@ -1190,7 +1403,10 @@ impl GraphEditor {
         // Right panel for heatmap (1/3 width)
         egui::SidePanel::right("right_panel")
             .exact_width(panel_width)
-            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
+            .frame(
+                egui::Frame::side_top_panel(&ctx.style())
+                    .inner_margin(8.0),
+            )
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
                     // Panel name
@@ -1198,21 +1414,34 @@ impl GraphEditor {
                     ui.separator();
 
                     // Contents - heatmap
-                    let available_height = ui.available_height() - 40.0; // Reserve space for bottom metadata
+                    let available_height =
+                        ui.available_height() - 40.0; // Reserve space for bottom metadata
                     ui.allocate_ui_with_layout(
-                        egui::Vec2::new(ui.available_width(), available_height),
+                        egui::Vec2::new(
+                            ui.available_width(),
+                            available_height,
+                        ),
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             // Build heatmap data
-                            let (x_labels, y_labels, matrix) = self.build_heatmap_data();
+                            let (x_labels, y_labels, matrix) =
+                                self.build_heatmap_data();
 
                             // Display heatmap with editing support
-                            let editing_state = heatmap::EditingState {
-                                editing_cell: self.heatmap_editing_cell,
-                                edit_buffer: self.heatmap_edit_buffer.clone(),
-                            };
+                            let editing_state =
+                                heatmap::EditingState {
+                                    editing_cell: self
+                                        .heatmap_editing_cell,
+                                    edit_buffer: self
+                                        .heatmap_edit_buffer
+                                        .clone(),
+                                };
 
-                            let (new_hover, new_editing, weight_change) = heatmap::show_heatmap(
+                            let (
+                                new_hover,
+                                new_editing,
+                                weight_change,
+                            ) = heatmap::show_heatmap(
                                 ui,
                                 &x_labels,
                                 &y_labels,
@@ -1222,12 +1451,16 @@ impl GraphEditor {
                             );
 
                             self.heatmap_hovered_cell = new_hover;
-                            self.heatmap_editing_cell = new_editing.editing_cell;
-                            self.heatmap_edit_buffer = new_editing.edit_buffer;
+                            self.heatmap_editing_cell =
+                                new_editing.editing_cell;
+                            self.heatmap_edit_buffer =
+                                new_editing.edit_buffer;
 
                             // Handle weight changes
                             if let Some(change) = weight_change {
-                                self.apply_weight_change_to_graph(change, &x_labels, &y_labels);
+                                self.apply_weight_change_to_graph(
+                                    change, &x_labels, &y_labels,
+                                );
                             }
                         },
                     );
@@ -1236,7 +1469,10 @@ impl GraphEditor {
                     ui.with_layout(
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
-                            ui.label(format!("Edges: {}", self.g.edge_count()));
+                            ui.label(format!(
+                                "Edges: {}",
+                                self.g.edge_count()
+                            ));
                             ui.separator();
                         },
                     );
@@ -1244,90 +1480,106 @@ impl GraphEditor {
             });
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(8.0))
+            .frame(
+                egui::Frame::central_panel(&ctx.style())
+                    .inner_margin(8.0),
+            )
             .show(ctx, |ui| {
-            ui.vertical(|ui| {
-                // Heading at the top
-                ui.heading("Graph");
-                ui.separator();
+                ui.vertical(|ui| {
+                    // Heading at the top
+                    ui.heading("Graph");
+                    ui.separator();
 
-                // Reset layout if needed
-                if self.layout_reset_needed {
-                    reset_layout::<LayoutStateCircular>(ui, None);
-                    self.layout_reset_needed = false;
-                }
+                    // Reset layout if needed
+                    if self.layout_reset_needed {
+                        reset_layout::<LayoutStateCircular>(ui, None);
+                        self.layout_reset_needed = false;
+                    }
 
-                // Clear edge selections when not in EdgeEditor mode,
-                // before creating GraphView
-                if self.mode == EditMode::NodeEditor {
-                    self.g.set_selected_edges(Vec::new());
-                }
+                    // Clear edge selections when not in EdgeEditor mode,
+                    // before creating GraphView
+                    if self.mode == EditMode::NodeEditor {
+                        self.g.set_selected_edges(Vec::new());
+                    }
 
-                let settings_interaction = self.get_settings_interaction();
-                let settings_style = self.get_settings_style();
+                    let settings_interaction =
+                        self.get_settings_interaction();
+                    let settings_style = self.get_settings_style();
 
-                // Allocate remaining space for the graph
-                let available_height = ui.available_height() - 60.0; // Reserve space for bottom instructions
+                    // Allocate remaining space for the graph
+                    let available_height =
+                        ui.available_height() - 60.0; // Reserve space for bottom instructions
 
-                ui.allocate_ui_with_layout(
-                    egui::Vec2::new(ui.available_width(), available_height),
-                    egui::Layout::top_down(egui::Align::Center),
-                    |ui| {
-                        ui.add(
-                            &mut MyGraphView::new(&mut self.g)
-                                .with_interactions(&settings_interaction)
-                                .with_styles(&settings_style),
-                        );
+                    ui.allocate_ui_with_layout(
+                        egui::Vec2::new(
+                            ui.available_width(),
+                            available_height,
+                        ),
+                        egui::Layout::top_down(egui::Align::Center),
+                        |ui| {
+                            ui.add(
+                                &mut MyGraphView::new(&mut self.g)
+                                    .with_interactions(
+                                        &settings_interaction,
+                                    )
+                                    .with_styles(&settings_style),
+                            );
 
-                        // Edge editing functionality (only in Edge Editor mode)
-                        if self.mode == EditMode::EdgeEditor {
-                            let pointer = ui.input(|i| i.pointer.clone());
+                            // Edge editing functionality (only in Edge Editor mode)
+                            if self.mode == EditMode::EdgeEditor {
+                                let pointer =
+                                    ui.input(|i| i.pointer.clone());
 
-                            // Handle edge creation and draw preview line if needed
-                            if let Some((from_pos, to_pos)) =
-                                self.handle_edge_creation(&pointer)
-                            {
-                                ui.painter().line_segment(
-                                    [from_pos, to_pos],
-                                    egui::Stroke::new(
-                                        EDGE_PREVIEW_STROKE_WIDTH,
-                                        EDGE_PREVIEW_COLOR,
-                                    ),
-                                );
+                                // Handle edge creation and draw preview line if needed
+                                if let Some((from_pos, to_pos)) = self
+                                    .handle_edge_creation(&pointer)
+                                {
+                                    ui.painter().line_segment(
+                                        [from_pos, to_pos],
+                                        egui::Stroke::new(
+                                            EDGE_PREVIEW_STROKE_WIDTH,
+                                            EDGE_PREVIEW_COLOR,
+                                        ),
+                                    );
+                                }
+
+                                self.handle_edge_deletion(&pointer);
+                            } else {
+                                // Reset dragging state and clear selections when not in Edge Editor mode
+                                self.dragging_from = None;
+                                self.drag_started = false;
+                                self.g.set_selected_edges(Vec::new());
                             }
+                        },
+                    );
 
-                            self.handle_edge_deletion(&pointer);
-                        } else {
-                            // Reset dragging state and clear selections when not in Edge Editor mode
-                            self.dragging_from = None;
-                            self.drag_started = false;
-                            self.g.set_selected_edges(Vec::new());
-                        }
-                    },
-                );
-
-                // Controls and metadata at the bottom
-                ui.with_layout(
-                    egui::Layout::bottom_up(egui::Align::LEFT),
-                    |ui| {
-                        let (mode_text, hint_text) = match self.mode {
-                            EditMode::NodeEditor => (
-                                "Mode: Node Editor",
-                                "Hold Ctrl for Edge Editor",
-                            ),
-                            EditMode::EdgeEditor => (
-                                "Mode: Edge Editor",
-                                "Release Ctrl for Node Editor",
-                            ),
-                        };
-                        ui.label(hint_text);
-                        ui.label(mode_text);
-                        ui.checkbox(&mut self.show_labels, "Show Labels");
-                        ui.separator();
-                    },
-                );
+                    // Controls and metadata at the bottom
+                    ui.with_layout(
+                        egui::Layout::bottom_up(egui::Align::LEFT),
+                        |ui| {
+                            let (mode_text, hint_text) = match self
+                                .mode
+                            {
+                                EditMode::NodeEditor => (
+                                    "Mode: Node Editor",
+                                    "Hold Ctrl for Edge Editor",
+                                ),
+                                EditMode::EdgeEditor => (
+                                    "Mode: Edge Editor",
+                                    "Release Ctrl for Node Editor",
+                                ),
+                            };
+                            ui.label(hint_text);
+                            ui.label(mode_text);
+                            ui.checkbox(
+                                &mut self.show_labels,
+                                "Show Labels",
+                            );
+                            ui.separator();
+                        },
+                    );
+                });
             });
-        });
     }
 
     fn render_observable_editor_tab(&mut self, ctx: &egui::Context) {
@@ -1512,7 +1764,10 @@ impl GraphEditor {
 
         // Center panel: Bipartite graph visualization
         egui::CentralPanel::default()
-            .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(8.0))
+            .frame(
+                egui::Frame::central_panel(&ctx.style())
+                    .inner_margin(8.0),
+            )
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
                     ui.heading("Observable Mapping");
@@ -1520,7 +1775,9 @@ impl GraphEditor {
 
                     // Reset layout if needed
                     if self.mapping_layout_reset_needed {
-                        reset_layout::<LayoutStateBipartite>(ui, None);
+                        reset_layout::<LayoutStateBipartite>(
+                            ui, None,
+                        );
                         self.mapping_layout_reset_needed = false;
                     }
 
@@ -1529,28 +1786,40 @@ impl GraphEditor {
                         self.mapping_g.set_selected_edges(Vec::new());
                     }
 
-                    let settings_interaction = self.get_settings_interaction();
+                    let settings_interaction =
+                        self.get_settings_interaction();
                     let settings_style = self.get_settings_style();
 
                     // Allocate remaining space for the graph
-                    let available_height = ui.available_height() - 60.0;
+                    let available_height =
+                        ui.available_height() - 60.0;
                     ui.allocate_ui_with_layout(
-                        egui::Vec2::new(ui.available_width(), available_height),
+                        egui::Vec2::new(
+                            ui.available_width(),
+                            available_height,
+                        ),
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             ui.add(
-                                &mut MappingGraphView::new(&mut self.mapping_g)
-                                    .with_interactions(&settings_interaction)
-                                    .with_styles(&settings_style),
+                                &mut MappingGraphView::new(
+                                    &mut self.mapping_g,
+                                )
+                                .with_interactions(
+                                    &settings_interaction,
+                                )
+                                .with_styles(&settings_style),
                             );
 
                             // Edge editing functionality (only in Edge Editor mode)
                             if self.mode == EditMode::EdgeEditor {
-                                let pointer = ui.input(|i| i.pointer.clone());
+                                let pointer =
+                                    ui.input(|i| i.pointer.clone());
 
                                 // Handle edge creation and draw preview line if needed
-                                if let Some((from_pos, to_pos)) =
-                                    self.handle_mapping_edge_creation(&pointer)
+                                if let Some((from_pos, to_pos)) = self
+                                    .handle_mapping_edge_creation(
+                                        &pointer,
+                                    )
                                 {
                                     ui.painter().line_segment(
                                         [from_pos, to_pos],
@@ -1561,12 +1830,15 @@ impl GraphEditor {
                                     );
                                 }
 
-                                self.handle_mapping_edge_deletion(&pointer);
+                                self.handle_mapping_edge_deletion(
+                                    &pointer,
+                                );
                             } else {
                                 // Reset dragging state and clear selections when not in Edge Editor mode
                                 self.dragging_from = None;
                                 self.drag_started = false;
-                                self.mapping_g.set_selected_edges(Vec::new());
+                                self.mapping_g
+                                    .set_selected_edges(Vec::new());
                             }
                         },
                     );
@@ -1575,7 +1847,9 @@ impl GraphEditor {
                     ui.with_layout(
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
-                            let (mode_text, hint_text) = match self.mode {
+                            let (mode_text, hint_text) = match self
+                                .mode
+                            {
                                 EditMode::NodeEditor => (
                                     "Mode: Node Editor",
                                     "Hold Ctrl for Edge Editor",
@@ -1587,7 +1861,10 @@ impl GraphEditor {
                             };
                             ui.label(hint_text);
                             ui.label(mode_text);
-                            ui.checkbox(&mut self.show_labels, "Show Labels");
+                            ui.checkbox(
+                                &mut self.show_labels,
+                                "Show Labels",
+                            );
                             ui.separator();
                         },
                     );
@@ -1616,8 +1893,12 @@ impl From<EdgeProps<f32>> for WeightedEdgeShape {
     }
 }
 
-impl<N: Clone, Ty: EdgeType, Ix: IndexType, D: DisplayNode<N, f32, Ty, Ix>>
-    DisplayEdge<N, f32, Ty, Ix, D> for WeightedEdgeShape
+impl<
+    N: Clone,
+    Ty: EdgeType,
+    Ix: IndexType,
+    D: DisplayNode<N, f32, Ty, Ix>,
+> DisplayEdge<N, f32, Ty, Ix, D> for WeightedEdgeShape
 {
     fn is_inside(
         &self,
@@ -1641,7 +1922,10 @@ impl<N: Clone, Ty: EdgeType, Ix: IndexType, D: DisplayNode<N, f32, Ty, Ix>>
         self.weight = state.payload;
         // Recalculate width when edge is updated
         self.default_impl.width = 1.0 + self.weight.min(4.0);
-        DisplayEdge::<N, f32, Ty, Ix, D>::update(&mut self.default_impl, state);
+        DisplayEdge::<N, f32, Ty, Ix, D>::update(
+            &mut self.default_impl,
+            state,
+        );
     }
 
     fn extra_bounds(

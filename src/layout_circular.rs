@@ -1,7 +1,9 @@
 use eframe::egui;
-use egui_graphs::{DisplayEdge, DisplayNode, Graph, Layout, LayoutState};
-use petgraph::graph::IndexType;
+use egui_graphs::{
+    DisplayEdge, DisplayNode, Graph, Layout, LayoutState,
+};
 use petgraph::EdgeType;
+use petgraph::graph::IndexType;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
@@ -51,8 +53,7 @@ impl SpacingConfig {
 }
 
 /// Sort order for circular layout nodes
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub enum SortOrder {
     /// Alphabetical by label (ascending)
     #[default]
@@ -63,16 +64,13 @@ pub enum SortOrder {
     None,
 }
 
-
 /// Circular layout with configurable sorting and spacing
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct LayoutCircular {
     state: LayoutStateCircular,
     sort_order: SortOrder,
     spacing: SpacingConfig,
 }
-
 
 impl LayoutCircular {
     #[allow(dead_code)]
@@ -97,7 +95,9 @@ impl LayoutCircular {
 }
 
 impl Layout<LayoutStateCircular> for LayoutCircular {
-    fn from_state(state: LayoutStateCircular) -> impl Layout<LayoutStateCircular> {
+    fn from_state(
+        state: LayoutStateCircular,
+    ) -> impl Layout<LayoutStateCircular> {
         Self {
             state,
             sort_order: SortOrder::default(),
@@ -109,8 +109,7 @@ impl Layout<LayoutStateCircular> for LayoutCircular {
         &mut self,
         g: &mut Graph<N, E, Ty, Ix, Dn, De>,
         ui: &egui::Ui,
-    )
-    where
+    ) where
         N: Clone,
         E: Clone,
         Ty: EdgeType,
@@ -156,13 +155,16 @@ impl Layout<LayoutStateCircular> for LayoutCircular {
         let radius = if let Some(fixed) = self.spacing.fixed_radius {
             fixed
         } else {
-            self.spacing.base_radius + (node_count as f32) * self.spacing.radius_per_node
+            self.spacing.base_radius
+                + (node_count as f32) * self.spacing.radius_per_node
         };
 
         // Place nodes in a circle
         for (i, (node_idx, _label)) in nodes.iter().enumerate() {
             // Start at top (-π/2) and go clockwise
-            let angle = -std::f32::consts::PI / 2.0 + (i as f32) * 2.0 * std::f32::consts::PI / (node_count as f32);
+            let angle = -std::f32::consts::PI / 2.0
+                + (i as f32) * 2.0 * std::f32::consts::PI
+                    / (node_count as f32);
 
             let x = center_x + radius * angle.cos();
             let y = center_y + radius * angle.sin();

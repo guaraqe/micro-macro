@@ -32,14 +32,17 @@ pub fn show_heatmap(
     let label_height = 20.0;
     let label_width = 60.0;
 
-    let available_width = available_rect.width() - label_width - spacing;
-    let available_height = available_rect.height() - label_height - spacing;
+    let available_width =
+        available_rect.width() - label_width - spacing;
+    let available_height =
+        available_rect.height() - label_height - spacing;
 
     let cell_width = available_width / x_labels.len() as f32;
     let cell_height = available_height / y_labels.len() as f32;
     let cell_size = cell_width.min(cell_height).max(10.0);
 
-    let new_hovered_cell = std::cell::RefCell::new(None::<(usize, usize)>);
+    let new_hovered_cell =
+        std::cell::RefCell::new(None::<(usize, usize)>);
     let mut new_editing_cell = editing_state.editing_cell;
     let mut new_edit_buffer = editing_state.edit_buffer;
     let mut weight_change = None;
