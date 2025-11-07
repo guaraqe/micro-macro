@@ -6,17 +6,38 @@ use crate::layout_circular::{LayoutCircular, LayoutStateCircular};
 use eframe::egui;
 use egui_graphs::{
     DefaultEdgeShape, DefaultNodeShape, DisplayEdge, DisplayNode,
-    DrawContext, EdgeProps, GraphView, Node,
+    DrawContext, EdgeProps, Graph, GraphView, Node,
 };
 use petgraph::graph::DefaultIx;
 use petgraph::stable_graph::IndexType;
 use petgraph::{Directed, EdgeType};
 
 // ------------------------------------------------------------------
-// Type aliases for graph views
+// Type aliases for graph types
 // ------------------------------------------------------------------
 
-pub type MyGraphView<'a> = GraphView<
+// Type aliases for the display graph types (with visualization properties)
+pub type StateGraphDisplay = Graph<
+    StateNode,
+    f32,
+    Directed,
+    DefaultIx,
+    DefaultNodeShape,
+    WeightedEdgeShape,
+>;
+
+pub type ObservableGraphDisplay = Graph<
+    ObservableNode,
+    f32,
+    Directed,
+    DefaultIx,
+    DefaultNodeShape,
+    WeightedEdgeShape,
+>;
+
+// Type aliases for graph views (with layout configurations)
+
+pub type StateGraphView<'a> = GraphView<
     'a,
     StateNode,
     f32,
@@ -28,7 +49,7 @@ pub type MyGraphView<'a> = GraphView<
     LayoutCircular,
 >;
 
-pub type MappingGraphView<'a> = GraphView<
+pub type ObservableGraphView<'a> = GraphView<
     'a,
     ObservableNode,
     f32,

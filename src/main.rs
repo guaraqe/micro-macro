@@ -10,15 +10,21 @@ use egui_graphs::{
     DefaultNodeShape, DisplayEdge, DisplayNode, Graph,
     SettingsInteraction, SettingsStyle, reset_layout,
 };
-use graph::{ObservableNode, ObservableNodeType, StateNode};
-use graph_view::{MappingGraphView, MyGraphView, WeightedEdgeShape};
+use graph::{
+    ObservableGraph, ObservableNode, ObservableNodeType, StateGraph,
+    StateNode,
+};
+use graph_view::{
+    ObservableGraphDisplay, ObservableGraphView, StateGraphDisplay,
+    StateGraphView, WeightedEdgeShape,
+};
 use layout_bipartite::LayoutStateBipartite;
 use layout_circular::{
     LayoutCircular, LayoutStateCircular, SortOrder, SpacingConfig,
 };
 use petgraph::Directed;
 use petgraph::graph::DefaultIx;
-use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
+use petgraph::stable_graph::{EdgeIndex, NodeIndex};
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::{EdgeType, stable_graph::IndexType};
 // UI Constants
@@ -82,24 +88,8 @@ fn combined_config() -> LayoutCircular {
 // Initialization helpers
 // ------------------------------------------------------------------
 
-fn setup_graph(
-    g: &StableGraph<StateNode, f32>,
-) -> Graph<
-    StateNode,
-    f32,
-    Directed,
-    DefaultIx,
-    DefaultNodeShape,
-    WeightedEdgeShape,
-> {
-    let mut graph: Graph<
-        StateNode,
-        f32,
-        Directed,
-        DefaultIx,
-        DefaultNodeShape,
-        WeightedEdgeShape,
-    > = Graph::from(g);
+fn setup_graph(g: &StateGraph) -> StateGraphDisplay {
+    let mut graph: StateGraphDisplay = Graph::from(g);
     // Set labels and size for all nodes
     for (idx, node) in g.node_indices().zip(g.node_weights()) {
         if let Some(graph_node) = graph.node_mut(idx) {
@@ -117,23 +107,9 @@ fn setup_graph(
 }
 
 fn setup_mapping_graph(
-    mg: &StableGraph<ObservableNode, f32>,
-) -> Graph<
-    ObservableNode,
-    f32,
-    Directed,
-    DefaultIx,
-    DefaultNodeShape,
-    WeightedEdgeShape,
-> {
-    let mut mapping_graph: Graph<
-        ObservableNode,
-        f32,
-        Directed,
-        DefaultIx,
-        DefaultNodeShape,
-        WeightedEdgeShape,
-    > = Graph::from(mg);
+    mg: &ObservableGraph,
+) -> ObservableGraphDisplay {
+    let mut mapping_graph: ObservableGraphDisplay = Graph::from(mg);
     // Set labels and size for all nodes
     for (idx, node) in mg.node_indices().zip(mg.node_weights()) {
         if let Some(graph_node) = mapping_graph.node_mut(idx) {
@@ -149,24 +125,8 @@ fn setup_mapping_graph(
     mapping_graph
 }
 
-fn load_or_create_default_state() -> (
-    Graph<
-        StateNode,
-        f32,
-        Directed,
-        DefaultIx,
-        DefaultNodeShape,
-        WeightedEdgeShape,
-    >,
-    Graph<
-        ObservableNode,
-        f32,
-        Directed,
-        DefaultIx,
-        DefaultNodeShape,
-        WeightedEdgeShape,
-    >,
-) {
+fn load_or_create_default_state()
+-> (StateGraphDisplay, ObservableGraphDisplay) {
     const STATE_FILE: &str = "state.json";
 
     if std::path::Path::new(STATE_FILE).exists() {
@@ -263,8 +223,8 @@ fn set_node_name<
     }
 }
 
-fn generate_graph() -> StableGraph<StateNode, f32> {
-    let mut g = StableGraph::new();
+fn generate_graph() -> StateGraph {
+    let mut g = StateGraph::new();
 
     let a = g.add_node(StateNode {
         name: format!("Node {}", 0),
@@ -284,9 +244,9 @@ fn generate_graph() -> StableGraph<StateNode, f32> {
 }
 
 fn generate_mapping_graph(
-    source_graph: &StableGraph<StateNode, f32>,
-) -> StableGraph<ObservableNode, f32> {
-    let mut g = StableGraph::new();
+    source_graph: &StateGraph,
+) -> ObservableGraph {
+    let mut g = ObservableGraph::new();
 
     // Add Source nodes mirroring the dynamical system
     for node in source_graph.node_weights() {
@@ -1301,7 +1261,7 @@ impl GraphEditor {
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             ui.add(
-                                &mut MyGraphView::new(&mut self.g)
+                                &mut StateGraphView::new(&mut self.g)
                                     .with_interactions(
                                         &settings_interaction,
                                     )
@@ -1584,7 +1544,7 @@ impl GraphEditor {
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             ui.add(
-                                &mut MappingGraphView::new(
+                                &mut ObservableGraphView::new(
                                     &mut self.mapping_g,
                                 )
                                 .with_interactions(

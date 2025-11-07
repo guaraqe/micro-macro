@@ -1,11 +1,13 @@
 use egui_graphs::{DisplayEdge, DisplayNode, Graph};
-use petgraph::stable_graph::StableGraph;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::{EdgeType, stable_graph::IndexType};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use crate::graph::{ObservableNode, ObservableNodeType, StateNode};
+use crate::graph::{
+    ObservableGraph, ObservableNode, ObservableNodeType, StateGraph,
+    StateNode,
+};
 
 // ------------------------------------------------------------------
 // Serialization structures
@@ -87,8 +89,8 @@ pub fn graph_to_serializable<
 
 pub fn serializable_to_graph(
     state: &SerializableGraphState,
-) -> StableGraph<StateNode, f32> {
-    let mut g = StableGraph::new();
+) -> StateGraph {
+    let mut g = StateGraph::new();
     let mut node_indices = Vec::new();
 
     // Add nodes
@@ -148,8 +150,8 @@ pub fn observable_graph_to_serializable<
 
 pub fn serializable_to_observable_graph(
     state: &SerializableObservableState,
-) -> StableGraph<ObservableNode, f32> {
-    let mut g = StableGraph::new();
+) -> ObservableGraph {
+    let mut g = ObservableGraph::new();
     let mut node_indices = Vec::new();
 
     // Add nodes

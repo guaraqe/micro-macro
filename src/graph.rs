@@ -1,8 +1,9 @@
+use petgraph::stable_graph::StableGraph;
 use serde::{Deserialize, Serialize};
 
-// ------------------------------------------------------------------
-// Node types - Core graph data structures
-// ------------------------------------------------------------------
+// Type aliases for the basic graph types
+pub type StateGraph = StableGraph<StateNode, f32>;
+pub type ObservableGraph = StableGraph<ObservableNode, f32>;
 
 #[derive(Clone)]
 pub struct StateNode {
