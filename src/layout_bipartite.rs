@@ -7,7 +7,7 @@ use petgraph::graph::IndexType;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-use crate::graph::{ObservableNode, ObservableNodeType};
+use crate::graph_state::{ObservableNode, ObservableNodeType};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LayoutStateBipartite {

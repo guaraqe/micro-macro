@@ -1,4 +1,4 @@
-mod graph;
+mod graph_state;
 mod graph_view;
 mod heatmap;
 mod layout_bipartite;
@@ -10,13 +10,15 @@ use egui_graphs::{
     DefaultNodeShape, DisplayEdge, DisplayNode, Graph,
     SettingsInteraction, SettingsStyle, reset_layout,
 };
-use graph::{
+use graph_state::{
     ObservableNode, ObservableNodeType, StateNode,
     default_observable_graph, default_state_graph,
+    calculate_observed_graph_from_observable_display,
 };
 use graph_view::{
-    ObservableGraphDisplay, ObservableGraphView, StateGraphDisplay,
-    StateGraphView, WeightedEdgeShape, setup_graph_display,
+    ObservableGraphDisplay, ObservableGraphView, ObservedGraphDisplay,
+    ObservedGraphView, StateGraphDisplay, StateGraphView,
+    WeightedEdgeShape, setup_graph_display,
 };
 use layout_bipartite::LayoutStateBipartite;
 use layout_circular::{
@@ -97,6 +99,7 @@ fn load_graphs_from_path(
         serialization::serializable_to_graph(&state.dynamical_system);
     let mg = serialization::serializable_to_observable_graph(
         &state.observable,
+        &g,
     );
 
     Ok((setup_graph_display(&g), setup_graph_display(&mg)))
@@ -137,9 +140,15 @@ fn main() -> eframe::Result<()> {
             let (graph, observable_graph) =
                 load_or_create_default_state();
 
+            let observed_graph_raw = calculate_observed_graph_from_observable_display(
+                &observable_graph
+            );
+            let observed_graph = setup_graph_display(&observed_graph_raw);
+
             Ok(Box::new(GraphEditor {
                 state_graph: graph,
                 observable_graph,
+                observed_graph,
                 mode: EditMode::NodeEditor,
                 prev_mode: EditMode::NodeEditor,
                 active_tab: ActiveTab::DynamicalSystem,
@@ -148,6 +157,7 @@ fn main() -> eframe::Result<()> {
                 show_labels: true,
                 layout_reset_needed: false,
                 mapping_layout_reset_needed: false,
+                observed_layout_reset_needed: true,
                 heatmap_hovered_cell: None,
                 heatmap_editing_cell: None,
                 heatmap_edit_buffer: String::new(),
@@ -185,6 +195,7 @@ enum EditMode {
 enum ActiveTab {
     DynamicalSystem,
     ObservableEditor,
+    ObservedDynamics,
 }
 
 struct GraphEditor {
@@ -204,6 +215,7 @@ struct GraphEditor {
         DefaultNodeShape,
         WeightedEdgeShape,
     >,
+    observed_graph: ObservedGraphDisplay,
     mode: EditMode,
     prev_mode: EditMode,
     active_tab: ActiveTab,
@@ -212,6 +224,7 @@ struct GraphEditor {
     show_labels: bool,
     layout_reset_needed: bool,
     mapping_layout_reset_needed: bool,
+    observed_layout_reset_needed: bool,
     heatmap_hovered_cell: Option<(usize, usize)>,
     heatmap_editing_cell: Option<(usize, usize)>,
     heatmap_edit_buffer: String,
@@ -219,6 +232,15 @@ struct GraphEditor {
 }
 
 impl GraphEditor {
+    // Helper to recompute observed graph from current state
+    fn recompute_observed_graph(&mut self) {
+        let observed_graph_raw = calculate_observed_graph_from_observable_display(
+            &self.observable_graph
+        );
+        self.observed_graph = setup_graph_display(&observed_graph_raw);
+        self.observed_layout_reset_needed = true;
+    }
+
     // Build adjacency matrix and sorted node labels for heatmap
     fn build_heatmap_data(
         &self,
@@ -553,10 +575,15 @@ impl GraphEditor {
 
         self.state_graph = g;
         self.observable_graph = mg;
+        let observed_graph_raw = calculate_observed_graph_from_observable_display(
+            &self.observable_graph
+        );
+        self.observed_graph = setup_graph_display(&observed_graph_raw);
 
         // Reset layouts to display new graphs
         self.layout_reset_needed = true;
         self.mapping_layout_reset_needed = true;
+        self.observed_layout_reset_needed = true;
 
         Ok(())
     }
@@ -610,6 +637,11 @@ impl eframe::App for GraphEditor {
                     ActiveTab::ObservableEditor,
                     "Observable Editor",
                 );
+                ui.selectable_value(
+                    &mut self.active_tab,
+                    ActiveTab::ObservedDynamics,
+                    "Observed Dynamics",
+                );
             });
         });
 
@@ -636,6 +668,9 @@ impl eframe::App for GraphEditor {
             }
             ActiveTab::ObservableEditor => {
                 self.render_observable_editor_tab(ctx)
+            }
+            ActiveTab::ObservedDynamics => {
+                self.render_observed_dynamics_tab(ctx)
             }
         }
 
@@ -863,12 +898,13 @@ impl GraphEditor {
                 .collect();
 
         // Add missing Source nodes
-        for (_, dyn_name) in &dyn_nodes {
+        for (state_idx, dyn_name) in &dyn_nodes {
             if !source_map.contains_key(dyn_name) {
                 let new_idx =
                     self.observable_graph.add_node(ObservableNode {
                         name: dyn_name.clone(),
                         node_type: ObservableNodeType::Source,
+                        state_node_idx: Some(*state_idx),
                     });
                 if let Some(node) = self.observable_graph.node_mut(new_idx) {
                     node.set_label(dyn_name.clone());
@@ -928,6 +964,7 @@ impl GraphEditor {
                     }
                     self.layout_reset_needed = true;
                     self.sync_source_nodes();
+                    self.recompute_observed_graph();
                 }
 
                 // Contents - node list
@@ -985,11 +1022,13 @@ impl GraphEditor {
                                 );
                                 self.layout_reset_needed = true;
                                 self.sync_source_nodes();
+                                self.recompute_observed_graph();
                             }
                             if ui.button("🗑").clicked() {
                                 self.state_graph.remove_node(node_idx);
                                 self.layout_reset_needed = true;
                                 self.sync_source_nodes();
+                                self.recompute_observed_graph();
                             }
                         });
 
@@ -1238,6 +1277,7 @@ impl GraphEditor {
                         let node_idx = self.observable_graph.add_node(ObservableNode {
                             name: String::new(),
                             node_type: ObservableNodeType::Destination,
+                            state_node_idx: None,
                         });
                         let default_name = format!("Value {}", node_idx.index());
                         if let Some(node) = self.observable_graph.node_mut(node_idx) {
@@ -1245,6 +1285,8 @@ impl GraphEditor {
                             node.set_label(default_name);
                             node.display_mut().radius *= 0.75;
                         }
+                        self.mapping_layout_reset_needed = true;
+                        self.recompute_observed_graph();
                     }
 
                     // Contents - Destination node list
@@ -1296,9 +1338,12 @@ impl GraphEditor {
                                         && let Some(node) = self.observable_graph.node_mut(node_idx) {
                                             node.payload_mut().name = node_name.clone();
                                             node.set_label(node_name);
+                                            self.recompute_observed_graph();
                                         }
                                     if ui.button("🗑").clicked() {
                                         self.observable_graph.remove_node(node_idx);
+                                        self.mapping_layout_reset_needed = true;
+                                        self.recompute_observed_graph();
                                     }
                                 });
 
@@ -1502,6 +1547,265 @@ impl GraphEditor {
                                 &mut self.show_labels,
                                 "Show Labels",
                             );
+                            ui.separator();
+                        },
+                    );
+                });
+            });
+    }
+
+    // Build heatmap data for observed graph
+    fn build_observed_heatmap_data(
+        &self,
+    ) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>) {
+        // Get all nodes with their labels
+        let mut nodes: Vec<_> = self
+            .observed_graph
+            .nodes_iter()
+            .map(|(idx, node)| (idx, node.payload().name.clone()))
+            .collect();
+
+        // Sort alphabetically by label
+        nodes.sort_by(|a, b| a.1.cmp(&b.1));
+
+        if nodes.is_empty() {
+            return (vec![], vec![], vec![]);
+        }
+
+        let labels: Vec<String> =
+            nodes.iter().map(|(_, name)| name.clone()).collect();
+        let node_count = labels.len();
+
+        // Build index map: NodeIndex -> position in sorted list
+        let mut index_map = std::collections::HashMap::new();
+        for (pos, (idx, _)) in nodes.iter().enumerate() {
+            index_map.insert(*idx, pos);
+        }
+
+        // Build adjacency matrix
+        let mut matrix = vec![vec![None; node_count]; node_count];
+
+        let stable_g = self.observed_graph.g();
+        for edge_ref in stable_g.edge_references() {
+            let source_idx = edge_ref.source();
+            let target_idx = edge_ref.target();
+            let weight = *edge_ref.weight().payload();
+
+            if let (Some(&x_pos), Some(&y_pos)) = (
+                index_map.get(&source_idx),
+                index_map.get(&target_idx),
+            ) {
+                matrix[y_pos][x_pos] = Some(weight);
+            }
+        }
+
+        (labels.clone(), labels, matrix)
+    }
+
+    fn render_observed_dynamics_tab(&mut self, ctx: &egui::Context) {
+        // Calculate exact 1/3 split for all three panels
+        let available_width = ctx.available_rect().width();
+        let panel_width = available_width / 3.0;
+
+        // Left panel - read-only node list
+        egui::SidePanel::left("observed_left_panel")
+            .exact_width(panel_width)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    ui.heading("Observed Values");
+                    ui.separator();
+
+                    // Contents - node list (read-only, no add button)
+                    let available_height = ui.available_height() - 40.0;
+                    egui::ScrollArea::vertical()
+                        .max_height(available_height)
+                        .show(ui, |ui| {
+                            let nodes: Vec<_> = self
+                                .observed_graph
+                                .nodes_iter()
+                                .map(|(idx, node)| {
+                                    (idx, node.payload().name.clone())
+                                })
+                                .collect();
+
+                            for (node_idx, node_name) in nodes {
+                                let is_selected = self
+                                    .observed_graph
+                                    .node(node_idx)
+                                    .map(|n| n.selected())
+                                    .unwrap_or(false);
+
+                                ui.horizontal(|ui| {
+                                    // Collapsible arrow
+                                    let arrow = if is_selected { "▼" } else { "▶" };
+                                    if ui.small_button(arrow).clicked() {
+                                        if is_selected {
+                                            if let Some(node) = self.observed_graph.node_mut(node_idx) {
+                                                node.set_selected(false);
+                                            }
+                                        } else {
+                                            let all_nodes: Vec<_> = self.observed_graph.nodes_iter().map(|(idx, _)| idx).collect();
+                                            for idx in all_nodes {
+                                                if let Some(node) = self.observed_graph.node_mut(idx) {
+                                                    node.set_selected(false);
+                                                }
+                                            }
+                                            if let Some(node) = self.observed_graph.node_mut(node_idx) {
+                                                node.set_selected(true);
+                                            }
+                                        }
+                                    }
+
+                                    // Display name as label (read-only)
+                                    ui.label(&node_name);
+                                });
+
+                                // Show connections when selected
+                                if is_selected {
+                                    let incoming: Vec<String> = self
+                                        .observed_graph
+                                        .edges_directed(node_idx, petgraph::Direction::Incoming)
+                                        .map(|edge_ref| {
+                                            let other_idx = edge_ref.source();
+                                            self.observed_graph
+                                                .node(other_idx)
+                                                .map(|n| n.payload().name.clone())
+                                                .unwrap_or_else(|| String::from("???"))
+                                        })
+                                        .collect();
+
+                                    let outgoing: Vec<String> = self
+                                        .observed_graph
+                                        .edges_directed(node_idx, petgraph::Direction::Outgoing)
+                                        .map(|edge_ref| {
+                                            let other_idx = edge_ref.target();
+                                            self.observed_graph
+                                                .node(other_idx)
+                                                .map(|n| n.payload().name.clone())
+                                                .unwrap_or_else(|| String::from("???"))
+                                        })
+                                        .collect();
+
+                                    ui.label(format!("Incoming ({}):", incoming.len()));
+                                    if incoming.is_empty() {
+                                        ui.label("  None");
+                                    } else {
+                                        for name in incoming {
+                                            ui.label(format!("  ← {}", name));
+                                        }
+                                    }
+
+                                    ui.label(format!("Outgoing ({}):", outgoing.len()));
+                                    if outgoing.is_empty() {
+                                        ui.label("  None");
+                                    } else {
+                                        for name in outgoing {
+                                            ui.label(format!("  → {}", name));
+                                        }
+                                    }
+                                }
+                            }
+                        });
+
+                    // Metadata at bottom
+                    ui.with_layout(
+                        egui::Layout::bottom_up(egui::Align::LEFT),
+                        |ui| {
+                            ui.label(format!("Values: {}", self.observed_graph.node_count()));
+                            ui.separator();
+                        },
+                    );
+                });
+            });
+
+        // Right panel - read-only heatmap
+        egui::SidePanel::right("observed_right_panel")
+            .exact_width(panel_width)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    ui.heading("Observed Dynamics Heatmap");
+                    ui.separator();
+
+                    let available_height = ui.available_height() - 40.0;
+                    ui.allocate_ui_with_layout(
+                        egui::Vec2::new(ui.available_width(), available_height),
+                        egui::Layout::top_down(egui::Align::Center),
+                        |ui| {
+                            let (x_labels, y_labels, matrix) =
+                                self.build_observed_heatmap_data();
+
+                            // Display heatmap without editing
+                            let editing_state = heatmap::EditingState {
+                                editing_cell: None,  // Always None for read-only
+                                edit_buffer: String::new(),
+                            };
+
+                            let (new_hover, _new_editing, _weight_change) = heatmap::show_heatmap(
+                                ui,
+                                &x_labels,
+                                &y_labels,
+                                &matrix,
+                                self.heatmap_hovered_cell,
+                                editing_state,
+                            );
+
+                            self.heatmap_hovered_cell = new_hover;
+                            // Ignore editing and weight changes (read-only)
+                        },
+                    );
+
+                    // Metadata at bottom
+                    ui.with_layout(
+                        egui::Layout::bottom_up(egui::Align::LEFT),
+                        |ui| {
+                            ui.label(format!("Edges: {}", self.observed_graph.edge_count()));
+                            ui.separator();
+                        },
+                    );
+                });
+            });
+
+        // Center panel - read-only graph visualization
+        egui::CentralPanel::default()
+            .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(8.0))
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    ui.heading("Observed Graph");
+                    ui.separator();
+
+                    // Reset layout if needed
+                    if self.observed_layout_reset_needed {
+                        reset_layout::<LayoutStateCircular>(ui, None);
+                        self.observed_layout_reset_needed = false;
+                    }
+
+                    let settings_interaction = SettingsInteraction::new()
+                        .with_dragging_enabled(false)
+                        .with_node_clicking_enabled(true)
+                        .with_node_selection_enabled(true);
+                    let settings_style = self.get_settings_style();
+
+                    let available_height = ui.available_height() - 60.0;
+                    ui.allocate_ui_with_layout(
+                        egui::Vec2::new(ui.available_width(), available_height),
+                        egui::Layout::top_down(egui::Align::Center),
+                        |ui| {
+                            ui.add(
+                                &mut ObservedGraphView::new(&mut self.observed_graph)
+                                    .with_interactions(&settings_interaction)
+                                    .with_styles(&settings_style),
+                            );
+                        },
+                    );
+
+                    // Controls at bottom (read-only, no mode switching)
+                    ui.with_layout(
+                        egui::Layout::bottom_up(egui::Align::LEFT),
+                        |ui| {
+                            ui.label("Read-only view");
+                            ui.checkbox(&mut self.show_labels, "Show Labels");
                             ui.separator();
                         },
                     );

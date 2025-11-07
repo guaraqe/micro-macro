@@ -1,4 +1,4 @@
-use crate::graph::{HasName, ObservableNode, StateNode};
+use crate::graph_state::{HasName, ObservableNode, ObservedNode, StateNode};
 use crate::layout_bipartite::{
     LayoutBipartite, LayoutStateBipartite,
 };
@@ -70,6 +70,15 @@ pub type ObservableGraphDisplay = Graph<
     WeightedEdgeShape,
 >;
 
+pub type ObservedGraphDisplay = Graph<
+    ObservedNode,
+    f32,
+    Directed,
+    DefaultIx,
+    DefaultNodeShape,
+    WeightedEdgeShape,
+>;
+
 // ------------------------------------------------------------------
 // Type aliases for graph views (with layout configurations)
 // ------------------------------------------------------------------
@@ -96,6 +105,18 @@ pub type ObservableGraphView<'a> = GraphView<
     WeightedEdgeShape,
     LayoutStateBipartite,
     LayoutBipartite,
+>;
+
+pub type ObservedGraphView<'a> = GraphView<
+    'a,
+    ObservedNode,
+    f32,
+    Directed,
+    DefaultIx,
+    DefaultNodeShape,
+    WeightedEdgeShape,
+    LayoutStateCircular,
+    LayoutCircular,
 >;
 
 // ------------------------------------------------------------------
