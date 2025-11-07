@@ -134,12 +134,12 @@ fn main() -> eframe::Result<()> {
         "Graph Editor",
         options,
         Box::new(|_cc| {
-            let (graph, mapping_graph) =
+            let (graph, observable_graph) =
                 load_or_create_default_state();
 
             Ok(Box::new(GraphEditor {
-                g: graph,
-                mapping_g: mapping_graph,
+                state_graph: graph,
+                observable_graph,
                 mode: EditMode::NodeEditor,
                 prev_mode: EditMode::NodeEditor,
                 active_tab: ActiveTab::DynamicalSystem,
@@ -188,7 +188,7 @@ enum ActiveTab {
 }
 
 struct GraphEditor {
-    g: Graph<
+    state_graph: Graph<
         StateNode,
         f32,
         Directed,
@@ -196,7 +196,7 @@ struct GraphEditor {
         DefaultNodeShape,
         WeightedEdgeShape,
     >,
-    mapping_g: Graph<
+    observable_graph: Graph<
         ObservableNode,
         f32,
         Directed,
@@ -225,7 +225,7 @@ impl GraphEditor {
     ) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>) {
         // Get all nodes with their labels
         let mut nodes: Vec<_> = self
-            .g
+            .state_graph
             .nodes_iter()
             .map(|(idx, node)| (idx, node.payload().name.clone()))
             .collect();
@@ -251,7 +251,7 @@ impl GraphEditor {
         let mut matrix = vec![vec![None; node_count]; node_count];
 
         // Iterate over all edges in the graph
-        let stable_g = self.g.g();
+        let stable_g = self.state_graph.g();
         for edge_ref in stable_g.edge_references() {
             let source_idx = edge_ref.source();
             let target_idx = edge_ref.target();
@@ -274,11 +274,11 @@ impl GraphEditor {
         node_idx: NodeIndex,
     ) -> (Vec<String>, Vec<String>) {
         let incoming: Vec<String> = self
-            .g
+            .state_graph
             .edges_directed(node_idx, petgraph::Direction::Incoming)
             .map(|edge_ref| {
                 let other_idx = edge_ref.source();
-                self.g
+                self.state_graph
                     .node(other_idx)
                     .map(|n| n.payload().name.clone())
                     .unwrap_or_else(|| String::from("???"))
@@ -286,11 +286,11 @@ impl GraphEditor {
             .collect();
 
         let outgoing: Vec<String> = self
-            .g
+            .state_graph
             .edges_directed(node_idx, petgraph::Direction::Outgoing)
             .map(|edge_ref| {
                 let other_idx = edge_ref.target();
-                self.g
+                self.state_graph
                     .node(other_idx)
                     .map(|n| n.payload().name.clone())
                     .unwrap_or_else(|| String::from("???"))
@@ -369,7 +369,7 @@ impl GraphEditor {
     ) -> Option<(egui::Pos2, egui::Pos2)> {
         // Start potential drag from a node
         if pointer.primary_pressed()
-            && let Some(hovered) = self.g.hovered_node()
+            && let Some(hovered) = self.state_graph.hovered_node()
             && let Some(press_pos) = pointer.interact_pos()
         {
             self.dragging_from = Some((hovered, press_pos));
@@ -401,10 +401,10 @@ impl GraphEditor {
                 && self.drag_started
             {
                 // Drag completed - create edge if hovering different node
-                if let Some(target_node) = self.g.hovered_node()
+                if let Some(target_node) = self.state_graph.hovered_node()
                     && source_node != target_node
                 {
-                    self.g.add_edge_with_label(
+                    self.state_graph.add_edge_with_label(
                         source_node,
                         target_node,
                         1.0,
@@ -424,13 +424,13 @@ impl GraphEditor {
     fn handle_edge_deletion(&mut self, pointer: &egui::PointerState) {
         if pointer.primary_clicked() && self.dragging_from.is_none() {
             let selected_edges: Vec<_> =
-                self.g.selected_edges().to_vec();
+                self.state_graph.selected_edges().to_vec();
 
             // If exactly one edge is selected and clicked again, delete
             // it
             if selected_edges.len() == 1 {
                 let clicked_edge = selected_edges[0];
-                self.g.remove_edge(clicked_edge);
+                self.state_graph.remove_edge(clicked_edge);
             }
             // If no edges or different edge clicked, library handles
             // selection automatically
@@ -444,7 +444,7 @@ impl GraphEditor {
     ) -> Option<(egui::Pos2, egui::Pos2)> {
         // Start potential drag from a node
         if pointer.primary_pressed()
-            && let Some(hovered) = self.mapping_g.hovered_node()
+            && let Some(hovered) = self.observable_graph.hovered_node()
             && let Some(press_pos) = pointer.interact_pos()
         {
             self.dragging_from = Some((hovered, press_pos));
@@ -477,16 +477,16 @@ impl GraphEditor {
             {
                 // Drag completed - create edge if hovering different node
                 if let Some(target_node) =
-                    self.mapping_g.hovered_node()
+                    self.observable_graph.hovered_node()
                     && source_node != target_node
                 {
                     // Check node types: only allow Source -> Destination
                     let source_type = self
-                        .mapping_g
+                        .observable_graph
                         .node(source_node)
                         .map(|n| n.payload().node_type);
                     let target_type = self
-                        .mapping_g
+                        .observable_graph
                         .node(target_node)
                         .map(|n| n.payload().node_type);
 
@@ -495,7 +495,7 @@ impl GraphEditor {
                         Some(ObservableNodeType::Destination),
                     ) = (source_type, target_type)
                     {
-                        self.mapping_g.add_edge_with_label(
+                        self.observable_graph.add_edge_with_label(
                             source_node,
                             target_node,
                             1.0,
@@ -519,11 +519,11 @@ impl GraphEditor {
     ) {
         if pointer.primary_clicked() && self.dragging_from.is_none() {
             let selected_edges: Vec<_> =
-                self.mapping_g.selected_edges().to_vec();
+                self.observable_graph.selected_edges().to_vec();
 
             if selected_edges.len() == 1 {
                 let clicked_edge = selected_edges[0];
-                self.mapping_g.remove_edge(clicked_edge);
+                self.observable_graph.remove_edge(clicked_edge);
             }
         }
     }
@@ -534,11 +534,11 @@ impl GraphEditor {
     ) -> Result<(), String> {
         let state = serialization::SerializableState {
             dynamical_system: serialization::graph_to_serializable(
-                &self.g,
+                &self.state_graph,
             ),
             observable:
                 serialization::observable_graph_to_serializable(
-                    &self.mapping_g,
+                    &self.observable_graph,
                 ),
         };
 
@@ -551,8 +551,8 @@ impl GraphEditor {
     ) -> Result<(), String> {
         let (g, mg) = load_graphs_from_path(path)?;
 
-        self.g = g;
-        self.mapping_g = mg;
+        self.state_graph = g;
+        self.observable_graph = mg;
 
         // Reset layouts to display new graphs
         self.layout_reset_needed = true;
@@ -626,7 +626,7 @@ impl eframe::App for GraphEditor {
         if self.prev_mode == EditMode::EdgeEditor
             && self.mode == EditMode::NodeEditor
         {
-            self.g.set_selected_edges(Vec::new());
+            self.state_graph.set_selected_edges(Vec::new());
         }
 
         // Render the appropriate view based on active tab
@@ -664,7 +664,7 @@ impl GraphEditor {
     ) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>) {
         // Get Source nodes (columns/x-axis)
         let mut source_nodes: Vec<_> = self
-            .mapping_g
+            .observable_graph
             .nodes_iter()
             .filter(|(_, node)| {
                 node.payload().node_type == ObservableNodeType::Source
@@ -674,7 +674,7 @@ impl GraphEditor {
 
         // Get Destination nodes (rows/y-axis)
         let mut dest_nodes: Vec<_> = self
-            .mapping_g
+            .observable_graph
             .nodes_iter()
             .filter(|(_, node)| {
                 node.payload().node_type
@@ -714,7 +714,7 @@ impl GraphEditor {
             vec![vec![None; source_nodes.len()]; dest_nodes.len()];
 
         // Iterate over all edges
-        let stable_mg = self.mapping_g.g();
+        let stable_mg = self.observable_graph.g();
         for edge_ref in stable_mg.edge_references() {
             let src = edge_ref.source();
             let tgt = edge_ref.target();
@@ -742,13 +742,13 @@ impl GraphEditor {
         let target_name = &y_labels[change.y];
 
         let source_idx = self
-            .g
+            .state_graph
             .nodes_iter()
             .find(|(_, node)| &node.payload().name == source_name)
             .map(|(idx, _)| idx);
 
         let target_idx = self
-            .g
+            .state_graph
             .nodes_iter()
             .find(|(_, node)| &node.payload().name == target_name)
             .map(|(idx, _)| idx);
@@ -756,21 +756,21 @@ impl GraphEditor {
         if let (Some(src), Some(tgt)) = (source_idx, target_idx) {
             if change.new_weight == 0.0 {
                 // Remove edge
-                if let Some(edge_idx) = self.g.g().find_edge(src, tgt)
+                if let Some(edge_idx) = self.state_graph.g().find_edge(src, tgt)
                 {
-                    self.g.remove_edge(edge_idx);
+                    self.state_graph.remove_edge(edge_idx);
                 }
             } else {
                 // Add or update edge
-                if let Some(edge_idx) = self.g.g().find_edge(src, tgt)
+                if let Some(edge_idx) = self.state_graph.g().find_edge(src, tgt)
                 {
                     // Update existing edge weight
-                    if let Some(edge) = self.g.edge_mut(edge_idx) {
+                    if let Some(edge) = self.state_graph.edge_mut(edge_idx) {
                         *edge.payload_mut() = change.new_weight;
                     }
                 } else {
                     // Add new edge
-                    self.g.add_edge_with_label(
+                    self.state_graph.add_edge_with_label(
                         src,
                         tgt,
                         change.new_weight,
@@ -782,7 +782,7 @@ impl GraphEditor {
     }
 
     // Apply weight change from heatmap to mapping graph
-    fn apply_weight_change_to_mapping_graph(
+    fn apply_weight_change_to_observable_graph(
         &mut self,
         change: heatmap::WeightChange,
         x_labels: &[String],
@@ -793,13 +793,13 @@ impl GraphEditor {
         let target_name = &y_labels[change.y];
 
         let source_idx = self
-            .mapping_g
+            .observable_graph
             .nodes_iter()
             .find(|(_, node)| &node.payload().name == source_name)
             .map(|(idx, _)| idx);
 
         let target_idx = self
-            .mapping_g
+            .observable_graph
             .nodes_iter()
             .find(|(_, node)| &node.payload().name == target_name)
             .map(|(idx, _)| idx);
@@ -808,24 +808,24 @@ impl GraphEditor {
             if change.new_weight == 0.0 {
                 // Remove edge
                 if let Some(edge_idx) =
-                    self.mapping_g.g().find_edge(src, tgt)
+                    self.observable_graph.g().find_edge(src, tgt)
                 {
-                    self.mapping_g.remove_edge(edge_idx);
+                    self.observable_graph.remove_edge(edge_idx);
                 }
             } else {
                 // Add or update edge
                 if let Some(edge_idx) =
-                    self.mapping_g.g().find_edge(src, tgt)
+                    self.observable_graph.g().find_edge(src, tgt)
                 {
                     // Update existing edge weight
                     if let Some(edge) =
-                        self.mapping_g.edge_mut(edge_idx)
+                        self.observable_graph.edge_mut(edge_idx)
                     {
                         *edge.payload_mut() = change.new_weight;
                     }
                 } else {
                     // Add new edge
-                    self.mapping_g.add_edge_with_label(
+                    self.observable_graph.add_edge_with_label(
                         src,
                         tgt,
                         change.new_weight,
@@ -840,14 +840,14 @@ impl GraphEditor {
     fn sync_source_nodes(&mut self) {
         // Get current dynamical system nodes
         let dyn_nodes: Vec<(NodeIndex, String)> = self
-            .g
+            .state_graph
             .nodes_iter()
             .map(|(idx, node)| (idx, node.payload().name.clone()))
             .collect();
 
         // Get current Source nodes in mapping graph
         let source_nodes: Vec<(NodeIndex, String)> = self
-            .mapping_g
+            .observable_graph
             .nodes_iter()
             .filter(|(_, node)| {
                 node.payload().node_type == ObservableNodeType::Source
@@ -866,11 +866,11 @@ impl GraphEditor {
         for (_, dyn_name) in &dyn_nodes {
             if !source_map.contains_key(dyn_name) {
                 let new_idx =
-                    self.mapping_g.add_node(ObservableNode {
+                    self.observable_graph.add_node(ObservableNode {
                         name: dyn_name.clone(),
                         node_type: ObservableNodeType::Source,
                     });
-                if let Some(node) = self.mapping_g.node_mut(new_idx) {
+                if let Some(node) = self.observable_graph.node_mut(new_idx) {
                     node.set_label(dyn_name.clone());
                     node.display_mut().radius *= 0.75;
                 }
@@ -883,7 +883,7 @@ impl GraphEditor {
 
         for (source_idx, source_name) in source_nodes {
             if !dyn_names.contains(&source_name) {
-                self.mapping_g.remove_node(source_idx);
+                self.observable_graph.remove_node(source_idx);
             }
         }
 
@@ -891,7 +891,7 @@ impl GraphEditor {
         for (_, dyn_name) in &dyn_nodes {
             if let Some(&source_idx) = source_map.get(dyn_name)
                 && let Some(source_node) =
-                    self.mapping_g.node_mut(source_idx)
+                    self.observable_graph.node_mut(source_idx)
                 && source_node.payload().name != *dyn_name
             {
                 source_node.payload_mut().name = dyn_name.clone();
@@ -916,14 +916,14 @@ impl GraphEditor {
 
                 // Controls
                 if ui.button("Add Node").clicked() {
-                    let node_idx = self.g.add_node(StateNode {
+                    let node_idx = self.state_graph.add_node(StateNode {
                         name: String::new(),
                     });
                     let default_name =
                         format!("Node {}", node_idx.index());
-                    set_node_name(&mut self.g, node_idx, default_name);
+                    set_node_name(&mut self.state_graph, node_idx, default_name);
                     // Set size to 75% of default
-                    if let Some(node) = self.g.node_mut(node_idx) {
+                    if let Some(node) = self.state_graph.node_mut(node_idx) {
                         node.display_mut().radius *= 0.75;
                     }
                     self.layout_reset_needed = true;
@@ -936,7 +936,7 @@ impl GraphEditor {
                     .max_height(available_height)
                     .show(ui, |ui| {
                     let nodes: Vec<_> = self
-                        .g
+                        .state_graph
                         .nodes_iter()
                         .map(|(idx, node)| {
                             (idx, node.payload().name.clone())
@@ -945,7 +945,7 @@ impl GraphEditor {
 
                     for (node_idx, mut node_name) in nodes {
                         let is_selected = self
-                            .g
+                            .state_graph
                             .node(node_idx)
                             .map(|n| n.selected())
                             .unwrap_or(false);
@@ -957,19 +957,19 @@ impl GraphEditor {
                                 // Toggle selection
                                 if is_selected {
                                     // Deselect this node
-                                    if let Some(node) = self.g.node_mut(node_idx) {
+                                    if let Some(node) = self.state_graph.node_mut(node_idx) {
                                         node.set_selected(false);
                                     }
                                 } else {
                                     // Deselect all other nodes first
-                                    let all_nodes: Vec<_> = self.g.nodes_iter().map(|(idx, _)| idx).collect();
+                                    let all_nodes: Vec<_> = self.state_graph.nodes_iter().map(|(idx, _)| idx).collect();
                                     for idx in all_nodes {
-                                        if let Some(node) = self.g.node_mut(idx) {
+                                        if let Some(node) = self.state_graph.node_mut(idx) {
                                             node.set_selected(false);
                                         }
                                     }
                                     // Select this node
-                                    if let Some(node) = self.g.node_mut(node_idx) {
+                                    if let Some(node) = self.state_graph.node_mut(node_idx) {
                                         node.set_selected(true);
                                     }
                                 }
@@ -979,7 +979,7 @@ impl GraphEditor {
                                 ui.text_edit_singleline(&mut node_name);
                             if response.changed() {
                                 set_node_name(
-                                    &mut self.g,
+                                    &mut self.state_graph,
                                     node_idx,
                                     node_name,
                                 );
@@ -987,7 +987,7 @@ impl GraphEditor {
                                 self.sync_source_nodes();
                             }
                             if ui.button("🗑").clicked() {
-                                self.g.remove_node(node_idx);
+                                self.state_graph.remove_node(node_idx);
                                 self.layout_reset_needed = true;
                                 self.sync_source_nodes();
                             }
@@ -1030,7 +1030,7 @@ impl GraphEditor {
                 ui.with_layout(
                     egui::Layout::bottom_up(egui::Align::LEFT),
                     |ui| {
-                        ui.label(format!("Nodes: {}", self.g.node_count()));
+                        ui.label(format!("Nodes: {}", self.state_graph.node_count()));
                         ui.separator();
                     },
                 );
@@ -1108,7 +1108,7 @@ impl GraphEditor {
                         |ui| {
                             ui.label(format!(
                                 "Edges: {}",
-                                self.g.edge_count()
+                                self.state_graph.edge_count()
                             ));
                             ui.separator();
                         },
@@ -1136,7 +1136,7 @@ impl GraphEditor {
                     // Clear edge selections when not in EdgeEditor mode,
                     // before creating GraphView
                     if self.mode == EditMode::NodeEditor {
-                        self.g.set_selected_edges(Vec::new());
+                        self.state_graph.set_selected_edges(Vec::new());
                     }
 
                     let settings_interaction =
@@ -1155,7 +1155,7 @@ impl GraphEditor {
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             ui.add(
-                                &mut StateGraphView::new(&mut self.g)
+                                &mut StateGraphView::new(&mut self.state_graph)
                                     .with_interactions(
                                         &settings_interaction,
                                     )
@@ -1185,7 +1185,7 @@ impl GraphEditor {
                                 // Reset dragging state and clear selections when not in Edge Editor mode
                                 self.dragging_from = None;
                                 self.drag_started = false;
-                                self.g.set_selected_edges(Vec::new());
+                                self.state_graph.set_selected_edges(Vec::new());
                             }
                         },
                     );
@@ -1235,12 +1235,12 @@ impl GraphEditor {
 
                     // Add Destination button
                     if ui.button("Add Value").clicked() {
-                        let node_idx = self.mapping_g.add_node(ObservableNode {
+                        let node_idx = self.observable_graph.add_node(ObservableNode {
                             name: String::new(),
                             node_type: ObservableNodeType::Destination,
                         });
                         let default_name = format!("Value {}", node_idx.index());
-                        if let Some(node) = self.mapping_g.node_mut(node_idx) {
+                        if let Some(node) = self.observable_graph.node_mut(node_idx) {
                             node.payload_mut().name = default_name.clone();
                             node.set_label(default_name);
                             node.display_mut().radius *= 0.75;
@@ -1254,7 +1254,7 @@ impl GraphEditor {
                         .show(ui, |ui| {
                             // Collect Destination nodes
                             let dest_nodes: Vec<_> = self
-                                .mapping_g
+                                .observable_graph
                                 .nodes_iter()
                                 .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Destination)
                                 .map(|(idx, node)| (idx, node.payload().name.clone()))
@@ -1262,7 +1262,7 @@ impl GraphEditor {
 
                             for (node_idx, mut node_name) in dest_nodes {
                                 let is_selected = self
-                                    .mapping_g
+                                    .observable_graph
                                     .node(node_idx)
                                     .map(|n| n.selected())
                                     .unwrap_or(false);
@@ -1273,19 +1273,19 @@ impl GraphEditor {
                                     if ui.small_button(arrow).clicked() {
                                         // Toggle selection
                                         if is_selected {
-                                            if let Some(node) = self.mapping_g.node_mut(node_idx) {
+                                            if let Some(node) = self.observable_graph.node_mut(node_idx) {
                                                 node.set_selected(false);
                                             }
                                         } else {
                                             // Deselect all other nodes first
-                                            let all_nodes: Vec<_> = self.mapping_g.nodes_iter().map(|(idx, _)| idx).collect();
+                                            let all_nodes: Vec<_> = self.observable_graph.nodes_iter().map(|(idx, _)| idx).collect();
                                             for idx in all_nodes {
-                                                if let Some(node) = self.mapping_g.node_mut(idx) {
+                                                if let Some(node) = self.observable_graph.node_mut(idx) {
                                                     node.set_selected(false);
                                                 }
                                             }
                                             // Select this node
-                                            if let Some(node) = self.mapping_g.node_mut(node_idx) {
+                                            if let Some(node) = self.observable_graph.node_mut(node_idx) {
                                                 node.set_selected(true);
                                             }
                                         }
@@ -1293,23 +1293,23 @@ impl GraphEditor {
 
                                     let response = ui.text_edit_singleline(&mut node_name);
                                     if response.changed()
-                                        && let Some(node) = self.mapping_g.node_mut(node_idx) {
+                                        && let Some(node) = self.observable_graph.node_mut(node_idx) {
                                             node.payload_mut().name = node_name.clone();
                                             node.set_label(node_name);
                                         }
                                     if ui.button("🗑").clicked() {
-                                        self.mapping_g.remove_node(node_idx);
+                                        self.observable_graph.remove_node(node_idx);
                                     }
                                 });
 
                                 // Show incoming Source nodes when selected
                                 if is_selected {
                                     let incoming_sources: Vec<String> = self
-                                        .mapping_g
+                                        .observable_graph
                                         .edges_directed(node_idx, petgraph::Direction::Incoming)
                                         .map(|edge_ref| {
                                             let source_idx = edge_ref.source();
-                                            self.mapping_g
+                                            self.observable_graph
                                                 .node(source_idx)
                                                 .map(|n| n.payload().name.clone())
                                                 .unwrap_or_else(|| String::from("???"))
@@ -1333,7 +1333,7 @@ impl GraphEditor {
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
                             let dest_count = self
-                                .mapping_g
+                                .observable_graph
                                 .nodes_iter()
                                 .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Destination)
                                 .count();
@@ -1383,7 +1383,7 @@ impl GraphEditor {
 
                             // Handle weight changes
                             if let Some(change) = weight_change {
-                                self.apply_weight_change_to_mapping_graph(change, &x_labels, &y_labels);
+                                self.apply_weight_change_to_observable_graph(change, &x_labels, &y_labels);
                             }
                         },
                     );
@@ -1392,7 +1392,7 @@ impl GraphEditor {
                     ui.with_layout(
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
-                            ui.label(format!("Mappings: {}", self.mapping_g.edge_count()));
+                            ui.label(format!("Mappings: {}", self.observable_graph.edge_count()));
                             ui.separator();
                         },
                     );
@@ -1420,7 +1420,7 @@ impl GraphEditor {
 
                     // Clear edge selections when not in EdgeEditor mode
                     if self.mode == EditMode::NodeEditor {
-                        self.mapping_g.set_selected_edges(Vec::new());
+                        self.observable_graph.set_selected_edges(Vec::new());
                     }
 
                     let settings_interaction =
@@ -1439,7 +1439,7 @@ impl GraphEditor {
                         |ui| {
                             ui.add(
                                 &mut ObservableGraphView::new(
-                                    &mut self.mapping_g,
+                                    &mut self.observable_graph,
                                 )
                                 .with_interactions(
                                     &settings_interaction,
@@ -1474,7 +1474,7 @@ impl GraphEditor {
                                 // Reset dragging state and clear selections when not in Edge Editor mode
                                 self.dragging_from = None;
                                 self.drag_started = false;
-                                self.mapping_g
+                                self.observable_graph
                                     .set_selected_edges(Vec::new());
                             }
                         },
