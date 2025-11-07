@@ -1,14 +1,18 @@
+mod graph;
+mod graph_view;
 mod heatmap;
 mod layout_bipartite;
 mod layout_circular;
+mod serialization;
 
 use eframe::egui;
 use egui_graphs::{
-    DefaultEdgeShape, DefaultNodeShape, DisplayEdge, DisplayNode,
-    DrawContext, EdgeProps, Graph, GraphView, Node,
+    DefaultNodeShape, DisplayEdge, DisplayNode, Graph,
     SettingsInteraction, SettingsStyle, reset_layout,
 };
-use layout_bipartite::{LayoutBipartite, LayoutStateBipartite};
+use graph::{ObservableNode, ObservableNodeType, StateNode};
+use graph_view::{MappingGraphView, MyGraphView, WeightedEdgeShape};
+use layout_bipartite::LayoutStateBipartite;
 use layout_circular::{
     LayoutCircular, LayoutStateCircular, SortOrder, SpacingConfig,
 };
@@ -17,94 +21,11 @@ use petgraph::graph::DefaultIx;
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::{EdgeType, stable_graph::IndexType};
-use serde::{Deserialize, Serialize};
-use std::path::Path;
 // UI Constants
 const DRAG_THRESHOLD: f32 = 2.0;
 const EDGE_PREVIEW_STROKE_WIDTH: f32 = 2.0;
 const EDGE_PREVIEW_COLOR: egui::Color32 =
     egui::Color32::from_rgb(100, 100, 255);
-
-type MyGraphView<'a> = GraphView<
-    'a,
-    NodeData,
-    f32,
-    Directed,
-    DefaultIx,
-    DefaultNodeShape,
-    WeightedEdgeShape,
-    LayoutStateCircular,
-    LayoutCircular,
->;
-
-type MappingGraphView<'a> = GraphView<
-    'a,
-    MappingNodeData,
-    f32,
-    Directed,
-    DefaultIx,
-    DefaultNodeShape,
-    WeightedEdgeShape,
-    LayoutStateBipartite,
-    LayoutBipartite,
->;
-
-#[derive(Clone)]
-struct NodeData {
-    name: String,
-}
-
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum NodeType {
-    Source,
-    Destination,
-}
-
-#[derive(Clone)]
-pub struct MappingNodeData {
-    pub name: String,
-    pub node_type: NodeType,
-}
-
-// ------------------------------------------------------------------
-// Serialization structures
-// ------------------------------------------------------------------
-
-#[derive(Serialize, Deserialize)]
-struct SerializableNode {
-    name: String,
-}
-
-#[derive(Serialize, Deserialize)]
-struct SerializableEdge {
-    source: usize,
-    target: usize,
-    weight: f32,
-}
-
-#[derive(Serialize, Deserialize)]
-struct SerializableGraphState {
-    nodes: Vec<SerializableNode>,
-    edges: Vec<SerializableEdge>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct SerializableMappingNode {
-    name: String,
-    node_type: NodeType,
-}
-
-#[derive(Serialize, Deserialize)]
-struct SerializableObservableState {
-    nodes: Vec<SerializableMappingNode>,
-    edges: Vec<SerializableEdge>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct SerializableState {
-    dynamical_system: SerializableGraphState,
-    observable: SerializableObservableState,
-}
 
 // ------------------------------------------------------------------
 // Layout Configuration - Customize circular layout behavior here
@@ -162,9 +83,9 @@ fn combined_config() -> LayoutCircular {
 // ------------------------------------------------------------------
 
 fn setup_graph(
-    g: &StableGraph<NodeData, f32>,
+    g: &StableGraph<StateNode, f32>,
 ) -> Graph<
-    NodeData,
+    StateNode,
     f32,
     Directed,
     DefaultIx,
@@ -172,7 +93,7 @@ fn setup_graph(
     WeightedEdgeShape,
 > {
     let mut graph: Graph<
-        NodeData,
+        StateNode,
         f32,
         Directed,
         DefaultIx,
@@ -196,9 +117,9 @@ fn setup_graph(
 }
 
 fn setup_mapping_graph(
-    mg: &StableGraph<MappingNodeData, f32>,
+    mg: &StableGraph<ObservableNode, f32>,
 ) -> Graph<
-    MappingNodeData,
+    ObservableNode,
     f32,
     Directed,
     DefaultIx,
@@ -206,7 +127,7 @@ fn setup_mapping_graph(
     WeightedEdgeShape,
 > {
     let mut mapping_graph: Graph<
-        MappingNodeData,
+        ObservableNode,
         f32,
         Directed,
         DefaultIx,
@@ -230,7 +151,7 @@ fn setup_mapping_graph(
 
 fn load_or_create_default_state() -> (
     Graph<
-        NodeData,
+        StateNode,
         f32,
         Directed,
         DefaultIx,
@@ -238,7 +159,7 @@ fn load_or_create_default_state() -> (
         WeightedEdgeShape,
     >,
     Graph<
-        MappingNodeData,
+        ObservableNode,
         f32,
         Directed,
         DefaultIx,
@@ -250,35 +171,23 @@ fn load_or_create_default_state() -> (
 
     if std::path::Path::new(STATE_FILE).exists() {
         // Try to load from state.json
-        match std::fs::read_to_string(STATE_FILE) {
-            Ok(json_str) => {
-                match serde_json::from_str::<SerializableState>(
-                    &json_str,
-                ) {
-                    Ok(state) => {
-                        // Successfully loaded state
-                        let g = serializable_to_graph(
-                            &state.dynamical_system,
-                        );
-                        let mg = serializable_to_mapping_graph(
-                            &state.observable,
-                        );
-                        return (
-                            setup_graph(&g),
-                            setup_mapping_graph(&mg),
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "Error parsing state.json: {}. Using default state.",
-                            e
-                        );
-                    }
-                }
+        match serialization::load_from_file(std::path::Path::new(
+            STATE_FILE,
+        )) {
+            Ok(state) => {
+                // Successfully loaded state
+                let g = serialization::serializable_to_graph(
+                    &state.dynamical_system,
+                );
+                let mg =
+                    serialization::serializable_to_observable_graph(
+                        &state.observable,
+                    );
+                return (setup_graph(&g), setup_mapping_graph(&mg));
             }
             Err(e) => {
                 eprintln!(
-                    "Error reading state.json: {}. Using default state.",
+                    "Error loading state.json: {}. Using default state.",
                     e
                 );
             }
@@ -341,10 +250,10 @@ fn clear_edge_label<
 fn set_node_name<
     Ty: EdgeType,
     Ix: IndexType,
-    Dn: DisplayNode<NodeData, f32, Ty, Ix>,
-    De: DisplayEdge<NodeData, f32, Ty, Ix, Dn>,
+    Dn: DisplayNode<StateNode, f32, Ty, Ix>,
+    De: DisplayEdge<StateNode, f32, Ty, Ix, Dn>,
 >(
-    graph: &mut Graph<NodeData, f32, Ty, Ix, Dn, De>,
+    graph: &mut Graph<StateNode, f32, Ty, Ix, Dn, De>,
     node_idx: NodeIndex<Ix>,
     name: String,
 ) {
@@ -354,16 +263,16 @@ fn set_node_name<
     }
 }
 
-fn generate_graph() -> StableGraph<NodeData, f32> {
+fn generate_graph() -> StableGraph<StateNode, f32> {
     let mut g = StableGraph::new();
 
-    let a = g.add_node(NodeData {
+    let a = g.add_node(StateNode {
         name: format!("Node {}", 0),
     });
-    let b = g.add_node(NodeData {
+    let b = g.add_node(StateNode {
         name: format!("Node {}", 1),
     });
-    let c = g.add_node(NodeData {
+    let c = g.add_node(StateNode {
         name: format!("Node {}", 2),
     });
 
@@ -375,153 +284,27 @@ fn generate_graph() -> StableGraph<NodeData, f32> {
 }
 
 fn generate_mapping_graph(
-    source_graph: &StableGraph<NodeData, f32>,
-) -> StableGraph<MappingNodeData, f32> {
+    source_graph: &StableGraph<StateNode, f32>,
+) -> StableGraph<ObservableNode, f32> {
     let mut g = StableGraph::new();
 
     // Add Source nodes mirroring the dynamical system
     for node in source_graph.node_weights() {
-        g.add_node(MappingNodeData {
+        g.add_node(ObservableNode {
             name: node.name.clone(),
-            node_type: NodeType::Source,
+            node_type: ObservableNodeType::Source,
         });
     }
 
     // Add two default Destination nodes
-    g.add_node(MappingNodeData {
+    g.add_node(ObservableNode {
         name: String::from("Value 0"),
-        node_type: NodeType::Destination,
+        node_type: ObservableNodeType::Destination,
     });
-    g.add_node(MappingNodeData {
+    g.add_node(ObservableNode {
         name: String::from("Value 1"),
-        node_type: NodeType::Destination,
+        node_type: ObservableNodeType::Destination,
     });
-
-    g
-}
-
-// ------------------------------------------------------------------
-// Serialization conversion functions
-// ------------------------------------------------------------------
-
-fn graph_to_serializable<
-    Ty: EdgeType,
-    Ix: IndexType,
-    Dn: DisplayNode<NodeData, f32, Ty, Ix>,
-    De: DisplayEdge<NodeData, f32, Ty, Ix, Dn>,
->(
-    graph: &Graph<NodeData, f32, Ty, Ix, Dn, De>,
-) -> SerializableGraphState {
-    let stable_graph = graph.g();
-    let mut nodes = Vec::new();
-    let mut node_index_map = std::collections::HashMap::new();
-
-    // Collect nodes and build index mapping using the nodes_iter from Graph
-    for (new_idx, (node_idx, node)) in graph.nodes_iter().enumerate()
-    {
-        nodes.push(SerializableNode {
-            name: node.payload().name.clone(),
-        });
-        node_index_map.insert(node_idx, new_idx);
-    }
-
-    // Collect edges using petgraph's edge_references
-    let mut edges = Vec::new();
-    for edge_ref in stable_graph.edge_references() {
-        edges.push(SerializableEdge {
-            source: node_index_map[&edge_ref.source()],
-            target: node_index_map[&edge_ref.target()],
-            weight: *edge_ref.weight().payload(),
-        });
-    }
-
-    SerializableGraphState { nodes, edges }
-}
-
-fn serializable_to_graph(
-    state: &SerializableGraphState,
-) -> StableGraph<NodeData, f32> {
-    let mut g = StableGraph::new();
-    let mut node_indices = Vec::new();
-
-    // Add nodes
-    for node in &state.nodes {
-        let idx = g.add_node(NodeData {
-            name: node.name.clone(),
-        });
-        node_indices.push(idx);
-    }
-
-    // Add edges
-    for edge in &state.edges {
-        g.add_edge(
-            node_indices[edge.source],
-            node_indices[edge.target],
-            edge.weight,
-        );
-    }
-
-    g
-}
-
-fn mapping_graph_to_serializable<
-    Ty: EdgeType,
-    Ix: IndexType,
-    Dn: DisplayNode<MappingNodeData, f32, Ty, Ix>,
-    De: DisplayEdge<MappingNodeData, f32, Ty, Ix, Dn>,
->(
-    graph: &Graph<MappingNodeData, f32, Ty, Ix, Dn, De>,
-) -> SerializableObservableState {
-    let stable_graph = graph.g();
-    let mut nodes = Vec::new();
-    let mut node_index_map = std::collections::HashMap::new();
-
-    // Collect nodes and build index mapping using the nodes_iter from Graph
-    for (new_idx, (node_idx, node)) in graph.nodes_iter().enumerate()
-    {
-        nodes.push(SerializableMappingNode {
-            name: node.payload().name.clone(),
-            node_type: node.payload().node_type,
-        });
-        node_index_map.insert(node_idx, new_idx);
-    }
-
-    // Collect edges using petgraph's edge_references
-    let mut edges = Vec::new();
-    for edge_ref in stable_graph.edge_references() {
-        edges.push(SerializableEdge {
-            source: node_index_map[&edge_ref.source()],
-            target: node_index_map[&edge_ref.target()],
-            weight: *edge_ref.weight().payload(),
-        });
-    }
-
-    SerializableObservableState { nodes, edges }
-}
-
-fn serializable_to_mapping_graph(
-    state: &SerializableObservableState,
-) -> StableGraph<MappingNodeData, f32> {
-    let mut g = StableGraph::new();
-    let mut node_indices = Vec::new();
-
-    // Add nodes
-    for node in &state.nodes {
-        let idx = g.add_node(MappingNodeData {
-            name: node.name.clone(),
-            node_type: node.node_type,
-        });
-        node_indices.push(idx);
-    }
-
-    // Add edges
-    for edge in &state.edges {
-        g.add_edge(
-            node_indices[edge.source],
-            node_indices[edge.target],
-            edge.weight,
-        );
-    }
 
     g
 }
@@ -542,7 +325,7 @@ enum ActiveTab {
 
 struct GraphEditor {
     g: Graph<
-        NodeData,
+        StateNode,
         f32,
         Directed,
         DefaultIx,
@@ -550,7 +333,7 @@ struct GraphEditor {
         WeightedEdgeShape,
     >,
     mapping_g: Graph<
-        MappingNodeData,
+        ObservableNode,
         f32,
         Directed,
         DefaultIx,
@@ -845,8 +628,8 @@ impl GraphEditor {
                         .map(|n| n.payload().node_type);
 
                     if let (
-                        Some(NodeType::Source),
-                        Some(NodeType::Destination),
+                        Some(ObservableNodeType::Source),
+                        Some(ObservableNodeType::Destination),
                     ) = (source_type, target_type)
                     {
                         let edge_idx = self.mapping_g.add_edge(
@@ -886,37 +669,36 @@ impl GraphEditor {
         }
     }
 
-    fn save_to_file(&self, path: &Path) -> Result<(), String> {
-        let state = SerializableState {
-            dynamical_system: graph_to_serializable(&self.g),
-            observable: mapping_graph_to_serializable(
-                &self.mapping_g,
+    fn save_to_file(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<(), String> {
+        let state = serialization::SerializableState {
+            dynamical_system: serialization::graph_to_serializable(
+                &self.g,
             ),
+            observable:
+                serialization::observable_graph_to_serializable(
+                    &self.mapping_g,
+                ),
         };
 
-        let json =
-            serde_json::to_string_pretty(&state).map_err(|e| {
-                format!("Failed to serialize state: {}", e)
-            })?;
-
-        std::fs::write(path, json)
-            .map_err(|e| format!("Failed to write file: {}", e))?;
-
-        Ok(())
+        serialization::save_to_file(&state, path)
     }
 
-    fn load_from_file(&mut self, path: &Path) -> Result<(), String> {
-        let json_str = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read file: {}", e))?;
-
-        let state: SerializableState =
-            serde_json::from_str(&json_str).map_err(|e| {
-                format!("Failed to parse JSON: {}", e)
-            })?;
+    fn load_from_file(
+        &mut self,
+        path: &std::path::Path,
+    ) -> Result<(), String> {
+        let state = serialization::load_from_file(path)?;
 
         // Convert to StableGraph first, then setup with proper display properties
-        let g = serializable_to_graph(&state.dynamical_system);
-        let mg = serializable_to_mapping_graph(&state.observable);
+        let g = serialization::serializable_to_graph(
+            &state.dynamical_system,
+        );
+        let mg = serialization::serializable_to_observable_graph(
+            &state.observable,
+        );
 
         self.g = setup_graph(&g);
         self.mapping_g = setup_mapping_graph(&mg);
@@ -1034,7 +816,7 @@ impl GraphEditor {
             .mapping_g
             .nodes_iter()
             .filter(|(_, node)| {
-                node.payload().node_type == NodeType::Source
+                node.payload().node_type == ObservableNodeType::Source
             })
             .map(|(idx, node)| (idx, node.payload().name.clone()))
             .collect();
@@ -1044,7 +826,8 @@ impl GraphEditor {
             .mapping_g
             .nodes_iter()
             .filter(|(_, node)| {
-                node.payload().node_type == NodeType::Destination
+                node.payload().node_type
+                    == ObservableNodeType::Destination
             })
             .map(|(idx, node)| (idx, node.payload().name.clone()))
             .collect();
@@ -1213,7 +996,7 @@ impl GraphEditor {
             .mapping_g
             .nodes_iter()
             .filter(|(_, node)| {
-                node.payload().node_type == NodeType::Source
+                node.payload().node_type == ObservableNodeType::Source
             })
             .map(|(idx, node)| (idx, node.payload().name.clone()))
             .collect();
@@ -1229,9 +1012,9 @@ impl GraphEditor {
         for (_, dyn_name) in &dyn_nodes {
             if !source_map.contains_key(dyn_name) {
                 let new_idx =
-                    self.mapping_g.add_node(MappingNodeData {
+                    self.mapping_g.add_node(ObservableNode {
                         name: dyn_name.clone(),
-                        node_type: NodeType::Source,
+                        node_type: ObservableNodeType::Source,
                     });
                 if let Some(node) = self.mapping_g.node_mut(new_idx) {
                     node.set_label(dyn_name.clone());
@@ -1279,7 +1062,7 @@ impl GraphEditor {
 
                 // Controls
                 if ui.button("Add Node").clicked() {
-                    let node_idx = self.g.add_node(NodeData {
+                    let node_idx = self.g.add_node(StateNode {
                         name: String::new(),
                     });
                     let default_name =
@@ -1598,9 +1381,9 @@ impl GraphEditor {
 
                     // Add Destination button
                     if ui.button("Add Value").clicked() {
-                        let node_idx = self.mapping_g.add_node(MappingNodeData {
+                        let node_idx = self.mapping_g.add_node(ObservableNode {
                             name: String::new(),
-                            node_type: NodeType::Destination,
+                            node_type: ObservableNodeType::Destination,
                         });
                         let default_name = format!("Value {}", node_idx.index());
                         if let Some(node) = self.mapping_g.node_mut(node_idx) {
@@ -1619,7 +1402,7 @@ impl GraphEditor {
                             let dest_nodes: Vec<_> = self
                                 .mapping_g
                                 .nodes_iter()
-                                .filter(|(_, node)| node.payload().node_type == NodeType::Destination)
+                                .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Destination)
                                 .map(|(idx, node)| (idx, node.payload().name.clone()))
                                 .collect();
 
@@ -1698,7 +1481,7 @@ impl GraphEditor {
                             let dest_count = self
                                 .mapping_g
                                 .nodes_iter()
-                                .filter(|(_, node)| node.payload().node_type == NodeType::Destination)
+                                .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Destination)
                                 .count();
                             ui.label(format!("Values: {}", dest_count));
                             ui.separator();
@@ -1870,69 +1653,5 @@ impl GraphEditor {
                     );
                 });
             });
-    }
-}
-
-// Custom edge shape that calculates width from edge weight
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct WeightedEdgeShape {
-    default_impl: DefaultEdgeShape,
-    weight: f32,
-}
-
-impl From<EdgeProps<f32>> for WeightedEdgeShape {
-    fn from(props: EdgeProps<f32>) -> Self {
-        let weight = props.payload;
-        let mut default_impl = DefaultEdgeShape::from(props);
-        // Calculate width from weight: 1.0 + min(weight, 4.0)
-        default_impl.width = 1.0 + weight.min(4.0);
-        Self {
-            default_impl,
-            weight,
-        }
-    }
-}
-
-impl<
-    N: Clone,
-    Ty: EdgeType,
-    Ix: IndexType,
-    D: DisplayNode<N, f32, Ty, Ix>,
-> DisplayEdge<N, f32, Ty, Ix, D> for WeightedEdgeShape
-{
-    fn is_inside(
-        &self,
-        start: &Node<N, f32, Ty, Ix, D>,
-        end: &Node<N, f32, Ty, Ix, D>,
-        pos: egui::Pos2,
-    ) -> bool {
-        self.default_impl.is_inside(start, end, pos)
-    }
-
-    fn shapes(
-        &mut self,
-        start: &Node<N, f32, Ty, Ix, D>,
-        end: &Node<N, f32, Ty, Ix, D>,
-        ctx: &DrawContext,
-    ) -> Vec<egui::Shape> {
-        self.default_impl.shapes(start, end, ctx)
-    }
-
-    fn update(&mut self, state: &EdgeProps<f32>) {
-        self.weight = state.payload;
-        // Recalculate width when edge is updated
-        self.default_impl.width = 1.0 + self.weight.min(4.0);
-        DisplayEdge::<N, f32, Ty, Ix, D>::update(
-            &mut self.default_impl,
-            state,
-        );
-    }
-
-    fn extra_bounds(
-        &self,
-        start: &Node<N, f32, Ty, Ix, D>,
-        end: &Node<N, f32, Ty, Ix, D>,
-    ) -> Option<(egui::Pos2, egui::Pos2)> {
-        self.default_impl.extra_bounds(start, end)
     }
 }

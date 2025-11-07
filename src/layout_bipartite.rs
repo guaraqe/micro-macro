@@ -7,7 +7,7 @@ use petgraph::graph::IndexType;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-use crate::{MappingNodeData, NodeType};
+use crate::graph::{ObservableNode, ObservableNodeType};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LayoutStateBipartite {
@@ -86,10 +86,10 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
 
         // Separate Source and Destination nodes based on node_type field
         //
-        // NOTE: This layout is specifically designed for MappingNodeData.
+        // NOTE: This layout is specifically designed for ObservableNode.
         // The unsafe cast is required because:
         // 1. The Layout trait is generic over N but doesn't allow adding trait bounds
-        // 2. This layout is only ever used with MappingNodeData (enforced by MappingGraphView type alias)
+        // 2. This layout is only ever used with ObservableNode (enforced by MappingGraphView type alias)
         // 3. The memory layout is compatible (we're just reinterpreting the reference)
         // 4. This is safer than the alternative of string parsing node labels
         let mut source_nodes: Vec<_> = Vec::new();
@@ -99,14 +99,16 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
             let label = node.label().to_string();
             let payload = node.payload();
 
-            // SAFETY: This layout is only instantiated with N = MappingNodeData via MappingGraphView
+            // SAFETY: This layout is only instantiated with N = ObservableNode via MappingGraphView
             let node_data = unsafe {
-                &*(payload as *const N as *const MappingNodeData)
+                &*(payload as *const N as *const ObservableNode)
             };
 
             match node_data.node_type {
-                NodeType::Source => source_nodes.push((idx, label)),
-                NodeType::Destination => {
+                ObservableNodeType::Source => {
+                    source_nodes.push((idx, label))
+                }
+                ObservableNodeType::Destination => {
                     dest_nodes.push((idx, label))
                 }
             }
