@@ -11,12 +11,12 @@ use egui_graphs::{
     SettingsInteraction, SettingsStyle, reset_layout,
 };
 use graph::{
-    ObservableGraph, ObservableNode, ObservableNodeType, StateGraph,
-    StateNode,
+    ObservableNode, ObservableNodeType, StateNode,
+    default_observable_graph, default_state_graph,
 };
 use graph_view::{
     ObservableGraphDisplay, ObservableGraphView, StateGraphDisplay,
-    StateGraphView, WeightedEdgeShape,
+    StateGraphView, WeightedEdgeShape, setup_graph_display,
 };
 use layout_bipartite::LayoutStateBipartite;
 use layout_circular::{
@@ -24,7 +24,7 @@ use layout_circular::{
 };
 use petgraph::Directed;
 use petgraph::graph::DefaultIx;
-use petgraph::stable_graph::{EdgeIndex, NodeIndex};
+use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::{EdgeType, stable_graph::IndexType};
 // UI Constants
@@ -88,41 +88,18 @@ fn combined_config() -> LayoutCircular {
 // Initialization helpers
 // ------------------------------------------------------------------
 
-fn setup_graph(g: &StateGraph) -> StateGraphDisplay {
-    let mut graph: StateGraphDisplay = Graph::from(g);
-    // Set labels and size for all nodes
-    for (idx, node) in g.node_indices().zip(g.node_weights()) {
-        if let Some(graph_node) = graph.node_mut(idx) {
-            graph_node.set_label(node.name.clone());
-            // Reduce node size to 75% of default
-            graph_node.display_mut().radius *= 0.75;
-        }
-    }
-    // Clear labels for all edges
-    for edge_ref in g.edge_references() {
-        let edge_idx = edge_ref.id();
-        clear_edge_label(&mut graph, edge_idx);
-    }
-    graph
-}
+fn load_graphs_from_path(
+    path: &std::path::Path,
+) -> Result<(StateGraphDisplay, ObservableGraphDisplay), String> {
+    let state = serialization::load_from_file(path)?;
 
-fn setup_mapping_graph(
-    mg: &ObservableGraph,
-) -> ObservableGraphDisplay {
-    let mut mapping_graph: ObservableGraphDisplay = Graph::from(mg);
-    // Set labels and size for all nodes
-    for (idx, node) in mg.node_indices().zip(mg.node_weights()) {
-        if let Some(graph_node) = mapping_graph.node_mut(idx) {
-            graph_node.set_label(node.name.clone());
-            graph_node.display_mut().radius *= 0.75;
-        }
-    }
-    // Clear labels for all edges
-    for edge_ref in mg.edge_references() {
-        let edge_idx = edge_ref.id();
-        clear_edge_label(&mut mapping_graph, edge_idx);
-    }
-    mapping_graph
+    let g =
+        serialization::serializable_to_graph(&state.dynamical_system);
+    let mg = serialization::serializable_to_observable_graph(
+        &state.observable,
+    );
+
+    Ok((setup_graph_display(&g), setup_graph_display(&mg)))
 }
 
 fn load_or_create_default_state()
@@ -131,20 +108,9 @@ fn load_or_create_default_state()
 
     if std::path::Path::new(STATE_FILE).exists() {
         // Try to load from state.json
-        match serialization::load_from_file(std::path::Path::new(
-            STATE_FILE,
-        )) {
-            Ok(state) => {
-                // Successfully loaded state
-                let g = serialization::serializable_to_graph(
-                    &state.dynamical_system,
-                );
-                let mg =
-                    serialization::serializable_to_observable_graph(
-                        &state.observable,
-                    );
-                return (setup_graph(&g), setup_mapping_graph(&mg));
-            }
+        match load_graphs_from_path(std::path::Path::new(STATE_FILE))
+        {
+            Ok(graphs) => return graphs,
             Err(e) => {
                 eprintln!(
                     "Error loading state.json: {}. Using default state.",
@@ -155,9 +121,9 @@ fn load_or_create_default_state()
     }
 
     // Fall back to default state
-    let g = generate_graph();
-    let mg = generate_mapping_graph(&g);
-    (setup_graph(&g), setup_mapping_graph(&mg))
+    let g = default_state_graph();
+    let mg = default_observable_graph(&g);
+    (setup_graph_display(&g), setup_graph_display(&mg))
 }
 
 // ------------------------------------------------------------------
@@ -191,22 +157,6 @@ fn main() -> eframe::Result<()> {
     )
 }
 
-fn clear_edge_label<
-    N: Clone,
-    E: Clone,
-    Ty: EdgeType,
-    Ix: IndexType,
-    Dn: DisplayNode<N, E, Ty, Ix>,
-    De: DisplayEdge<N, E, Ty, Ix, Dn>,
->(
-    graph: &mut Graph<N, E, Ty, Ix, Dn, De>,
-    edge_idx: EdgeIndex<Ix>,
-) {
-    if let Some(edge) = graph.edge_mut(edge_idx) {
-        edge.set_label(String::new());
-    }
-}
-
 fn set_node_name<
     Ty: EdgeType,
     Ix: IndexType,
@@ -221,52 +171,6 @@ fn set_node_name<
         node.payload_mut().name = name.clone();
         node.set_label(name);
     }
-}
-
-fn generate_graph() -> StateGraph {
-    let mut g = StateGraph::new();
-
-    let a = g.add_node(StateNode {
-        name: format!("Node {}", 0),
-    });
-    let b = g.add_node(StateNode {
-        name: format!("Node {}", 1),
-    });
-    let c = g.add_node(StateNode {
-        name: format!("Node {}", 2),
-    });
-
-    g.add_edge(a, b, 1.0);
-    g.add_edge(b, c, 1.0);
-    g.add_edge(c, a, 1.0);
-
-    g
-}
-
-fn generate_mapping_graph(
-    source_graph: &StateGraph,
-) -> ObservableGraph {
-    let mut g = ObservableGraph::new();
-
-    // Add Source nodes mirroring the dynamical system
-    for node in source_graph.node_weights() {
-        g.add_node(ObservableNode {
-            name: node.name.clone(),
-            node_type: ObservableNodeType::Source,
-        });
-    }
-
-    // Add two default Destination nodes
-    g.add_node(ObservableNode {
-        name: String::from("Value 0"),
-        node_type: ObservableNodeType::Destination,
-    });
-    g.add_node(ObservableNode {
-        name: String::from("Value 1"),
-        node_type: ObservableNodeType::Destination,
-    });
-
-    g
 }
 
 // ------------------------------------------------------------------
@@ -500,13 +404,12 @@ impl GraphEditor {
                 if let Some(target_node) = self.g.hovered_node()
                     && source_node != target_node
                 {
-                    let edge_idx = self.g.add_edge(
+                    self.g.add_edge_with_label(
                         source_node,
                         target_node,
                         1.0,
+                        String::new(),
                     );
-                    // Clear edge label to hide it
-                    clear_edge_label(&mut self.g, edge_idx);
                 }
             }
             self.dragging_from = None;
@@ -592,15 +495,11 @@ impl GraphEditor {
                         Some(ObservableNodeType::Destination),
                     ) = (source_type, target_type)
                     {
-                        let edge_idx = self.mapping_g.add_edge(
+                        self.mapping_g.add_edge_with_label(
                             source_node,
                             target_node,
                             1.0,
-                        );
-                        // Clear edge label to hide it
-                        clear_edge_label(
-                            &mut self.mapping_g,
-                            edge_idx,
+                            String::new(),
                         );
                     }
                     // Silently ignore invalid edge attempts (Dest->Source, Source->Source, Dest->Dest)
@@ -650,18 +549,10 @@ impl GraphEditor {
         &mut self,
         path: &std::path::Path,
     ) -> Result<(), String> {
-        let state = serialization::load_from_file(path)?;
+        let (g, mg) = load_graphs_from_path(path)?;
 
-        // Convert to StableGraph first, then setup with proper display properties
-        let g = serialization::serializable_to_graph(
-            &state.dynamical_system,
-        );
-        let mg = serialization::serializable_to_observable_graph(
-            &state.observable,
-        );
-
-        self.g = setup_graph(&g);
-        self.mapping_g = setup_mapping_graph(&mg);
+        self.g = g;
+        self.mapping_g = mg;
 
         // Reset layouts to display new graphs
         self.layout_reset_needed = true;
@@ -879,9 +770,12 @@ impl GraphEditor {
                     }
                 } else {
                     // Add new edge
-                    let edge_idx =
-                        self.g.add_edge(src, tgt, change.new_weight);
-                    clear_edge_label(&mut self.g, edge_idx);
+                    self.g.add_edge_with_label(
+                        src,
+                        tgt,
+                        change.new_weight,
+                        String::new(),
+                    );
                 }
             }
         }
@@ -931,12 +825,12 @@ impl GraphEditor {
                     }
                 } else {
                     // Add new edge
-                    let edge_idx = self.mapping_g.add_edge(
+                    self.mapping_g.add_edge_with_label(
                         src,
                         tgt,
                         change.new_weight,
+                        String::new(),
                     );
-                    clear_edge_label(&mut self.mapping_g, edge_idx);
                 }
             }
         }

@@ -1,4 +1,4 @@
-use crate::graph::{ObservableNode, StateNode};
+use crate::graph::{HasName, ObservableNode, StateNode};
 use crate::layout_bipartite::{
     LayoutBipartite, LayoutStateBipartite,
 };
@@ -9,12 +9,47 @@ use egui_graphs::{
     DrawContext, EdgeProps, Graph, GraphView, Node,
 };
 use petgraph::graph::DefaultIx;
-use petgraph::stable_graph::IndexType;
+use petgraph::stable_graph::{IndexType, StableGraph};
 use petgraph::{Directed, EdgeType};
 
 // ------------------------------------------------------------------
 // Type aliases for graph types
 // ------------------------------------------------------------------
+
+type GraphDisplay<N> = Graph<
+    N,
+    f32,
+    Directed,
+    DefaultIx,
+    DefaultNodeShape,
+    WeightedEdgeShape,
+>;
+
+pub fn setup_graph_display<N>(
+    g: &StableGraph<N, f32>,
+) -> GraphDisplay<N>
+where
+    N: Clone,
+    N: HasName,
+{
+    let mut graph: GraphDisplay<N> = GraphDisplay::from(g);
+    // Set labels and size for all nodes
+    for (idx, node) in g.node_indices().zip(g.node_weights()) {
+        if let Some(graph_node) = graph.node_mut(idx) {
+            graph_node.set_label(node.name());
+            graph_node.display_mut().radius *= 0.75;
+        }
+    }
+    // Clear labels for all edges, inneficient
+    let edge_indices: Vec<_> =
+        graph.edges_iter().map(|(idx, _)| idx).collect();
+    for edge_idx in edge_indices {
+        if let Some(edge) = graph.edge_mut(edge_idx) {
+            edge.set_label(String::new());
+        }
+    }
+    graph
+}
 
 // Type aliases for the display graph types (with visualization properties)
 pub type StateGraphDisplay = Graph<
@@ -35,7 +70,9 @@ pub type ObservableGraphDisplay = Graph<
     WeightedEdgeShape,
 >;
 
+// ------------------------------------------------------------------
 // Type aliases for graph views (with layout configurations)
+// ------------------------------------------------------------------
 
 pub type StateGraphView<'a> = GraphView<
     'a,
