@@ -12,13 +12,13 @@ use egui_graphs::{
 };
 use graph_state::{
     ObservableNode, ObservableNodeType, StateNode,
-    default_observable_graph, default_state_graph,
     calculate_observed_graph_from_observable_display,
+    default_observable_graph, default_state_graph,
 };
 use graph_view::{
-    ObservableGraphDisplay, ObservableGraphView, ObservedGraphDisplay,
-    ObservedGraphView, StateGraphDisplay, StateGraphView,
-    WeightedEdgeShape, setup_graph_display,
+    ObservableGraphDisplay, ObservableGraphView,
+    ObservedGraphDisplay, ObservedGraphView, StateGraphDisplay,
+    StateGraphView, WeightedEdgeShape, setup_graph_display,
 };
 use layout_bipartite::LayoutStateBipartite;
 use layout_circular::{
@@ -140,10 +140,12 @@ fn main() -> eframe::Result<()> {
             let (graph, observable_graph) =
                 load_or_create_default_state();
 
-            let observed_graph_raw = calculate_observed_graph_from_observable_display(
-                &observable_graph
-            );
-            let observed_graph = setup_graph_display(&observed_graph_raw);
+            let observed_graph_raw =
+                calculate_observed_graph_from_observable_display(
+                    &observable_graph,
+                );
+            let observed_graph =
+                setup_graph_display(&observed_graph_raw);
 
             Ok(Box::new(GraphEditor {
                 state_graph: graph,
@@ -231,13 +233,64 @@ struct GraphEditor {
     error_message: Option<String>,
 }
 
+fn apply_weight_change_to_graph<N>(
+    graph: &mut graph_view::GraphDisplay<N>,
+    change: heatmap::WeightChange,
+    x_labels: &[String],
+    y_labels: &[String],
+) where
+    N: Clone,
+    N: graph_state::HasName,
+{
+    // Find node indices by name
+    let source_name = &x_labels[change.x];
+    let target_name = &y_labels[change.y];
+
+    let source_idx = graph
+        .nodes_iter()
+        .find(|(_, node)| &node.payload().name() == source_name)
+        .map(|(idx, _)| idx);
+
+    let target_idx = graph
+        .nodes_iter()
+        .find(|(_, node)| &node.payload().name() == target_name)
+        .map(|(idx, _)| idx);
+
+    if let (Some(src), Some(tgt)) = (source_idx, target_idx) {
+        if change.new_weight == 0.0 {
+            // Remove edge
+            if let Some(edge_idx) = graph.g().find_edge(src, tgt) {
+                graph.remove_edge(edge_idx);
+            }
+        } else {
+            // Add or update edge
+            if let Some(edge_idx) = graph.g().find_edge(src, tgt) {
+                // Update existing edge weight
+                if let Some(edge) = graph.edge_mut(edge_idx) {
+                    *edge.payload_mut() = change.new_weight;
+                }
+            } else {
+                // Add new edge
+                graph.add_edge_with_label(
+                    src,
+                    tgt,
+                    change.new_weight,
+                    String::new(),
+                );
+            }
+        }
+    }
+}
+
 impl GraphEditor {
     // Helper to recompute observed graph from current state
     fn recompute_observed_graph(&mut self) {
-        let observed_graph_raw = calculate_observed_graph_from_observable_display(
-            &self.observable_graph
-        );
-        self.observed_graph = setup_graph_display(&observed_graph_raw);
+        let observed_graph_raw =
+            calculate_observed_graph_from_observable_display(
+                &self.observable_graph,
+            );
+        self.observed_graph =
+            setup_graph_display(&observed_graph_raw);
         self.observed_layout_reset_needed = true;
     }
 
@@ -423,7 +476,8 @@ impl GraphEditor {
                 && self.drag_started
             {
                 // Drag completed - create edge if hovering different node
-                if let Some(target_node) = self.state_graph.hovered_node()
+                if let Some(target_node) =
+                    self.state_graph.hovered_node()
                     && source_node != target_node
                 {
                     self.state_graph.add_edge_with_label(
@@ -466,7 +520,8 @@ impl GraphEditor {
     ) -> Option<(egui::Pos2, egui::Pos2)> {
         // Start potential drag from a node
         if pointer.primary_pressed()
-            && let Some(hovered) = self.observable_graph.hovered_node()
+            && let Some(hovered) =
+                self.observable_graph.hovered_node()
             && let Some(press_pos) = pointer.interact_pos()
         {
             self.dragging_from = Some((hovered, press_pos));
@@ -575,10 +630,12 @@ impl GraphEditor {
 
         self.state_graph = g;
         self.observable_graph = mg;
-        let observed_graph_raw = calculate_observed_graph_from_observable_display(
-            &self.observable_graph
-        );
-        self.observed_graph = setup_graph_display(&observed_graph_raw);
+        let observed_graph_raw =
+            calculate_observed_graph_from_observable_display(
+                &self.observable_graph,
+            );
+        self.observed_graph =
+            setup_graph_display(&observed_graph_raw);
 
         // Reset layouts to display new graphs
         self.layout_reset_needed = true;
@@ -766,54 +823,18 @@ impl GraphEditor {
     }
 
     // Apply weight change from heatmap to dynamical system graph
-    fn apply_weight_change_to_graph(
+    fn apply_weight_change_to_state_graph(
         &mut self,
         change: heatmap::WeightChange,
         x_labels: &[String],
         y_labels: &[String],
     ) {
-        // Find node indices by name
-        let source_name = &x_labels[change.x];
-        let target_name = &y_labels[change.y];
-
-        let source_idx = self
-            .state_graph
-            .nodes_iter()
-            .find(|(_, node)| &node.payload().name == source_name)
-            .map(|(idx, _)| idx);
-
-        let target_idx = self
-            .state_graph
-            .nodes_iter()
-            .find(|(_, node)| &node.payload().name == target_name)
-            .map(|(idx, _)| idx);
-
-        if let (Some(src), Some(tgt)) = (source_idx, target_idx) {
-            if change.new_weight == 0.0 {
-                // Remove edge
-                if let Some(edge_idx) = self.state_graph.g().find_edge(src, tgt)
-                {
-                    self.state_graph.remove_edge(edge_idx);
-                }
-            } else {
-                // Add or update edge
-                if let Some(edge_idx) = self.state_graph.g().find_edge(src, tgt)
-                {
-                    // Update existing edge weight
-                    if let Some(edge) = self.state_graph.edge_mut(edge_idx) {
-                        *edge.payload_mut() = change.new_weight;
-                    }
-                } else {
-                    // Add new edge
-                    self.state_graph.add_edge_with_label(
-                        src,
-                        tgt,
-                        change.new_weight,
-                        String::new(),
-                    );
-                }
-            }
-        }
+        apply_weight_change_to_graph(
+            &mut self.state_graph,
+            change,
+            x_labels,
+            y_labels,
+        );
     }
 
     // Apply weight change from heatmap to mapping graph
@@ -823,52 +844,12 @@ impl GraphEditor {
         x_labels: &[String],
         y_labels: &[String],
     ) {
-        // Find node indices by name
-        let source_name = &x_labels[change.x];
-        let target_name = &y_labels[change.y];
-
-        let source_idx = self
-            .observable_graph
-            .nodes_iter()
-            .find(|(_, node)| &node.payload().name == source_name)
-            .map(|(idx, _)| idx);
-
-        let target_idx = self
-            .observable_graph
-            .nodes_iter()
-            .find(|(_, node)| &node.payload().name == target_name)
-            .map(|(idx, _)| idx);
-
-        if let (Some(src), Some(tgt)) = (source_idx, target_idx) {
-            if change.new_weight == 0.0 {
-                // Remove edge
-                if let Some(edge_idx) =
-                    self.observable_graph.g().find_edge(src, tgt)
-                {
-                    self.observable_graph.remove_edge(edge_idx);
-                }
-            } else {
-                // Add or update edge
-                if let Some(edge_idx) =
-                    self.observable_graph.g().find_edge(src, tgt)
-                {
-                    // Update existing edge weight
-                    if let Some(edge) =
-                        self.observable_graph.edge_mut(edge_idx)
-                    {
-                        *edge.payload_mut() = change.new_weight;
-                    }
-                } else {
-                    // Add new edge
-                    self.observable_graph.add_edge_with_label(
-                        src,
-                        tgt,
-                        change.new_weight,
-                        String::new(),
-                    );
-                }
-            }
-        }
+        apply_weight_change_to_graph(
+            &mut self.observable_graph,
+            change,
+            x_labels,
+            y_labels,
+        );
     }
 
     // Synchronize mapping graph Source nodes with dynamical system nodes
@@ -906,7 +887,9 @@ impl GraphEditor {
                         node_type: ObservableNodeType::Source,
                         state_node_idx: Some(*state_idx),
                     });
-                if let Some(node) = self.observable_graph.node_mut(new_idx) {
+                if let Some(node) =
+                    self.observable_graph.node_mut(new_idx)
+                {
                     node.set_label(dyn_name.clone());
                     node.display_mut().radius *= 0.75;
                 }
@@ -1134,7 +1117,7 @@ impl GraphEditor {
 
                             // Handle weight changes
                             if let Some(change) = weight_change {
-                                self.apply_weight_change_to_graph(
+                                self.apply_weight_change_to_state_graph(
                                     change, &x_labels, &y_labels,
                                 );
                             }
@@ -1175,7 +1158,8 @@ impl GraphEditor {
                     // Clear edge selections when not in EdgeEditor mode,
                     // before creating GraphView
                     if self.mode == EditMode::NodeEditor {
-                        self.state_graph.set_selected_edges(Vec::new());
+                        self.state_graph
+                            .set_selected_edges(Vec::new());
                     }
 
                     let settings_interaction =
@@ -1194,11 +1178,13 @@ impl GraphEditor {
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             ui.add(
-                                &mut StateGraphView::new(&mut self.state_graph)
-                                    .with_interactions(
-                                        &settings_interaction,
-                                    )
-                                    .with_styles(&settings_style),
+                                &mut StateGraphView::new(
+                                    &mut self.state_graph,
+                                )
+                                .with_interactions(
+                                    &settings_interaction,
+                                )
+                                .with_styles(&settings_style),
                             );
 
                             // Edge editing functionality (only in Edge Editor mode)
@@ -1224,7 +1210,8 @@ impl GraphEditor {
                                 // Reset dragging state and clear selections when not in Edge Editor mode
                                 self.dragging_from = None;
                                 self.drag_started = false;
-                                self.state_graph.set_selected_edges(Vec::new());
+                                self.state_graph
+                                    .set_selected_edges(Vec::new());
                             }
                         },
                     );
@@ -1465,7 +1452,8 @@ impl GraphEditor {
 
                     // Clear edge selections when not in EdgeEditor mode
                     if self.mode == EditMode::NodeEditor {
-                        self.observable_graph.set_selected_edges(Vec::new());
+                        self.observable_graph
+                            .set_selected_edges(Vec::new());
                     }
 
                     let settings_interaction =
@@ -1722,27 +1710,39 @@ impl GraphEditor {
         // Right panel - read-only heatmap
         egui::SidePanel::right("observed_right_panel")
             .exact_width(panel_width)
-            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
+            .frame(
+                egui::Frame::side_top_panel(&ctx.style())
+                    .inner_margin(8.0),
+            )
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
                     ui.heading("Observed Dynamics Heatmap");
                     ui.separator();
 
-                    let available_height = ui.available_height() - 40.0;
+                    let available_height =
+                        ui.available_height() - 40.0;
                     ui.allocate_ui_with_layout(
-                        egui::Vec2::new(ui.available_width(), available_height),
+                        egui::Vec2::new(
+                            ui.available_width(),
+                            available_height,
+                        ),
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             let (x_labels, y_labels, matrix) =
                                 self.build_observed_heatmap_data();
 
                             // Display heatmap without editing
-                            let editing_state = heatmap::EditingState {
-                                editing_cell: None,  // Always None for read-only
-                                edit_buffer: String::new(),
-                            };
+                            let editing_state =
+                                heatmap::EditingState {
+                                    editing_cell: None, // Always None for read-only
+                                    edit_buffer: String::new(),
+                                };
 
-                            let (new_hover, _new_editing, _weight_change) = heatmap::show_heatmap(
+                            let (
+                                new_hover,
+                                _new_editing,
+                                _weight_change,
+                            ) = heatmap::show_heatmap(
                                 ui,
                                 &x_labels,
                                 &y_labels,
@@ -1760,7 +1760,10 @@ impl GraphEditor {
                     ui.with_layout(
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
-                            ui.label(format!("Edges: {}", self.observed_graph.edge_count()));
+                            ui.label(format!(
+                                "Edges: {}",
+                                self.observed_graph.edge_count()
+                            ));
                             ui.separator();
                         },
                     );
@@ -1769,7 +1772,10 @@ impl GraphEditor {
 
         // Center panel - read-only graph visualization
         egui::CentralPanel::default()
-            .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(8.0))
+            .frame(
+                egui::Frame::central_panel(&ctx.style())
+                    .inner_margin(8.0),
+            )
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
                     ui.heading("Observed Graph");
@@ -1781,21 +1787,30 @@ impl GraphEditor {
                         self.observed_layout_reset_needed = false;
                     }
 
-                    let settings_interaction = SettingsInteraction::new()
-                        .with_dragging_enabled(false)
-                        .with_node_clicking_enabled(true)
-                        .with_node_selection_enabled(true);
+                    let settings_interaction =
+                        SettingsInteraction::new()
+                            .with_dragging_enabled(false)
+                            .with_node_clicking_enabled(true)
+                            .with_node_selection_enabled(true);
                     let settings_style = self.get_settings_style();
 
-                    let available_height = ui.available_height() - 60.0;
+                    let available_height =
+                        ui.available_height() - 60.0;
                     ui.allocate_ui_with_layout(
-                        egui::Vec2::new(ui.available_width(), available_height),
+                        egui::Vec2::new(
+                            ui.available_width(),
+                            available_height,
+                        ),
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             ui.add(
-                                &mut ObservedGraphView::new(&mut self.observed_graph)
-                                    .with_interactions(&settings_interaction)
-                                    .with_styles(&settings_style),
+                                &mut ObservedGraphView::new(
+                                    &mut self.observed_graph,
+                                )
+                                .with_interactions(
+                                    &settings_interaction,
+                                )
+                                .with_styles(&settings_style),
                             );
                         },
                     );
@@ -1805,7 +1820,10 @@ impl GraphEditor {
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
                             ui.label("Read-only view");
-                            ui.checkbox(&mut self.show_labels, "Show Labels");
+                            ui.checkbox(
+                                &mut self.show_labels,
+                                "Show Labels",
+                            );
                             ui.separator();
                         },
                     );

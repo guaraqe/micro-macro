@@ -55,7 +55,8 @@ pub struct ObservableNode {
     pub node_type: ObservableNodeType,
     /// Reference to the corresponding StateGraph node for Source nodes
     /// None for Destination nodes
-    #[allow(dead_code)] // Will be used for edge computation logic
+    #[allow(dead_code)]
+    // Will be used for edge computation logic
     pub state_node_idx: Option<NodeIndex>,
 }
 
@@ -73,7 +74,9 @@ pub fn default_observable_graph(
     let mut g = ObservableGraph::new();
 
     // Add Source nodes mirroring the dynamical system
-    for (state_idx, node) in source_graph.node_indices().zip(source_graph.node_weights()) {
+    for (state_idx, node) in
+        source_graph.node_indices().zip(source_graph.node_weights())
+    {
         g.add_node(ObservableNode {
             name: node.name.clone(),
             node_type: ObservableNodeType::Source,
@@ -122,7 +125,10 @@ pub fn calculate_observed_graph(
     let mut g = ObservedGraph::new();
 
     // Create nodes from Destination nodes in the observable graph
-    for (idx, node) in observable_graph.node_indices().zip(observable_graph.node_weights()) {
+    for (idx, node) in observable_graph
+        .node_indices()
+        .zip(observable_graph.node_weights())
+    {
         if node.node_type == ObservableNodeType::Destination {
             g.add_node(ObservedNode {
                 name: node.name.clone(),
@@ -141,11 +147,29 @@ pub fn calculate_observed_graph(
 // Helper function to calculate observed graph from ObservableGraphDisplay
 // Works with the concrete display graph type
 pub fn calculate_observed_graph_from_observable_display<Dn, De>(
-    observable_display: &egui_graphs::Graph<ObservableNode, f32, petgraph::Directed, petgraph::graph::DefaultIx, Dn, De>,
+    observable_display: &egui_graphs::Graph<
+        ObservableNode,
+        f32,
+        petgraph::Directed,
+        petgraph::graph::DefaultIx,
+        Dn,
+        De,
+    >,
 ) -> ObservedGraph
 where
-    Dn: egui_graphs::DisplayNode<ObservableNode, f32, petgraph::Directed, petgraph::graph::DefaultIx>,
-    De: egui_graphs::DisplayEdge<ObservableNode, f32, petgraph::Directed, petgraph::graph::DefaultIx, Dn>,
+    Dn: egui_graphs::DisplayNode<
+            ObservableNode,
+            f32,
+            petgraph::Directed,
+            petgraph::graph::DefaultIx,
+        >,
+    De: egui_graphs::DisplayEdge<
+            ObservableNode,
+            f32,
+            petgraph::Directed,
+            petgraph::graph::DefaultIx,
+            Dn,
+        >,
 {
     let mut g = ObservedGraph::new();
 

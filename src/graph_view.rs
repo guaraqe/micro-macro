@@ -1,4 +1,6 @@
-use crate::graph_state::{HasName, ObservableNode, ObservedNode, StateNode};
+use crate::graph_state::{
+    HasName, ObservableNode, ObservedNode, StateNode,
+};
 use crate::layout_bipartite::{
     LayoutBipartite, LayoutStateBipartite,
 };
@@ -16,7 +18,7 @@ use petgraph::{Directed, EdgeType};
 // Type aliases for graph types
 // ------------------------------------------------------------------
 
-type GraphDisplay<N> = Graph<
+pub type GraphDisplay<N> = Graph<
     N,
     f32,
     Directed,
