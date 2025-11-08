@@ -1,6 +1,11 @@
 use eframe::egui;
 use petgraph::stable_graph::NodeIndex;
 
+// Color scale configuration constants
+const COLOR_SCALE_MESH_POINTS: usize = 10;
+const COLOR_SCALE_HEIGHT: f32 = 30.0;
+const COLOR_SCALE_LABEL_HEIGHT: f32 = 15.0;
+
 #[derive(Debug, Clone)]
 pub struct WeightChange {
     pub source_idx: NodeIndex,
@@ -21,6 +26,7 @@ fn inferno(t: f32) -> egui::Color32 {
 
 /// Calculate color interpolation value based on weight position in sorted list
 /// Returns value between 0.0 and 1.0 for Inferno color mapping
+/// Handles any weight value by finding where it fits in the sorted list
 fn calculate_color_position(weight: f32, sorted_weights: &[f32]) -> f32 {
     if sorted_weights.is_empty() {
         return 0.5; // Middle color when no weights
@@ -30,35 +36,161 @@ fn calculate_color_position(weight: f32, sorted_weights: &[f32]) -> f32 {
         return 0.5; // Middle color when only one weight
     }
 
-    // Find first and last index of the weight in sorted list
-    let mut first_idx = None;
-    let mut last_idx = None;
+    // Find where this weight fits in the sorted list
+    // For weights not in the list, interpolate between surrounding indices
 
+    // Find first index where sorted_weights[i] >= weight
+    let mut insert_pos = sorted_weights.len();
     for (i, &w) in sorted_weights.iter().enumerate() {
-        if (w - weight).abs() < 1e-6 { // Use epsilon comparison for floats
-            if first_idx.is_none() {
-                first_idx = Some(i);
-            }
-            last_idx = Some(i);
+        if w >= weight {
+            insert_pos = i;
+            break;
         }
     }
 
-    // If weight not found, return middle color
-    let (first, last) = match (first_idx, last_idx) {
-        (Some(f), Some(l)) => (f, l),
-        _ => return 0.5,
-    };
+    // Handle edge cases
+    if insert_pos == 0 {
+        // Weight is less than or equal to minimum
+        return 0.0;
+    }
+    if insert_pos >= sorted_weights.len() {
+        // Weight is greater than maximum
+        return 1.0;
+    }
 
-    // Calculate middle index
-    let middle_idx = (first + last) / 2;
+    // Weight falls between sorted_weights[insert_pos - 1] and sorted_weights[insert_pos]
+    // Check if weight exactly matches a value
+    if (sorted_weights[insert_pos] - weight).abs() < 1e-6 {
+        // Find all occurrences of this weight and use middle
+        let mut first_idx = insert_pos;
+        let mut last_idx = insert_pos;
 
-    // Interpolate between 0.0 and 1.0
-    let n = sorted_weights.len();
-    middle_idx as f32 / (n - 1) as f32
+        // Find first occurrence
+        while first_idx > 0 && (sorted_weights[first_idx - 1] - weight).abs() < 1e-6 {
+            first_idx -= 1;
+        }
+
+        // Find last occurrence
+        while last_idx < sorted_weights.len() - 1 && (sorted_weights[last_idx + 1] - weight).abs() < 1e-6 {
+            last_idx += 1;
+        }
+
+        let middle_idx = (first_idx + last_idx) / 2;
+        return middle_idx as f32 / (sorted_weights.len() - 1) as f32;
+    }
+
+    // Weight doesn't match exactly - interpolate position between indices
+    let lower_idx = insert_pos - 1;
+    let upper_idx = insert_pos;
+    let lower_weight = sorted_weights[lower_idx];
+    let upper_weight = sorted_weights[upper_idx];
+
+    // Linear interpolation of the index position
+    let ratio = (weight - lower_weight) / (upper_weight - lower_weight);
+    let interpolated_idx = lower_idx as f32 + ratio;
+
+    interpolated_idx / (sorted_weights.len() - 1) as f32
+}
+
+/// Render a horizontal color scale showing the Inferno gradient with uniformly spaced weight values
+fn render_color_scale(ui: &mut egui::Ui, sorted_weights: &[f32], scale_width: f32) {
+    if sorted_weights.is_empty() {
+        return;
+    }
+
+    // Get min and max weights for uniform spacing
+    let min_weight = sorted_weights[0];
+    let max_weight = sorted_weights[sorted_weights.len() - 1];
+
+    if (max_weight - min_weight).abs() < 1e-6 {
+        return; // All weights are the same, don't show scale
+    }
+
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing = egui::Vec2::splat(0.0);
+
+        // Create mesh for gradient bar
+        let (rect, _response) = ui.allocate_exact_size(
+            egui::Vec2::new(scale_width, COLOR_SCALE_HEIGHT),
+            egui::Sense::hover(),
+        );
+        let rect_pos = rect.min;
+
+        let mut mesh = egui::Mesh::default();
+
+        // Create vertices for horizontal gradient with uniform weight spacing
+        for i in 0..COLOR_SCALE_MESH_POINTS {
+            let t = i as f32 / (COLOR_SCALE_MESH_POINTS - 1) as f32;
+            let x = rect_pos.x + t * scale_width;
+
+            // Calculate uniform weight value at this position
+            let weight = min_weight + t * (max_weight - min_weight);
+
+            // Get color for this weight value by looking up position in sorted list
+            let color_t = calculate_color_position(weight, sorted_weights);
+            let color = inferno(color_t);
+
+            // Top vertex
+            mesh.colored_vertex(
+                egui::pos2(x, rect_pos.y),
+                color,
+            );
+
+            // Bottom vertex
+            mesh.colored_vertex(
+                egui::pos2(x, rect_pos.y + COLOR_SCALE_HEIGHT),
+                color,
+            );
+        }
+
+        // Create triangle strip indices
+        for i in 0..(COLOR_SCALE_MESH_POINTS - 1) {
+            let base = (i * 2) as u32;
+            // First triangle
+            mesh.add_triangle(base, base + 1, base + 2);
+            // Second triangle
+            mesh.add_triangle(base + 1, base + 3, base + 2);
+        }
+
+        ui.painter().add(egui::Shape::mesh(mesh));
+
+        // Add tick marks and labels at 5 uniformly spaced weight positions
+        let label_positions = [0.0, 0.25, 0.5, 0.75, 1.0];
+
+        ui.allocate_space(egui::Vec2::new(scale_width, COLOR_SCALE_LABEL_HEIGHT));
+
+        for &pos in &label_positions {
+            let x = rect_pos.x + pos * scale_width;
+
+            // Calculate uniform weight value at this position
+            let weight = min_weight + pos * (max_weight - min_weight);
+
+            // Draw tick mark
+            let tick_top = rect_pos.y + COLOR_SCALE_HEIGHT;
+            let tick_bottom = tick_top + 5.0;
+            ui.painter().line_segment(
+                [egui::pos2(x, tick_top), egui::pos2(x, tick_bottom)],
+                egui::Stroke::new(1.0, egui::Color32::WHITE),
+            );
+
+            // Draw label
+            let text = format!("{:.1}", weight);
+            let font_id = egui::FontId::proportional(9.0);
+            let label_y = tick_bottom + 2.0;
+            ui.painter().text(
+                egui::pos2(x, label_y),
+                egui::Align2::CENTER_TOP,
+                text,
+                font_id,
+                egui::Color32::WHITE,
+            );
+        }
+    });
 }
 
 /// Render a heatmap visualization of a directed graph's adjacency matrix with inline editing
 /// Returns (new_hovered_cell, new_editing_state, optional_weight_change)
+#[allow(clippy::too_many_arguments)]
 pub fn show_heatmap(
     ui: &mut egui::Ui,
     x_labels: &[String],
@@ -95,7 +227,7 @@ pub fn show_heatmap(
     let available_width =
         available_rect.width() - label_width - spacing;
     let available_height =
-        available_rect.height() - label_height - spacing;
+        available_rect.height() - label_height - spacing - 10.0 - COLOR_SCALE_HEIGHT - COLOR_SCALE_LABEL_HEIGHT - 5.0;
 
     let cell_width = available_width / x_labels.len() as f32;
     let cell_height = available_height / y_labels.len() as f32;
@@ -332,6 +464,19 @@ pub fn show_heatmap(
                 }
             });
         }
+
+        // Add spacing before color scale
+        ui.add_space(10.0);
+
+        // Color scale row - aligned with heatmap matrix
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+            ui.add_space(label_width); // Align with heatmap left edge
+
+            // Scale width matches heatmap matrix width
+            let scale_width = cell_size * x_labels.len() as f32;
+            render_color_scale(ui, &sorted_weights, scale_width);
+        });
     });
 
     let new_editing_state = EditingState {

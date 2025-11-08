@@ -30,16 +30,6 @@ use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::{EdgeType, stable_graph::IndexType};
 
-// ------------------------------------------------------------------
-// Color Scheme - Inferno from colorous
-// ------------------------------------------------------------------
-
-/// Convert a normalized value [0.0, 1.0] to an Inferno color
-fn inferno(t: f32) -> egui::Color32 {
-    let c = colorous::INFERNO.eval_continuous(t.clamp(0.0, 1.0) as f64);
-    egui::Color32::from_rgb(c.r, c.g, c.b)
-}
-
 // UI Constants
 const DRAG_THRESHOLD: f32 = 2.0;
 const EDGE_PREVIEW_STROKE_WIDTH: f32 = 2.0;
@@ -243,6 +233,15 @@ struct GraphEditor {
     error_message: Option<String>,
 }
 
+// Type alias for heatmap data return type
+type HeatmapData = (
+    Vec<String>,                           // x_labels
+    Vec<String>,                           // y_labels
+    Vec<Vec<Option<f32>>>,                 // matrix
+    Vec<petgraph::stable_graph::NodeIndex>, // x_node_indices
+    Vec<petgraph::stable_graph::NodeIndex>, // y_node_indices
+);
+
 /// Collect all edge weights from a graph and return them sorted (including duplicates)
 /// Always prepends 0.0 to ensure the smallest actual weight doesn't map to minimum thickness
 fn collect_sorted_weights<N>(graph: &graph_view::GraphDisplay<N>) -> Vec<f32>
@@ -298,7 +297,7 @@ fn apply_weight_change_to_graph<N>(
 
 fn build_heatmap_data<N>(
     graph: &graph_view::GraphDisplay<N>,
-) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>, Vec<petgraph::stable_graph::NodeIndex>, Vec<petgraph::stable_graph::NodeIndex>)
+) -> HeatmapData
 where
     N: Clone,
     N: graph_state::HasName,
@@ -353,7 +352,7 @@ where
 
 fn build_observable_heatmap_data(
     graph: &ObservableGraphDisplay,
-) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>, Vec<petgraph::stable_graph::NodeIndex>, Vec<petgraph::stable_graph::NodeIndex>)
+) -> HeatmapData
 {
     // Get source nodes (x-axis) and destination nodes (y-axis)
     let mut source_nodes: Vec<_> = graph
