@@ -236,55 +236,40 @@ struct GraphEditor {
 fn apply_weight_change_to_graph<N>(
     graph: &mut graph_view::GraphDisplay<N>,
     change: heatmap::WeightChange,
-    x_labels: &[String],
-    y_labels: &[String],
 ) where
     N: Clone,
     N: graph_state::HasName,
 {
-    // Find node indices by name
-    let source_name = &x_labels[change.x];
-    let target_name = &y_labels[change.y];
+    let src = change.source_idx;
+    let tgt = change.target_idx;
 
-    let source_idx = graph
-        .nodes_iter()
-        .find(|(_, node)| &node.payload().name() == source_name)
-        .map(|(idx, _)| idx);
-
-    let target_idx = graph
-        .nodes_iter()
-        .find(|(_, node)| &node.payload().name() == target_name)
-        .map(|(idx, _)| idx);
-
-    if let (Some(src), Some(tgt)) = (source_idx, target_idx) {
-        if change.new_weight == 0.0 {
-            // Remove edge
-            if let Some(edge_idx) = graph.g().find_edge(src, tgt) {
-                graph.remove_edge(edge_idx);
+    if change.new_weight == 0.0 {
+        // Remove edge
+        if let Some(edge_idx) = graph.g().find_edge(src, tgt) {
+            graph.remove_edge(edge_idx);
+        }
+    } else {
+        // Add or update edge
+        if let Some(edge_idx) = graph.g().find_edge(src, tgt) {
+            // Update existing edge weight
+            if let Some(edge) = graph.edge_mut(edge_idx) {
+                *edge.payload_mut() = change.new_weight;
             }
         } else {
-            // Add or update edge
-            if let Some(edge_idx) = graph.g().find_edge(src, tgt) {
-                // Update existing edge weight
-                if let Some(edge) = graph.edge_mut(edge_idx) {
-                    *edge.payload_mut() = change.new_weight;
-                }
-            } else {
-                // Add new edge
-                graph.add_edge_with_label(
-                    src,
-                    tgt,
-                    change.new_weight,
-                    String::new(),
-                );
-            }
+            // Add new edge
+            graph.add_edge_with_label(
+                src,
+                tgt,
+                change.new_weight,
+                String::new(),
+            );
         }
     }
 }
 
 fn build_heatmap_data<N>(
     graph: &graph_view::GraphDisplay<N>,
-) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>)
+) -> (Vec<String>, Vec<String>, Vec<Vec<Option<f32>>>, Vec<petgraph::stable_graph::NodeIndex>)
 where
     N: Clone,
     N: graph_state::HasName,
@@ -299,7 +284,7 @@ where
     nodes.sort_by(|a, b| a.1.cmp(&b.1));
 
     if nodes.is_empty() {
-        return (vec![], vec![], vec![]);
+        return (vec![], vec![], vec![], vec![]);
     }
 
     let labels: Vec<String> =
@@ -311,6 +296,10 @@ where
     for (pos, (idx, _)) in nodes.iter().enumerate() {
         index_map.insert(*idx, pos);
     }
+
+    // Build node_indices array: position -> NodeIndex
+    let node_indices: Vec<petgraph::stable_graph::NodeIndex> =
+        nodes.iter().map(|(idx, _)| *idx).collect();
 
     // Build adjacency matrix: matrix[y][x] = Some(weight) if edge from x to y, None otherwise
     let mut matrix = vec![vec![None; node_count]; node_count];
@@ -329,7 +318,7 @@ where
         }
     }
 
-    (labels.clone(), labels, matrix)
+    (labels.clone(), labels, matrix, node_indices)
 }
 
 impl GraphEditor {
@@ -982,7 +971,7 @@ impl GraphEditor {
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             // Build heatmap data
-                            let (x_labels, y_labels, matrix) =
+                            let (x_labels, y_labels, matrix, node_indices) =
                                 build_heatmap_data(&self.state_graph);
 
                             // Display heatmap with editing support
@@ -1004,6 +993,7 @@ impl GraphEditor {
                                 &x_labels,
                                 &y_labels,
                                 &matrix,
+                                &node_indices,
                                 self.heatmap_hovered_cell,
                                 editing_state,
                             );
@@ -1019,8 +1009,6 @@ impl GraphEditor {
                                 apply_weight_change_to_graph(
                                     &mut self.state_graph,
                                     change,
-                                    &x_labels,
-                                    &y_labels,
                                 );
                             }
                         },
@@ -1301,7 +1289,7 @@ impl GraphEditor {
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             // Build heatmap data
-                            let (x_labels, y_labels, matrix) =
+                            let (x_labels, y_labels, matrix, node_indices) =
                                 build_heatmap_data(
                                     &self.observable_graph,
                                 );
@@ -1325,6 +1313,7 @@ impl GraphEditor {
                                 &x_labels,
                                 &y_labels,
                                 &matrix,
+                                &node_indices,
                                 self.heatmap_hovered_cell,
                                 editing_state,
                             );
@@ -1340,8 +1329,6 @@ impl GraphEditor {
                                 apply_weight_change_to_graph(
                                     &mut self.observable_graph,
                                     change,
-                                    &x_labels,
-                                    &y_labels,
                                 );
                             }
                         },
@@ -1610,7 +1597,7 @@ impl GraphEditor {
                         ),
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
-                            let (x_labels, y_labels, matrix) =
+                            let (x_labels, y_labels, matrix, node_indices) =
                                 build_heatmap_data(
                                     &self.observed_graph,
                                 );
@@ -1631,6 +1618,7 @@ impl GraphEditor {
                                 &x_labels,
                                 &y_labels,
                                 &matrix,
+                                &node_indices,
                                 self.heatmap_hovered_cell,
                                 editing_state,
                             );

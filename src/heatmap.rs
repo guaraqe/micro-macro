@@ -1,9 +1,10 @@
 use eframe::egui;
+use petgraph::stable_graph::NodeIndex;
 
 #[derive(Debug, Clone)]
 pub struct WeightChange {
-    pub x: usize,
-    pub y: usize,
+    pub source_idx: NodeIndex,
+    pub target_idx: NodeIndex,
     pub new_weight: f32,
 }
 
@@ -19,6 +20,7 @@ pub fn show_heatmap(
     x_labels: &[String],
     y_labels: &[String],
     matrix: &[Vec<Option<f32>>],
+    node_indices: &[NodeIndex], // Maps matrix position to NodeIndex
     prev_hovered_cell: Option<(usize, usize)>,
     editing_state: EditingState,
 ) -> (Option<(usize, usize)>, EditingState, Option<WeightChange>) {
@@ -50,7 +52,31 @@ pub fn show_heatmap(
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
 
-        for y_idx in (0..y_labels.len()).rev() {
+        // Top row: X-axis labels (column headers)
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+            ui.add_space(label_width);
+
+            for (x_idx, label) in x_labels.iter().enumerate() {
+                let is_highlighted = prev_hovered_cell.map(|(hx, _)| hx == x_idx).unwrap_or(false);
+                let text_color = if is_highlighted {
+                    egui::Color32::from_rgb(255, 255, 255)
+                } else {
+                    ui.style().visuals.text_color()
+                };
+
+                ui.add_sized(
+                    [cell_size, label_height],
+                    egui::Label::new(
+                        egui::RichText::new(label.as_str())
+                            .color(text_color)
+                            .size(10.0)
+                    )
+                );
+            }
+        });
+
+        for y_idx in 0..y_labels.len() {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
 
@@ -135,8 +161,8 @@ pub fn show_heatmap(
                             if enter_pressed {
                                 if let Ok(parsed_weight) = new_edit_buffer.parse::<f32>() {
                                     weight_change = Some(WeightChange {
-                                        x: x_idx,
-                                        y: y_idx,
+                                        source_idx: node_indices[x_idx],
+                                        target_idx: node_indices[y_idx],
                                         new_weight: parsed_weight,
                                     });
                                 }
@@ -147,8 +173,8 @@ pub fn show_heatmap(
                             else if tab_pressed {
                                 if let Ok(parsed_weight) = new_edit_buffer.parse::<f32>() {
                                     weight_change = Some(WeightChange {
-                                        x: x_idx,
-                                        y: y_idx,
+                                        source_idx: node_indices[x_idx],
+                                        target_idx: node_indices[y_idx],
                                         new_weight: parsed_weight,
                                     });
                                 }
@@ -236,30 +262,6 @@ pub fn show_heatmap(
                 }
             });
         }
-
-        // Bottom row: X-axis labels
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
-            ui.add_space(label_width);
-
-            for (x_idx, label) in x_labels.iter().enumerate() {
-                let is_highlighted = prev_hovered_cell.map(|(hx, _)| hx == x_idx).unwrap_or(false);
-                let text_color = if is_highlighted {
-                    egui::Color32::from_rgb(255, 255, 255)
-                } else {
-                    ui.style().visuals.text_color()
-                };
-
-                ui.add_sized(
-                    [cell_size, label_height],
-                    egui::Label::new(
-                        egui::RichText::new(label.as_str())
-                            .color(text_color)
-                            .size(10.0)
-                    )
-                );
-            }
-        });
     });
 
     let new_editing_state = EditingState {
