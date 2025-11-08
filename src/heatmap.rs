@@ -13,6 +13,50 @@ pub struct EditingState {
     pub edit_buffer: String,
 }
 
+/// Convert a normalized value [0.0, 1.0] to an Inferno color
+fn inferno(t: f32) -> egui::Color32 {
+    let c = colorous::INFERNO.eval_continuous(t.clamp(0.0, 1.0) as f64);
+    egui::Color32::from_rgb(c.r, c.g, c.b)
+}
+
+/// Calculate color interpolation value based on weight position in sorted list
+/// Returns value between 0.0 and 1.0 for Inferno color mapping
+fn calculate_color_position(weight: f32, sorted_weights: &[f32]) -> f32 {
+    if sorted_weights.is_empty() {
+        return 0.5; // Middle color when no weights
+    }
+
+    if sorted_weights.len() == 1 {
+        return 0.5; // Middle color when only one weight
+    }
+
+    // Find first and last index of the weight in sorted list
+    let mut first_idx = None;
+    let mut last_idx = None;
+
+    for (i, &w) in sorted_weights.iter().enumerate() {
+        if (w - weight).abs() < 1e-6 { // Use epsilon comparison for floats
+            if first_idx.is_none() {
+                first_idx = Some(i);
+            }
+            last_idx = Some(i);
+        }
+    }
+
+    // If weight not found, return middle color
+    let (first, last) = match (first_idx, last_idx) {
+        (Some(f), Some(l)) => (f, l),
+        _ => return 0.5,
+    };
+
+    // Calculate middle index
+    let middle_idx = (first + last) / 2;
+
+    // Interpolate between 0.0 and 1.0
+    let n = sorted_weights.len();
+    middle_idx as f32 / (n - 1) as f32
+}
+
 /// Render a heatmap visualization of a directed graph's adjacency matrix with inline editing
 /// Returns (new_hovered_cell, new_editing_state, optional_weight_change)
 pub fn show_heatmap(
@@ -20,7 +64,8 @@ pub fn show_heatmap(
     x_labels: &[String],
     y_labels: &[String],
     matrix: &[Vec<Option<f32>>],
-    node_indices: &[NodeIndex], // Maps matrix position to NodeIndex
+    x_node_indices: &[NodeIndex], // Maps x position to source NodeIndex
+    y_node_indices: &[NodeIndex], // Maps y position to target NodeIndex
     prev_hovered_cell: Option<(usize, usize)>,
     editing_state: EditingState,
 ) -> (Option<(usize, usize)>, EditingState, Option<WeightChange>) {
@@ -28,6 +73,19 @@ pub fn show_heatmap(
         ui.label("No nodes to display");
         return (None, editing_state, None);
     }
+
+    // Collect all weights and create sorted list for color interpolation
+    // Prepend 0.0 so smallest actual weight doesn't map to black (Inferno low end)
+    let mut sorted_weights: Vec<f32> = matrix
+        .iter()
+        .flat_map(|row| row.iter())
+        .filter_map(|&w| w)
+        .collect();
+
+    sorted_weights.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Always prepend 0.0 to the sorted list
+    sorted_weights.insert(0, 0.0);
 
     let available_rect = ui.available_rect_before_wrap();
     let spacing = 2.0;
@@ -101,8 +159,10 @@ pub fn show_heatmap(
 
                     if is_editing {
                         // Determine background color based on whether cell has weight
-                        let cell_color = if weight_opt.is_some() {
-                            egui::Color32::from_rgb(200, 60, 70)
+                        let cell_color = if let Some(weight) = weight_opt {
+                            // Find position in sorted list and map to Inferno color
+                            let t = calculate_color_position(*weight, &sorted_weights);
+                            inferno(t)
                         } else {
                             ui.style().visuals.extreme_bg_color
                         };
@@ -161,8 +221,8 @@ pub fn show_heatmap(
                             if enter_pressed {
                                 if let Ok(parsed_weight) = new_edit_buffer.parse::<f32>() {
                                     weight_change = Some(WeightChange {
-                                        source_idx: node_indices[x_idx],
-                                        target_idx: node_indices[y_idx],
+                                        source_idx: x_node_indices[x_idx],
+                                        target_idx: y_node_indices[y_idx],
                                         new_weight: parsed_weight,
                                     });
                                 }
@@ -173,8 +233,8 @@ pub fn show_heatmap(
                             else if tab_pressed {
                                 if let Ok(parsed_weight) = new_edit_buffer.parse::<f32>() {
                                     weight_change = Some(WeightChange {
-                                        source_idx: node_indices[x_idx],
-                                        target_idx: node_indices[y_idx],
+                                        source_idx: x_node_indices[x_idx],
+                                        target_idx: y_node_indices[y_idx],
                                         new_weight: parsed_weight,
                                     });
                                 }
@@ -204,8 +264,10 @@ pub fn show_heatmap(
                         }
                     } else {
                         // Normal cell rendering
-                        let cell_color = if weight_opt.is_some() {
-                            egui::Color32::from_rgb(200, 60, 70)
+                        let cell_color = if let Some(weight) = weight_opt {
+                            // Find position in sorted list and map to Inferno color
+                            let t = calculate_color_position(*weight, &sorted_weights);
+                            inferno(t)
                         } else {
                             ui.style().visuals.extreme_bg_color
                         };
@@ -229,8 +291,16 @@ pub fn show_heatmap(
 
                         let is_hovered = response.hovered();
                         let final_color = if is_hovered {
-                            if weight_opt.is_some() {
-                                egui::Color32::from_rgb(240, 100, 110)
+                            if let Some(weight) = weight_opt {
+                                // Brighten the Inferno color for hover
+                                let t = calculate_color_position(*weight, &sorted_weights);
+                                let base = inferno(t);
+                                // Lighten by adding to each channel
+                                egui::Color32::from_rgb(
+                                    base.r().saturating_add(40),
+                                    base.g().saturating_add(40),
+                                    base.b().saturating_add(40),
+                                )
                             } else {
                                 egui::Color32::from_rgb(60, 60, 60)
                             }
