@@ -196,8 +196,8 @@ pub fn show_heatmap(
     x_labels: &[String],
     y_labels: &[String],
     matrix: &[Vec<Option<f32>>],
-    x_node_indices: &[NodeIndex], // Maps x position to source NodeIndex
-    y_node_indices: &[NodeIndex], // Maps y position to target NodeIndex
+    x_node_indices: &[NodeIndex], // Maps x position (columns) to target NodeIndex
+    y_node_indices: &[NodeIndex], // Maps y position (rows) to source NodeIndex
     prev_hovered_cell: Option<(usize, usize)>,
     editing_state: EditingState,
 ) -> (Option<(usize, usize)>, EditingState, Option<WeightChange>) {
@@ -353,8 +353,8 @@ pub fn show_heatmap(
                             if enter_pressed {
                                 if let Ok(parsed_weight) = new_edit_buffer.parse::<f32>() {
                                     weight_change = Some(WeightChange {
-                                        source_idx: x_node_indices[x_idx],
-                                        target_idx: y_node_indices[y_idx],
+                                        source_idx: y_node_indices[y_idx],
+                                        target_idx: x_node_indices[x_idx],
                                         new_weight: parsed_weight,
                                     });
                                 }
@@ -365,8 +365,8 @@ pub fn show_heatmap(
                             else if tab_pressed {
                                 if let Ok(parsed_weight) = new_edit_buffer.parse::<f32>() {
                                     weight_change = Some(WeightChange {
-                                        source_idx: x_node_indices[x_idx],
-                                        target_idx: y_node_indices[y_idx],
+                                        source_idx: y_node_indices[y_idx],
+                                        target_idx: x_node_indices[x_idx],
                                         new_weight: parsed_weight,
                                     });
                                 }

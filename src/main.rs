@@ -329,7 +329,8 @@ where
     let node_indices: Vec<petgraph::stable_graph::NodeIndex> =
         nodes.iter().map(|(idx, _)| *idx).collect();
 
-    // Build adjacency matrix: matrix[y][x] = Some(weight) if edge from x to y, None otherwise
+    // Build adjacency matrix: matrix[y][x] = Some(weight) if edge from y to x
+    // Sources (y-axis/rows), Targets (x-axis/columns)
     let mut matrix = vec![vec![None; node_count]; node_count];
 
     // Iterate over all edges in the graph
@@ -339,14 +340,16 @@ where
         let target_idx = edge_ref.target();
         let weight = *edge_ref.weight().payload();
 
-        if let (Some(&x_pos), Some(&y_pos)) =
+        if let (Some(&source_pos), Some(&target_pos)) =
             (index_map.get(&source_idx), index_map.get(&target_idx))
         {
-            matrix[y_pos][x_pos] = Some(weight);
+            // matrix[source_row][target_col] = weight
+            matrix[source_pos][target_pos] = Some(weight);
         }
     }
 
-    // For square matrices, x and y use the same node indices
+    // x_labels = targets (columns), y_labels = sources (rows)
+    // x_node_indices = targets, y_node_indices = sources
     (labels.clone(), labels, matrix, node_indices.clone(), node_indices)
 }
 
@@ -354,7 +357,7 @@ fn build_observable_heatmap_data(
     graph: &ObservableGraphDisplay,
 ) -> HeatmapData
 {
-    // Get source nodes (x-axis) and destination nodes (y-axis)
+    // Get source nodes (y-axis/rows) and destination nodes (x-axis/columns)
     let mut source_nodes: Vec<_> = graph
         .nodes_iter()
         .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Source)
@@ -375,27 +378,28 @@ fn build_observable_heatmap_data(
         return (vec![], vec![], vec![], vec![], vec![]);
     }
 
-    let x_labels: Vec<String> = source_nodes.iter().map(|(_, name)| name.clone()).collect();
-    let y_labels: Vec<String> = dest_nodes.iter().map(|(_, name)| name.clone()).collect();
+    // SWAPPED: x_labels = destinations (columns), y_labels = sources (rows)
+    let x_labels: Vec<String> = dest_nodes.iter().map(|(_, name)| name.clone()).collect();
+    let y_labels: Vec<String> = source_nodes.iter().map(|(_, name)| name.clone()).collect();
 
     // Build index maps
     let mut source_index_map = std::collections::HashMap::new();
-    for (x_pos, (idx, _)) in source_nodes.iter().enumerate() {
-        source_index_map.insert(*idx, x_pos);
+    for (y_pos, (idx, _)) in source_nodes.iter().enumerate() {
+        source_index_map.insert(*idx, y_pos);
     }
 
     let mut dest_index_map = std::collections::HashMap::new();
-    for (y_pos, (idx, _)) in dest_nodes.iter().enumerate() {
-        dest_index_map.insert(*idx, y_pos);
+    for (x_pos, (idx, _)) in dest_nodes.iter().enumerate() {
+        dest_index_map.insert(*idx, x_pos);
     }
 
-    // Build separate node index arrays: x position -> source NodeIndex, y position -> dest NodeIndex
+    // SWAPPED: x_node_indices = destinations, y_node_indices = sources
     let x_node_indices: Vec<petgraph::stable_graph::NodeIndex> =
-        source_nodes.iter().map(|(idx, _)| *idx).collect();
-    let y_node_indices: Vec<petgraph::stable_graph::NodeIndex> =
         dest_nodes.iter().map(|(idx, _)| *idx).collect();
+    let y_node_indices: Vec<petgraph::stable_graph::NodeIndex> =
+        source_nodes.iter().map(|(idx, _)| *idx).collect();
 
-    // Build adjacency matrix: matrix[y][x] = Some(weight) if edge from source x to dest y
+    // Build adjacency matrix: matrix[source_row][dest_col] = Some(weight)
     let mut matrix = vec![vec![None; x_labels.len()]; y_labels.len()];
 
     // Iterate over all edges in the graph
@@ -405,10 +409,10 @@ fn build_observable_heatmap_data(
         let target_idx = edge_ref.target();
         let weight = *edge_ref.weight().payload();
 
-        if let (Some(&x_pos), Some(&y_pos)) =
+        if let (Some(&source_row), Some(&dest_col)) =
             (source_index_map.get(&source_idx), dest_index_map.get(&target_idx))
         {
-            matrix[y_pos][x_pos] = Some(weight);
+            matrix[source_row][dest_col] = Some(weight);
         }
     }
 
@@ -873,7 +877,6 @@ impl GraphEditor {
                     self.observable_graph.node_mut(new_idx)
                 {
                     node.set_label(dyn_name.clone());
-                    node.display_mut().radius *= 0.75;
                 }
             }
         }
@@ -923,10 +926,6 @@ impl GraphEditor {
                     let default_name =
                         format!("Node {}", node_idx.index());
                     set_node_name(&mut self.state_graph, node_idx, default_name);
-                    // Set size to 75% of default
-                    if let Some(node) = self.state_graph.node_mut(node_idx) {
-                        node.display_mut().radius *= 0.75;
-                    }
                     self.layout_reset_needed = true;
                     self.sync_source_nodes();
                     self.recompute_observed_graph();
@@ -1259,7 +1258,6 @@ impl GraphEditor {
                         if let Some(node) = self.observable_graph.node_mut(node_idx) {
                             node.payload_mut().name = default_name.clone();
                             node.set_label(default_name);
-                            node.display_mut().radius *= 0.75;
                         }
                         self.mapping_layout_reset_needed = true;
                         self.recompute_observed_graph();

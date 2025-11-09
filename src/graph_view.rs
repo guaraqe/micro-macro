@@ -39,7 +39,6 @@ where
     for (idx, node) in g.node_indices().zip(g.node_weights()) {
         if let Some(graph_node) = graph.node_mut(idx) {
             graph_node.set_label(node.name());
-            graph_node.display_mut().radius *= 0.75;
         }
     }
     // Clear labels for all edges, inneficient
