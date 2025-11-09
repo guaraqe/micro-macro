@@ -20,14 +20,18 @@ pub struct EditingState {
 
 /// Convert a normalized value [0.0, 1.0] to an Inferno color
 fn inferno(t: f32) -> egui::Color32 {
-    let c = colorous::INFERNO.eval_continuous(t.clamp(0.0, 1.0) as f64);
+    let c =
+        colorous::INFERNO.eval_continuous(t.clamp(0.0, 1.0) as f64);
     egui::Color32::from_rgb(c.r, c.g, c.b)
 }
 
 /// Calculate color interpolation value based on weight position in sorted list
 /// Returns value between 0.0 and 1.0 for Inferno color mapping
 /// Handles any weight value by finding where it fits in the sorted list
-fn calculate_color_position(weight: f32, sorted_weights: &[f32]) -> f32 {
+fn calculate_color_position(
+    weight: f32,
+    sorted_weights: &[f32],
+) -> f32 {
     if sorted_weights.is_empty() {
         return 0.5; // Middle color when no weights
     }
@@ -66,12 +70,16 @@ fn calculate_color_position(weight: f32, sorted_weights: &[f32]) -> f32 {
         let mut last_idx = insert_pos;
 
         // Find first occurrence
-        while first_idx > 0 && (sorted_weights[first_idx - 1] - weight).abs() < 1e-6 {
+        while first_idx > 0
+            && (sorted_weights[first_idx - 1] - weight).abs() < 1e-6
+        {
             first_idx -= 1;
         }
 
         // Find last occurrence
-        while last_idx < sorted_weights.len() - 1 && (sorted_weights[last_idx + 1] - weight).abs() < 1e-6 {
+        while last_idx < sorted_weights.len() - 1
+            && (sorted_weights[last_idx + 1] - weight).abs() < 1e-6
+        {
             last_idx += 1;
         }
 
@@ -86,14 +94,19 @@ fn calculate_color_position(weight: f32, sorted_weights: &[f32]) -> f32 {
     let upper_weight = sorted_weights[upper_idx];
 
     // Linear interpolation of the index position
-    let ratio = (weight - lower_weight) / (upper_weight - lower_weight);
+    let ratio =
+        (weight - lower_weight) / (upper_weight - lower_weight);
     let interpolated_idx = lower_idx as f32 + ratio;
 
     interpolated_idx / (sorted_weights.len() - 1) as f32
 }
 
 /// Render a horizontal color scale showing the Inferno gradient with uniformly spaced weight values
-fn render_color_scale(ui: &mut egui::Ui, sorted_weights: &[f32], scale_width: f32) {
+fn render_color_scale(
+    ui: &mut egui::Ui,
+    sorted_weights: &[f32],
+    scale_width: f32,
+) {
     if sorted_weights.is_empty() {
         return;
     }
@@ -127,14 +140,12 @@ fn render_color_scale(ui: &mut egui::Ui, sorted_weights: &[f32], scale_width: f3
             let weight = min_weight + t * (max_weight - min_weight);
 
             // Get color for this weight value by looking up position in sorted list
-            let color_t = calculate_color_position(weight, sorted_weights);
+            let color_t =
+                calculate_color_position(weight, sorted_weights);
             let color = inferno(color_t);
 
             // Top vertex
-            mesh.colored_vertex(
-                egui::pos2(x, rect_pos.y),
-                color,
-            );
+            mesh.colored_vertex(egui::pos2(x, rect_pos.y), color);
 
             // Bottom vertex
             mesh.colored_vertex(
@@ -157,7 +168,10 @@ fn render_color_scale(ui: &mut egui::Ui, sorted_weights: &[f32], scale_width: f3
         // Add tick marks and labels at 5 uniformly spaced weight positions
         let label_positions = [0.0, 0.25, 0.5, 0.75, 1.0];
 
-        ui.allocate_space(egui::Vec2::new(scale_width, COLOR_SCALE_LABEL_HEIGHT));
+        ui.allocate_space(egui::Vec2::new(
+            scale_width,
+            COLOR_SCALE_LABEL_HEIGHT,
+        ));
 
         for &pos in &label_positions {
             let x = rect_pos.x + pos * scale_width;
@@ -214,7 +228,9 @@ pub fn show_heatmap(
         .filter_map(|&w| w)
         .collect();
 
-    sorted_weights.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    sorted_weights.sort_by(|a, b| {
+        a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Always prepend 0.0 to the sorted list
     sorted_weights.insert(0, 0.0);
@@ -226,8 +242,13 @@ pub fn show_heatmap(
 
     let available_width =
         available_rect.width() - label_width - spacing;
-    let available_height =
-        available_rect.height() - label_height - spacing - 10.0 - COLOR_SCALE_HEIGHT - COLOR_SCALE_LABEL_HEIGHT - 5.0;
+    let available_height = available_rect.height()
+        - label_height
+        - spacing
+        - 10.0
+        - COLOR_SCALE_HEIGHT
+        - COLOR_SCALE_LABEL_HEIGHT
+        - 5.0;
 
     let cell_width = available_width / x_labels.len() as f32;
     let cell_height = available_height / y_labels.len() as f32;
@@ -484,5 +505,6 @@ pub fn show_heatmap(
         edit_buffer: new_edit_buffer,
     };
 
-    (*new_hovered_cell.borrow(), new_editing_state, weight_change)
+    let hovered = *new_hovered_cell.borrow();
+    (hovered, new_editing_state, weight_change)
 }

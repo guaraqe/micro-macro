@@ -135,7 +135,10 @@ pub type ObservedGraphView<'a> = GraphView<
 /// - If sorted_weights is empty, return 3.0 (middle thickness)
 /// - If only one weight in list, return 3.0 (middle thickness)
 /// - For duplicate weights, use averaged position
-fn calculate_edge_thickness(weight: f32, sorted_weights: &[f32]) -> f32 {
+fn calculate_edge_thickness(
+    weight: f32,
+    sorted_weights: &[f32],
+) -> f32 {
     if sorted_weights.is_empty() {
         return 3.0; // Middle thickness when no weights available
     }
@@ -149,7 +152,8 @@ fn calculate_edge_thickness(weight: f32, sorted_weights: &[f32]) -> f32 {
     let mut last_idx = None;
 
     for (i, &w) in sorted_weights.iter().enumerate() {
-        if (w - weight).abs() < 1e-6 { // Use epsilon comparison for floats
+        if (w - weight).abs() < 1e-6 {
+            // Use epsilon comparison for floats
             if first_idx.is_none() {
                 first_idx = Some(i);
             }
@@ -224,7 +228,10 @@ impl<
     fn update(&mut self, state: &EdgeProps<f32>) {
         self.weight = state.payload;
         // Recalculate width using global weight distribution
-        self.default_impl.width = calculate_edge_thickness(self.weight, &self.sorted_weights);
+        self.default_impl.width = calculate_edge_thickness(
+            self.weight,
+            &self.sorted_weights,
+        );
         DisplayEdge::<N, f32, Ty, Ix, D>::update(
             &mut self.default_impl,
             state,
@@ -252,13 +259,15 @@ pub fn update_edge_thicknesses<N>(
     N: Clone,
 {
     // Get all edge indices first (to avoid borrowing issues)
-    let edge_indices: Vec<_> = graph.edges_iter().map(|(idx, _)| idx).collect();
+    let edge_indices: Vec<_> =
+        graph.edges_iter().map(|(idx, _)| idx).collect();
 
     // Update each edge with the sorted weights
     for edge_idx in edge_indices {
         if let Some(edge) = graph.edge_mut(edge_idx) {
             // Update the sorted_weights field
-            edge.display_mut().sorted_weights = sorted_weights.clone();
+            edge.display_mut().sorted_weights =
+                sorted_weights.clone();
 
             // Recalculate width
             let weight = edge.display().weight;

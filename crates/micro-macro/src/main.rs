@@ -33,7 +33,8 @@ use petgraph::{EdgeType, stable_graph::IndexType};
 // UI Constants
 const DRAG_THRESHOLD: f32 = 2.0;
 const EDGE_PREVIEW_STROKE_WIDTH: f32 = 2.0;
-const EDGE_PREVIEW_COLOR: egui::Color32 = egui::Color32::from_rgb(100, 100, 255);
+const EDGE_PREVIEW_COLOR: egui::Color32 =
+    egui::Color32::from_rgb(100, 100, 255);
 
 // ------------------------------------------------------------------
 // Layout Configuration - Customize circular layout behavior here
@@ -235,16 +236,18 @@ struct GraphEditor {
 
 // Type alias for heatmap data return type
 type HeatmapData = (
-    Vec<String>,                           // x_labels
-    Vec<String>,                           // y_labels
-    Vec<Vec<Option<f32>>>,                 // matrix
+    Vec<String>,                            // x_labels
+    Vec<String>,                            // y_labels
+    Vec<Vec<Option<f32>>>,                  // matrix
     Vec<petgraph::stable_graph::NodeIndex>, // x_node_indices
     Vec<petgraph::stable_graph::NodeIndex>, // y_node_indices
 );
 
 /// Collect all edge weights from a graph and return them sorted (including duplicates)
 /// Always prepends 0.0 to ensure the smallest actual weight doesn't map to minimum thickness
-fn collect_sorted_weights<N>(graph: &graph_view::GraphDisplay<N>) -> Vec<f32>
+fn collect_sorted_weights<N>(
+    graph: &graph_view::GraphDisplay<N>,
+) -> Vec<f32>
 where
     N: Clone,
 {
@@ -253,7 +256,9 @@ where
         .map(|(_, edge)| *edge.payload())
         .collect();
 
-    weights.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    weights.sort_by(|a, b| {
+        a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Prepend 0.0 to the list so smallest actual weight doesn't get thinnest edge
     weights.insert(0, 0.0);
@@ -350,23 +355,33 @@ where
 
     // x_labels = targets (columns), y_labels = sources (rows)
     // x_node_indices = targets, y_node_indices = sources
-    (labels.clone(), labels, matrix, node_indices.clone(), node_indices)
+    (
+        labels.clone(),
+        labels,
+        matrix,
+        node_indices.clone(),
+        node_indices,
+    )
 }
 
 fn build_observable_heatmap_data(
     graph: &ObservableGraphDisplay,
-) -> HeatmapData
-{
+) -> HeatmapData {
     // Get source nodes (y-axis/rows) and destination nodes (x-axis/columns)
     let mut source_nodes: Vec<_> = graph
         .nodes_iter()
-        .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Source)
+        .filter(|(_, node)| {
+            node.payload().node_type == ObservableNodeType::Source
+        })
         .map(|(idx, node)| (idx, node.payload().name.clone()))
         .collect();
 
     let mut dest_nodes: Vec<_> = graph
         .nodes_iter()
-        .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Destination)
+        .filter(|(_, node)| {
+            node.payload().node_type
+                == ObservableNodeType::Destination
+        })
         .map(|(idx, node)| (idx, node.payload().name.clone()))
         .collect();
 
@@ -379,8 +394,10 @@ fn build_observable_heatmap_data(
     }
 
     // SWAPPED: x_labels = destinations (columns), y_labels = sources (rows)
-    let x_labels: Vec<String> = dest_nodes.iter().map(|(_, name)| name.clone()).collect();
-    let y_labels: Vec<String> = source_nodes.iter().map(|(_, name)| name.clone()).collect();
+    let x_labels: Vec<String> =
+        dest_nodes.iter().map(|(_, name)| name.clone()).collect();
+    let y_labels: Vec<String> =
+        source_nodes.iter().map(|(_, name)| name.clone()).collect();
 
     // Build index maps
     let mut source_index_map = std::collections::HashMap::new();
@@ -409,9 +426,10 @@ fn build_observable_heatmap_data(
         let target_idx = edge_ref.target();
         let weight = *edge_ref.weight().payload();
 
-        if let (Some(&source_row), Some(&dest_col)) =
-            (source_index_map.get(&source_idx), dest_index_map.get(&target_idx))
-        {
+        if let (Some(&source_row), Some(&dest_col)) = (
+            source_index_map.get(&source_idx),
+            dest_index_map.get(&target_idx),
+        ) {
             matrix[source_row][dest_col] = Some(weight);
         }
     }
@@ -1064,8 +1082,13 @@ impl GraphEditor {
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             // Build heatmap data
-                            let (x_labels, y_labels, matrix, x_node_indices, y_node_indices) =
-                                build_heatmap_data(&self.state_graph);
+                            let (
+                                x_labels,
+                                y_labels,
+                                matrix,
+                                x_node_indices,
+                                y_node_indices,
+                            ) = build_heatmap_data(&self.state_graph);
 
                             // Display heatmap with editing support
                             let editing_state =
@@ -1147,8 +1170,12 @@ impl GraphEditor {
                     }
 
                     // Update edge thicknesses based on global weight distribution
-                    let sorted_weights = collect_sorted_weights(&self.state_graph);
-                    graph_view::update_edge_thicknesses(&mut self.state_graph, sorted_weights);
+                    let sorted_weights =
+                        collect_sorted_weights(&self.state_graph);
+                    graph_view::update_edge_thicknesses(
+                        &mut self.state_graph,
+                        sorted_weights,
+                    );
 
                     let settings_interaction =
                         self.get_settings_interaction();
@@ -1386,10 +1413,15 @@ impl GraphEditor {
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             // Build heatmap data for observable graph (sources as x-axis, destinations as y-axis)
-                            let (x_labels, y_labels, matrix, x_node_indices, y_node_indices) =
-                                build_observable_heatmap_data(
-                                    &self.observable_graph,
-                                );
+                            let (
+                                x_labels,
+                                y_labels,
+                                matrix,
+                                x_node_indices,
+                                y_node_indices,
+                            ) = build_observable_heatmap_data(
+                                &self.observable_graph,
+                            );
 
                             // Display heatmap with editing support
                             let editing_state =
@@ -1472,8 +1504,13 @@ impl GraphEditor {
                     }
 
                     // Update edge thicknesses based on global weight distribution
-                    let sorted_weights = collect_sorted_weights(&self.observable_graph);
-                    graph_view::update_edge_thicknesses(&mut self.observable_graph, sorted_weights);
+                    let sorted_weights = collect_sorted_weights(
+                        &self.observable_graph,
+                    );
+                    graph_view::update_edge_thicknesses(
+                        &mut self.observable_graph,
+                        sorted_weights,
+                    );
 
                     let settings_interaction =
                         self.get_settings_interaction();
@@ -1699,10 +1736,15 @@ impl GraphEditor {
                         ),
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
-                            let (x_labels, y_labels, matrix, x_node_indices, y_node_indices) =
-                                build_heatmap_data(
-                                    &self.observed_graph,
-                                );
+                            let (
+                                x_labels,
+                                y_labels,
+                                matrix,
+                                x_node_indices,
+                                y_node_indices,
+                            ) = build_heatmap_data(
+                                &self.observed_graph,
+                            );
 
                             // Display heatmap without editing
                             let editing_state =
@@ -1763,8 +1805,12 @@ impl GraphEditor {
                     }
 
                     // Update edge thicknesses based on global weight distribution
-                    let sorted_weights = collect_sorted_weights(&self.observed_graph);
-                    graph_view::update_edge_thicknesses(&mut self.observed_graph, sorted_weights);
+                    let sorted_weights =
+                        collect_sorted_weights(&self.observed_graph);
+                    graph_view::update_edge_thicknesses(
+                        &mut self.observed_graph,
+                        sorted_weights,
+                    );
 
                     let settings_interaction =
                         SettingsInteraction::new()
