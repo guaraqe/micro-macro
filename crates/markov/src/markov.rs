@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
+use ndarray::linalg::Dot;
 use num_traits::Float;
-use sprs::{CsMat, TriMat};
+use sprs::{prod, CsMat, TriMat};
 
 use crate::ix_map::IxMap;
 use crate::prob::BuildError;
@@ -176,5 +177,40 @@ where
                 })
                 .collect(),
         )
+    }
+
+}
+
+// Implement Dot<Prob> for Markov: matrix · vector -> vector
+impl<A, B, N> Dot<crate::prob::Prob<B, N>> for Markov<A, B, N>
+where
+    A: Eq + Hash + Clone + std::fmt::Debug,
+    B: Eq + Hash + Clone + std::fmt::Debug,
+    N: Float + Default + ndarray::ScalarOperand + 'static + std::ops::AddAssign,
+    for<'r> &'r N: std::ops::Mul<&'r N, Output = N>,
+{
+    type Output = crate::prob::Prob<A, N>;
+
+    /// Matrix-vector dot product: self · rhs (right multiplication)
+    /// Treats rhs as a column vector with B labels.
+    /// Returns Prob<A, N> with row labels.
+    ///
+    /// Computes: result[a] = sum_b matrix[a, b] * rhs[b]
+    /// Uses sprs CSC matrix-vector product via prod module
+    fn dot(&self, rhs: &crate::prob::Prob<B, N>) -> crate::prob::Prob<A, N> {
+        // Use sprs optimized CSC matrix · vector multiplication
+        let m = self.rows.len();
+        let mut result_vec = vec![N::zero(); m];
+        prod::mul_acc_mat_vec_csc(
+            self.csc.view(),
+            rhs.probs.as_slice().unwrap(),
+            &mut result_vec,
+        );
+        let result_probs = ndarray::Array1::from(result_vec);
+
+        crate::prob::Prob {
+            probs: result_probs,
+            map: self.rows.clone(),
+        }
     }
 }

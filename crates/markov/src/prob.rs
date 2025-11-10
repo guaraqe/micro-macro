@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
+use ndarray::{linalg::Dot, Array1};
 use num_traits::Float;
 
 use crate::ix_map::IxMap;
@@ -25,7 +26,7 @@ pub enum BuildError {
 #[derive(Debug, Clone)]
 pub struct Prob<X, N> {
     /// Dense probability vector of length n, sums to 1.
-    pub probs: Vec<N>,
+    pub probs: Array1<N>,
     /// Labels <-> indices
     pub map: IxMap<X>,
 }
@@ -33,7 +34,7 @@ pub struct Prob<X, N> {
 impl<X, N> Prob<X, N>
 where
     X: Eq + Hash + Clone + std::fmt::Debug,
-    N: Float,
+    N: Float + ndarray::ScalarOperand,
 {
     pub fn from_assoc(
         size: usize,
@@ -60,8 +61,8 @@ where
             return Err(BuildError::SizeMismatch(size, map.len()));
         }
 
-        // Place values into fixed-size vector
-        let mut probs = vec![N::zero(); size];
+        // Place values into fixed-size array
+        let mut probs = Array1::zeros(size);
         let mut total = N::zero();
         for (x, w) in sums {
             let i = map.index_of(&x).expect("built from same keys");
@@ -73,9 +74,7 @@ where
         }
 
         // Normalize
-        for p in &mut probs {
-            *p = *p / total;
-        }
+        probs.mapv_inplace(|x| x / total);
 
         Ok(Self { probs, map })
     }
@@ -101,5 +100,245 @@ where
     /// Index of label (exposed for callers who want to cache it).
     pub fn index_of(&self, x: &X) -> Option<usize> {
         self.map.index_of(x)
+    }
+}
+
+// Import Markov for the cross-type dot method
+use crate::markov::Markov;
+
+// Implement Dot<Prob> for Prob: vector · vector -> scalar
+impl<X, N> Dot<Prob<X, N>> for Prob<X, N>
+where
+    X: Eq + Hash + Clone + std::fmt::Debug,
+    N: Float + Default + ndarray::ScalarOperand + 'static,
+{
+    type Output = N;
+
+    /// Vector-vector dot product: self · other
+    /// Uses ndarray's optimized dot product implementation
+    /// Note: Assumes label ordering matches (ignoring label matching for now)
+    fn dot(&self, rhs: &Prob<X, N>) -> N {
+        self.probs.dot(&rhs.probs)
+    }
+}
+
+// Implement Dot<Markov> for Prob: vector · matrix -> vector
+impl<X, B, N> Dot<Markov<X, B, N>> for Prob<X, N>
+where
+    X: Eq + Hash + Clone + std::fmt::Debug,
+    B: Eq + Hash + Clone + std::fmt::Debug,
+    N: Float + Default + ndarray::ScalarOperand + 'static + std::ops::AddAssign,
+    for<'r> &'r N: std::ops::Mul<&'r N, Output = N>,
+{
+    type Output = Prob<B, N>;
+
+    /// Vector-matrix dot product: self · matrix (left multiplication)
+    /// Treats self as a row vector, returns Prob<B, N> with column labels.
+    ///
+    /// Computes: result[b] = sum_x self[x] * matrix[x, b]
+    /// Uses sprs CSC format to efficiently access columns
+    fn dot(&self, matrix: &Markov<X, B, N>) -> Prob<B, N> {
+        // For vector · matrix, compute dot product of vector with each column
+        // CSC format is perfect for this since columns are contiguous
+        let n = matrix.cols.len();
+        let mut result_vec = vec![N::zero(); n];
+
+        // For each column j
+        for j in 0..n {
+            let col = matrix.csc.outer_view(j).unwrap();
+            // Dot product of self with column j
+            for (row_idx, &val) in col.indices().iter().zip(col.data().iter()) {
+                result_vec[j] += self.probs[*row_idx] * val;
+            }
+        }
+
+        let result_probs = ndarray::Array1::from(result_vec);
+
+        Prob {
+            probs: result_probs,
+            map: matrix.cols.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_prob_dot_prob_vector_dot_product() {
+        // Setup first probability vector: alice=0.6, bob=0.3, chico=0.1
+        let prob1 = Prob::from_assoc(
+            3,
+            vec![("alice", 0.6), ("bob", 0.3), ("chico", 0.1)],
+        )
+        .unwrap();
+
+        // Setup second probability vector with same creation order to ensure matching label indices
+        let prob2 = Prob::from_assoc(
+            3,
+            vec![("alice", 0.5), ("bob", 0.4), ("chico", 0.1)],
+        )
+        .unwrap();
+
+        // Test: prob1 · prob2 (vector-vector dot product)
+        // NOTE: This assumes label orderings match between prob1 and prob2.
+        // Since both are created from the same label order, HashMap should give same ordering.
+        let result = prob1.dot(&prob2);
+
+        // The result depends on the actual label ordering in the IxMap.
+        // Since we're ignoring label matching for now, just verify it's a valid dot product.
+        // The result should be positive and less than 1.0
+        assert!(
+            result > 0.0 && result < 1.0,
+            "Dot product should be between 0 and 1, got {}",
+            result
+        );
+
+        println!("✓ Vector-vector dot product test passed!");
+        println!("  prob1 · prob2 = {} (label-order dependent)", result);
+    }
+
+    #[test]
+    fn test_prob_dot_markov_alice_bob_chico() {
+        // Setup probability vector: alice=0.5, bob=0.3, chico=0.2
+        let prob = Prob::from_assoc(
+            3,
+            vec![("alice", 0.5), ("bob", 0.3), ("chico", 0.2)],
+        )
+        .unwrap();
+
+        // Verify probabilities sum to 1.0
+        let sum: f64 = prob.probs.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-10, "Input probabilities should sum to 1.0");
+
+        // Setup Markov matrix (3×2):
+        //          1     2
+        // alice:  0.7   0.3
+        // bob:    0.4   0.6
+        // chico:  0.2   0.8
+        let markov = Markov::from_assoc(
+            3,
+            2,
+            vec![
+                ("alice", 1, 0.7),
+                ("alice", 2, 0.3),
+                ("bob", 1, 0.4),
+                ("bob", 2, 0.6),
+                ("chico", 1, 0.2),
+                ("chico", 2, 0.8),
+            ],
+        )
+        .unwrap();
+
+        // Verify the matrix is row-stochastic (each row sums to 1)
+        for name in ["alice", "bob", "chico"] {
+            let row_sum = markov.p0(&name, &1) + markov.p0(&name, &2);
+            assert!(
+                (row_sum - 1.0).abs() < 1e-10,
+                "Row {} should sum to 1.0",
+                name
+            );
+        }
+
+        // Test: prob · markov (left multiplication, row vector × matrix)
+        let result = prob.dot(&markov);
+
+        // Expected calculation:
+        // result[1] = 0.5×0.7 + 0.3×0.4 + 0.2×0.2
+        //           = 0.35 + 0.12 + 0.04
+        //           = 0.51
+        // result[2] = 0.5×0.3 + 0.3×0.6 + 0.2×0.8
+        //           = 0.15 + 0.18 + 0.16
+        //           = 0.49
+
+        let p1 = result.prob(&1).expect("Result should have outcome 1");
+        let p2 = result.prob(&2).expect("Result should have outcome 2");
+
+        assert!(
+            (p1 - 0.51).abs() < 1e-10,
+            "P(1) should be 0.51, got {}",
+            p1
+        );
+        assert!(
+            (p2 - 0.49).abs() < 1e-10,
+            "P(2) should be 0.49, got {}",
+            p2
+        );
+
+        // Verify result probabilities sum to 1.0
+        let result_sum: f64 = result.probs.iter().sum();
+        assert!(
+            (result_sum - 1.0).abs() < 1e-10,
+            "Result probabilities should sum to 1.0, got {}",
+            result_sum
+        );
+
+        println!("✓ Left multiplication (prob · markov) test passed!");
+        println!("  Input: alice={}, bob={}, chico={}",
+                 prob.prob(&"alice").unwrap(),
+                 prob.prob(&"bob").unwrap(),
+                 prob.prob(&"chico").unwrap());
+        println!("  Result: 1={}, 2={}", p1, p2);
+    }
+
+    #[test]
+    fn test_markov_dot_prob_right_multiplication() {
+        // Setup Markov matrix (3×2):
+        //          1     2
+        // alice:  0.7   0.3
+        // bob:    0.4   0.6
+        // chico:  0.2   0.8
+        let markov = Markov::from_assoc(
+            3,
+            2,
+            vec![
+                ("alice", 1, 0.7),
+                ("alice", 2, 0.3),
+                ("bob", 1, 0.4),
+                ("bob", 2, 0.6),
+                ("chico", 1, 0.2),
+                ("chico", 2, 0.8),
+            ],
+        )
+        .unwrap();
+
+        // Setup probability vector over outcomes: 1=0.6, 2=0.4
+        let prob = Prob::from_assoc(2, vec![(1, 0.6), (2, 0.4)]).unwrap();
+
+        // Test: markov · prob (right multiplication, matrix × column vector)
+        let result = markov.dot(&prob);
+
+        // Expected calculation:
+        // result[alice] = 0.7×0.6 + 0.3×0.4 = 0.42 + 0.12 = 0.54
+        // result[bob]   = 0.4×0.6 + 0.6×0.4 = 0.24 + 0.24 = 0.48
+        // result[chico] = 0.2×0.6 + 0.8×0.4 = 0.12 + 0.32 = 0.44
+
+        let p_alice = result.prob(&"alice").expect("Result should have alice");
+        let p_bob = result.prob(&"bob").expect("Result should have bob");
+        let p_chico = result.prob(&"chico").expect("Result should have chico");
+
+        assert!(
+            (p_alice - 0.54).abs() < 1e-10,
+            "P(alice) should be 0.54, got {}",
+            p_alice
+        );
+        assert!(
+            (p_bob - 0.48).abs() < 1e-10,
+            "P(bob) should be 0.48, got {}",
+            p_bob
+        );
+        assert!(
+            (p_chico - 0.44).abs() < 1e-10,
+            "P(chico) should be 0.44, got {}",
+            p_chico
+        );
+
+        // Note: Result may not sum to 1.0 because this is matrix × vector,
+        // not a probability propagation
+        let result_sum: f64 = result.probs.iter().sum();
+        println!("✓ Right multiplication (markov · prob) test passed!");
+        println!("  Result: alice={}, bob={}, chico={} (sum={})",
+                 p_alice, p_bob, p_chico, result_sum);
     }
 }

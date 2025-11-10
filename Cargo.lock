@@ -1894,6 +1894,7 @@ dependencies = [
 name = "markov"
 version = "0.1.0"
 dependencies = [
+ "ndarray",
  "num-traits",
  "sprs",
  "thiserror 2.0.17",
