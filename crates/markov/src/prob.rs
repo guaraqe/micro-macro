@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::hash::Hash;
-
 use ndarray::{linalg::Dot, Array1};
 use num_traits::Float;
 
@@ -33,7 +30,7 @@ pub struct Prob<X, N> {
 
 impl<X, N> Prob<X, N>
 where
-    X: Eq + Hash + Clone + std::fmt::Debug,
+    X: Ord + Clone + std::fmt::Debug,
     N: Float + ndarray::ScalarOperand,
 {
     pub fn from_assoc(
@@ -44,27 +41,37 @@ where
             return Err(BuildError::SizeMismatch(0, 0));
         }
 
-        // Sum duplicates and check positivity for provided values
-        let mut sums: HashMap<X, N> = HashMap::new();
-        for (x, w) in assoc {
+        // Collect and sort pairs by key
+        let mut pairs: Vec<(X, N)> = assoc.into_iter().collect();
+        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+
+        // Check positivity and aggregate duplicates
+        let mut aggregated: Vec<(X, N)> = Vec::new();
+        for (x, w) in pairs {
             if !(w > N::zero()) {
                 return Err(BuildError::NonPositive);
             }
-            *sums.entry(x).or_insert(N::zero()) =
-                *sums.get(&x).unwrap_or(&N::zero()) + w;
+            if let Some(last) = aggregated.last_mut() {
+                if last.0 == x {
+                    last.1 = last.1 + w;
+                    continue;
+                }
+            }
+            aggregated.push((x, w));
         }
 
-        // Build label order (first-seen over the map iteration is arbitrary; if you want
-        // deterministic order, feed a predefined list instead).
-        let map = IxMap::from_distinct(sums.keys().cloned());
-        if map.len() > size {
-            return Err(BuildError::SizeMismatch(size, map.len()));
+        if aggregated.len() > size {
+            return Err(BuildError::SizeMismatch(size, aggregated.len()));
         }
+
+        // Extract sorted distinct keys for IxMap
+        let keys: Vec<X> = aggregated.iter().map(|(x, _)| x.clone()).collect();
+        let map = IxMap::from_distinct_sorted(keys);
 
         // Place values into fixed-size array
         let mut probs = Array1::zeros(size);
         let mut total = N::zero();
-        for (x, w) in sums {
+        for (x, w) in aggregated {
             let i = map.index_of(&x).expect("built from same keys");
             probs[i] = w;
             total = total + w;
@@ -109,7 +116,7 @@ use crate::markov::Markov;
 // Implement Dot<Prob> for Prob: vector · vector -> scalar
 impl<X, N> Dot<Prob<X, N>> for Prob<X, N>
 where
-    X: Eq + Hash + Clone + std::fmt::Debug,
+    X: Ord + Clone + std::fmt::Debug,
     N: Float + Default + ndarray::ScalarOperand + 'static,
 {
     type Output = N;
@@ -125,8 +132,8 @@ where
 // Implement Dot<Markov> for Prob: vector · matrix -> vector
 impl<X, B, N> Dot<Markov<X, B, N>> for Prob<X, N>
 where
-    X: Eq + Hash + Clone + std::fmt::Debug,
-    B: Eq + Hash + Clone + std::fmt::Debug,
+    X: Ord + Clone + std::fmt::Debug,
+    B: Ord + Clone + std::fmt::Debug,
     N: Float + Default + ndarray::ScalarOperand + 'static + std::ops::AddAssign,
     for<'r> &'r N: std::ops::Mul<&'r N, Output = N>,
 {
@@ -167,44 +174,43 @@ mod tests {
 
     #[test]
     fn test_prob_dot_prob_vector_dot_product() {
-        // Setup first probability vector: alice=0.6, bob=0.3, chico=0.1
+        // Setup first probability vector with one order: alice=0.6, bob=0.3, chico=0.1
         let prob1 = Prob::from_assoc(
             3,
             vec![("alice", 0.6), ("bob", 0.3), ("chico", 0.1)],
         )
         .unwrap();
 
-        // Setup second probability vector with same creation order to ensure matching label indices
+        // Setup second probability vector with DIFFERENT input order: chico, bob, alice
+        // After sorting internally, both should have same index order
         let prob2 = Prob::from_assoc(
             3,
-            vec![("alice", 0.5), ("bob", 0.4), ("chico", 0.1)],
+            vec![("chico", 0.1), ("bob", 0.4), ("alice", 0.5)],
         )
         .unwrap();
 
         // Test: prob1 · prob2 (vector-vector dot product)
-        // NOTE: This assumes label orderings match between prob1 and prob2.
-        // Since both are created from the same label order, HashMap should give same ordering.
+        // Expected: 0.6×0.5 + 0.3×0.4 + 0.1×0.1 = 0.3 + 0.12 + 0.01 = 0.43
+        // This should work because both vectors are sorted internally by label
         let result = prob1.dot(&prob2);
 
-        // The result depends on the actual label ordering in the IxMap.
-        // Since we're ignoring label matching for now, just verify it's a valid dot product.
-        // The result should be positive and less than 1.0
         assert!(
-            result > 0.0 && result < 1.0,
-            "Dot product should be between 0 and 1, got {}",
+            (result - 0.43).abs() < 1e-10,
+            "Dot product should be 0.43, got {}",
             result
         );
 
         println!("✓ Vector-vector dot product test passed!");
-        println!("  prob1 · prob2 = {} (label-order dependent)", result);
+        println!("  prob1 · prob2 = {} (order-independent)", result);
     }
 
     #[test]
     fn test_prob_dot_markov_alice_bob_chico() {
-        // Setup probability vector: alice=0.5, bob=0.3, chico=0.2
+        // Setup probability vector with one order: chico, alice, bob
+        // Will be sorted internally to: alice, bob, chico
         let prob = Prob::from_assoc(
             3,
-            vec![("alice", 0.5), ("bob", 0.3), ("chico", 0.2)],
+            vec![("chico", 0.2), ("alice", 0.5), ("bob", 0.3)],
         )
         .unwrap();
 
@@ -212,21 +218,23 @@ mod tests {
         let sum: f64 = prob.probs.iter().sum();
         assert!((sum - 1.0).abs() < 1e-10, "Input probabilities should sum to 1.0");
 
-        // Setup Markov matrix (3×2):
+        // Setup Markov matrix (3×2) with DIFFERENT input order:
         //          1     2
         // alice:  0.7   0.3
         // bob:    0.4   0.6
         // chico:  0.2   0.8
+        // Input order: bob, chico, alice (scrambled)
+        // Will be sorted internally to match prob vector
         let markov = Markov::from_assoc(
             3,
             2,
             vec![
-                ("alice", 1, 0.7),
-                ("alice", 2, 0.3),
-                ("bob", 1, 0.4),
                 ("bob", 2, 0.6),
                 ("chico", 1, 0.2),
+                ("alice", 1, 0.7),
+                ("bob", 1, 0.4),
                 ("chico", 2, 0.8),
+                ("alice", 2, 0.3),
             ],
         )
         .unwrap();
@@ -284,27 +292,29 @@ mod tests {
 
     #[test]
     fn test_markov_dot_prob_right_multiplication() {
-        // Setup Markov matrix (3×2):
+        // Setup Markov matrix (3×2) with DIFFERENT input order:
         //          1     2
         // alice:  0.7   0.3
         // bob:    0.4   0.6
         // chico:  0.2   0.8
+        // Input in reverse order to test sorting
         let markov = Markov::from_assoc(
             3,
             2,
             vec![
-                ("alice", 1, 0.7),
-                ("alice", 2, 0.3),
-                ("bob", 1, 0.4),
-                ("bob", 2, 0.6),
-                ("chico", 1, 0.2),
                 ("chico", 2, 0.8),
+                ("chico", 1, 0.2),
+                ("bob", 2, 0.6),
+                ("bob", 1, 0.4),
+                ("alice", 2, 0.3),
+                ("alice", 1, 0.7),
             ],
         )
         .unwrap();
 
-        // Setup probability vector over outcomes: 1=0.6, 2=0.4
-        let prob = Prob::from_assoc(2, vec![(1, 0.6), (2, 0.4)]).unwrap();
+        // Setup probability vector over outcomes with DIFFERENT order: 2, 1
+        // Will be sorted internally to: 1, 2
+        let prob = Prob::from_assoc(2, vec![(2, 0.4), (1, 0.6)]).unwrap();
 
         // Test: markov · prob (right multiplication, matrix × column vector)
         let result = markov.dot(&prob);

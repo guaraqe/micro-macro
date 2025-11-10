@@ -1,41 +1,35 @@
-use std::collections::HashMap;
-use std::hash::Hash;
-
 /// Simple bidirectional map between values and indices.
-/// Order is assigned by first-seen in the input you provide to builders.
+/// Values are stored in sorted order and lookups use binary search.
 #[derive(Debug, Clone)]
 pub struct IxMap<T> {
-    index_of: HashMap<T, usize>,
-    value_of: Vec<T>,
+    values: Vec<T>,
 }
 
-impl<T: Eq + Hash + Clone> IxMap<T> {
+impl<T: Ord + Clone> IxMap<T> {
     pub fn len(&self) -> usize {
-        self.value_of.len()
+        self.values.len()
     }
     pub fn is_empty(&self) -> bool {
-        self.value_of.is_empty()
+        self.values.is_empty()
     }
 
     pub fn index_of(&self, x: &T) -> Option<usize> {
-        self.index_of.get(x).copied()
+        self.values.binary_search(x).ok()
     }
     pub fn value_of(&self, i: usize) -> Option<&T> {
-        self.value_of.get(i)
+        self.values.get(i)
     }
 
-    /// Build from an iterator of distinct values (first-seen order).
-    pub fn from_distinct<I: IntoIterator<Item = T>>(vals: I) -> Self {
-        let mut index_of = HashMap::new();
-        let mut value_of = Vec::new();
-        for v in vals {
-            if let std::collections::hash_map::Entry::Vacant(e) =
-                index_of.entry(v.clone())
-            {
-                e.insert(value_of.len());
-                value_of.push(v);
-            }
+    /// Build from a pre-sorted iterator of distinct values.
+    /// The input MUST be sorted and contain no duplicates.
+    pub fn from_distinct_sorted<I: IntoIterator<Item = T>>(vals: I) -> Self {
+        Self {
+            values: vals.into_iter().collect(),
         }
-        Self { index_of, value_of }
+    }
+
+    /// Iterator over all (index, value) pairs
+    pub fn iter(&self) -> impl Iterator<Item = (usize, &T)> {
+        self.values.iter().enumerate()
     }
 }

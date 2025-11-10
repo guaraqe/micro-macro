@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::hash::Hash;
-
 use ndarray::linalg::Dot;
 use num_traits::Float;
 use sprs::{prod, CsMat, TriMat};
@@ -23,8 +20,8 @@ pub struct Markov<A, B, N> {
 
 impl<A, B, N> Markov<A, B, N>
 where
-    A: Eq + Hash + Clone + std::fmt::Debug,
-    B: Eq + Hash + Clone + std::fmt::Debug,
+    A: Ord + Clone + std::fmt::Debug,
+    B: Ord + Clone + std::fmt::Debug,
     N: Float + Default,
 {
     pub fn from_assoc(
@@ -36,49 +33,43 @@ where
             return Err(BuildError::EmptyMatrix);
         }
 
-        // First pass: collect unique labels and aggregate duplicates
-        let mut buckets: HashMap<(usize, usize), N> = HashMap::new();
+        // Collect and sort triplets by (A, B)
+        let mut triplets: Vec<(A, B, N)> = assoc.into_iter().collect();
+        triplets.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
 
-        // Temporary maps to assign indices on first-seen basis
-        let mut row_index_of: HashMap<A, usize> = HashMap::new();
-        let mut col_index_of: HashMap<B, usize> = HashMap::new();
-
-        let mut row_values: Vec<A> = Vec::new();
-        let mut col_values: Vec<B> = Vec::new();
-
-        let mut get_row = |a: A| {
-            if let Some(&i) = row_index_of.get(&a) {
-                i
-            } else {
-                let i = row_index_of.len();
-                row_index_of.insert(a.clone(), i);
-                row_values.push(a);
-                i
-            }
-        };
-        let mut get_col = |b: B| {
-            if let Some(&j) = col_index_of.get(&b) {
-                j
-            } else {
-                let j = col_index_of.len();
-                col_index_of.insert(b.clone(), j);
-                col_values.push(b);
-                j
-            }
-        };
-
-        for (a, b, w) in assoc {
+        // Check positivity and aggregate duplicates
+        let mut aggregated: Vec<(A, B, N)> = Vec::new();
+        for (a, b, w) in triplets {
             if !(w > N::zero()) {
                 return Err(BuildError::NonPositive);
             }
-            let i = get_row(a);
-            let j = get_col(b);
-            *buckets.entry((i, j)).or_insert(N::zero()) =
-                *buckets.get(&(i, j)).unwrap_or(&N::zero()) + w;
+            if let Some(last) = aggregated.last_mut() {
+                if last.0 == a && last.1 == b {
+                    last.2 = last.2 + w;
+                    continue;
+                }
+            }
+            aggregated.push((a, b, w));
         }
 
-        let row_map = IxMap::from_distinct(row_values);
-        let col_map = IxMap::from_distinct(col_values);
+        // Extract sorted distinct row and column labels
+        let mut row_labels: Vec<A> = Vec::new();
+        let mut col_labels: Vec<B> = Vec::new();
+        for (a, b, _) in &aggregated {
+            if row_labels.last() != Some(a) {
+                row_labels.push(a.clone());
+            }
+            if col_labels.last() != Some(b) {
+                col_labels.push(b.clone());
+            }
+        }
+        row_labels.sort();
+        row_labels.dedup();
+        col_labels.sort();
+        col_labels.dedup();
+
+        let row_map = IxMap::from_distinct_sorted(row_labels);
+        let col_map = IxMap::from_distinct_sorted(col_labels);
 
         if row_map.len() != m {
             return Err(BuildError::SizeMismatch(m, row_map.len()));
@@ -87,14 +78,21 @@ where
             return Err(BuildError::SizeMismatch(n, col_map.len()));
         }
 
+        // Convert labels to indices and build buckets
+        let mut buckets: Vec<((usize, usize), N)> = Vec::new();
+        for (a, b, w) in aggregated {
+            let i = row_map.index_of(&a).expect("row label in map");
+            let j = col_map.index_of(&b).expect("col label in map");
+            buckets.push(((i, j), w));
+        }
+
         // Compute row sums
         let mut row_sums = vec![N::zero(); m];
-        for (&(i, _j), &w) in &buckets {
+        for &((i, _j), w) in &buckets {
             row_sums[i] = row_sums[i] + w;
         }
         for (i, s) in row_sums.iter().enumerate() {
             if !(*s > N::zero()) {
-                // we only have A: Debug; craft a friendly message
                 let name = row_map
                     .value_of(i)
                     .map(|x| format!("{x:?}"))
@@ -104,20 +102,14 @@ where
         }
 
         // Build a CSR via TriMat, normalized per row, then convert to CSC
-        let mut triplets: Vec<(usize, usize, N)> =
-            Vec::with_capacity(buckets.len());
-        for ((i, j), w) in buckets {
-            triplets.push((i, j, w / row_sums[i]));
-        }
-
         let mut tri: TriMat<N> =
-            TriMat::with_capacity((m, n), triplets.len());
-        for (i, j, v) in triplets {
-            tri.add_triplet(i, j, v);
+            TriMat::with_capacity((m, n), buckets.len());
+        for ((i, j), w) in buckets {
+            tri.add_triplet(i, j, w / row_sums[i]);
         }
 
-        let csr: CsMat<N> = tri.to_csr(); // rows are compressed → row-stochastic as desired
-        let csc: CsMat<N> = csr.to_csc(); // storage as requested
+        let csr: CsMat<N> = tri.to_csr();
+        let csc: CsMat<N> = csr.to_csc();
 
         Ok(Self {
             csc,
@@ -184,8 +176,8 @@ where
 // Implement Dot<Prob> for Markov: matrix · vector -> vector
 impl<A, B, N> Dot<crate::prob::Prob<B, N>> for Markov<A, B, N>
 where
-    A: Eq + Hash + Clone + std::fmt::Debug,
-    B: Eq + Hash + Clone + std::fmt::Debug,
+    A: Ord + Clone + std::fmt::Debug,
+    B: Ord + Clone + std::fmt::Debug,
     N: Float + Default + ndarray::ScalarOperand + 'static + std::ops::AddAssign,
     for<'r> &'r N: std::ops::Mul<&'r N, Output = N>,
 {
