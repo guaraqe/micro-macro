@@ -4,10 +4,11 @@ mod heatmap;
 mod layout_bipartite;
 mod layout_circular;
 mod serialization;
+mod store;
 
 use eframe::egui;
 use egui_graphs::{
-    DefaultNodeShape, DisplayEdge, DisplayNode, Graph,
+    DisplayEdge, DisplayNode, Graph,
     SettingsInteraction, SettingsStyle, reset_layout,
 };
 use graph_state::{
@@ -16,16 +17,13 @@ use graph_state::{
     default_observable_graph, default_state_graph,
 };
 use graph_view::{
-    ObservableGraphDisplay, ObservableGraphView,
-    ObservedGraphDisplay, ObservedGraphView, StateGraphDisplay,
-    StateGraphView, WeightedEdgeShape, setup_graph_display,
+    ObservableGraphDisplay, ObservableGraphView, ObservedGraphView, StateGraphDisplay,
+    StateGraphView, setup_graph_display,
 };
 use layout_bipartite::LayoutStateBipartite;
 use layout_circular::{
     LayoutCircular, LayoutStateCircular, SortOrder, SpacingConfig,
 };
-use petgraph::Directed;
-use petgraph::graph::DefaultIx;
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::{EdgeType, stable_graph::IndexType};
@@ -148,24 +146,11 @@ fn main() -> eframe::Result<()> {
             let observed_graph =
                 setup_graph_display(&observed_graph_raw);
 
-            Ok(Box::new(GraphEditor {
-                state_graph: graph,
+            Ok(Box::new(store::GraphEditor::new(
+                graph,
                 observable_graph,
                 observed_graph,
-                mode: EditMode::NodeEditor,
-                prev_mode: EditMode::NodeEditor,
-                active_tab: ActiveTab::DynamicalSystem,
-                dragging_from: None,
-                drag_started: false,
-                show_labels: true,
-                layout_reset_needed: false,
-                mapping_layout_reset_needed: false,
-                observed_layout_reset_needed: true,
-                heatmap_hovered_cell: None,
-                heatmap_editing_cell: None,
-                heatmap_edit_buffer: String::new(),
-                error_message: None,
-            }))
+            )))
         }),
     )
 }
@@ -187,52 +172,6 @@ fn set_node_name<
 }
 
 // ------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum EditMode {
-    NodeEditor,
-    EdgeEditor,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum ActiveTab {
-    DynamicalSystem,
-    ObservableEditor,
-    ObservedDynamics,
-}
-
-struct GraphEditor {
-    state_graph: Graph<
-        StateNode,
-        f32,
-        Directed,
-        DefaultIx,
-        DefaultNodeShape,
-        WeightedEdgeShape,
-    >,
-    observable_graph: Graph<
-        ObservableNode,
-        f32,
-        Directed,
-        DefaultIx,
-        DefaultNodeShape,
-        WeightedEdgeShape,
-    >,
-    observed_graph: ObservedGraphDisplay,
-    mode: EditMode,
-    prev_mode: EditMode,
-    active_tab: ActiveTab,
-    dragging_from: Option<(NodeIndex, egui::Pos2)>,
-    drag_started: bool,
-    show_labels: bool,
-    layout_reset_needed: bool,
-    mapping_layout_reset_needed: bool,
-    observed_layout_reset_needed: bool,
-    heatmap_hovered_cell: Option<(usize, usize)>,
-    heatmap_editing_cell: Option<(usize, usize)>,
-    heatmap_edit_buffer: String,
-    error_message: Option<String>,
-}
 
 // Type alias for heatmap data return type
 type HeatmapData = (
@@ -437,18 +376,51 @@ fn build_observable_heatmap_data(
     (x_labels, y_labels, matrix, x_node_indices, y_node_indices)
 }
 
-impl GraphEditor {
-    // Helper to recompute observed graph from current state
-    fn recompute_observed_graph(&mut self) {
-        let observed_graph_raw =
-            calculate_observed_graph_from_observable_display(
-                &self.observable_graph,
-            );
-        self.observed_graph =
-            setup_graph_display(&observed_graph_raw);
-        self.observed_layout_reset_needed = true;
-    }
+// Helper function to create histogram data from node weights
+fn create_weight_histogram<N, E, Ty, Ix, Dn, De>(
+    graph: &Graph<N, E, Ty, Ix, Dn, De>,
+    get_weight: impl Fn(&N) -> f32,
+    get_name: impl Fn(&N) -> String,
+) -> (Vec<egui_plot::Bar>, Vec<String>)
+where
+    N: Clone,
+    E: Clone,
+    Ty: petgraph::EdgeType,
+    Ix: petgraph::graph::IndexType,
+    Dn: DisplayNode<N, E, Ty, Ix>,
+    De: DisplayEdge<N, E, Ty, Ix, Dn>,
+{
+    // Collect nodes with their names and weights
+    let mut nodes: Vec<(String, f32)> = graph
+        .nodes_iter()
+        .map(|(_, node)| {
+            let payload = node.payload();
+            (get_name(payload), get_weight(payload))
+        })
+        .collect();
 
+    // Sort by name
+    nodes.sort_by(|a, b| a.0.cmp(&b.0));
+
+    // Separate names for labels
+    let names: Vec<String> =
+        nodes.iter().map(|(name, _)| name.clone()).collect();
+
+    // Create bars
+    let bars = nodes
+        .into_iter()
+        .enumerate()
+        .map(|(i, (name, weight))| {
+            egui_plot::Bar::new(i as f64, weight as f64)
+                .name(name)
+                .width(0.8)
+        })
+        .collect();
+
+    (bars, names)
+}
+
+impl store::GraphEditor {
     // Returns (incoming_nodes, outgoing_nodes) for a given node
     fn get_node_connections(
         &self,
@@ -484,12 +456,12 @@ impl GraphEditor {
     // Returns interaction settings based on current mode
     fn get_settings_interaction(&self) -> SettingsInteraction {
         match self.mode {
-            EditMode::NodeEditor => SettingsInteraction::new()
+            store::EditMode::NodeEditor => SettingsInteraction::new()
                 .with_dragging_enabled(false)
                 .with_node_clicking_enabled(true)
                 .with_node_selection_enabled(true)
                 .with_edge_selection_enabled(true),
-            EditMode::EdgeEditor => SettingsInteraction::new()
+            store::EditMode::EdgeEditor => SettingsInteraction::new()
                 .with_dragging_enabled(false)
                 .with_edge_clicking_enabled(true)
                 .with_edge_selection_enabled(true)
@@ -684,6 +656,7 @@ impl GraphEditor {
                             1.0,
                             String::new(),
                         );
+                        self.recompute_observed_graph();
                     }
                     // Silently ignore invalid edge attempts (Dest->Source, Source->Source, Dest->Dest)
                 }
@@ -707,6 +680,7 @@ impl GraphEditor {
             if selected_edges.len() == 1 {
                 let clicked_edge = selected_edges[0];
                 self.observable_graph.remove_edge(clicked_edge);
+                self.recompute_observed_graph();
             }
         }
     }
@@ -752,12 +726,15 @@ impl GraphEditor {
     }
 }
 
-impl eframe::App for GraphEditor {
+impl eframe::App for store::GraphEditor {
     fn update(
         &mut self,
         ctx: &egui::Context,
         _frame: &mut eframe::Frame,
     ) {
+        // Flush action queue at the beginning of update
+        self.flush_actions();
+
         // Menu bar at the very top
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
@@ -792,17 +769,17 @@ impl eframe::App for GraphEditor {
             ui.horizontal(|ui| {
                 ui.selectable_value(
                     &mut self.active_tab,
-                    ActiveTab::DynamicalSystem,
+                    store::ActiveTab::DynamicalSystem,
                     "Dynamical System",
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
-                    ActiveTab::ObservableEditor,
+                    store::ActiveTab::ObservableEditor,
                     "Observable Editor",
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
-                    ActiveTab::ObservedDynamics,
+                    store::ActiveTab::ObservedDynamics,
                     "Observed Dynamics",
                 );
             });
@@ -811,28 +788,28 @@ impl eframe::App for GraphEditor {
         // Detect Ctrl key to switch modes
         let ctrl_pressed = ctx.input(|i| i.modifiers.ctrl);
         self.mode = if ctrl_pressed {
-            EditMode::EdgeEditor
+            store::EditMode::EdgeEditor
         } else {
-            EditMode::NodeEditor
+            store::EditMode::NodeEditor
         };
 
         // Clear edge selection state when transitioning from EdgeEditor
         // to NodeEditor. Must happen before GraphView is created.
-        if self.prev_mode == EditMode::EdgeEditor
-            && self.mode == EditMode::NodeEditor
+        if self.prev_mode == store::EditMode::EdgeEditor
+            && self.mode == store::EditMode::NodeEditor
         {
             self.state_graph.set_selected_edges(Vec::new());
         }
 
         // Render the appropriate view based on active tab
         match self.active_tab {
-            ActiveTab::DynamicalSystem => {
+            store::ActiveTab::DynamicalSystem => {
                 self.render_dynamical_system_tab(ctx)
             }
-            ActiveTab::ObservableEditor => {
+            store::ActiveTab::ObservableEditor => {
                 self.render_observable_editor_tab(ctx)
             }
-            ActiveTab::ObservedDynamics => {
+            store::ActiveTab::ObservedDynamics => {
                 self.render_observed_dynamics_tab(ctx)
             }
         }
@@ -852,76 +829,13 @@ impl eframe::App for GraphEditor {
 
         // Update previous mode for next frame
         self.prev_mode = self.mode;
+
+        // Flush effects at the end of update
+        self.flush_effects();
     }
 }
 
-impl GraphEditor {
-    // Synchronize mapping graph Source nodes with dynamical system nodes
-    fn sync_source_nodes(&mut self) {
-        // Get current dynamical system nodes
-        let dyn_nodes: Vec<(NodeIndex, String)> = self
-            .state_graph
-            .nodes_iter()
-            .map(|(idx, node)| (idx, node.payload().name.clone()))
-            .collect();
-
-        // Get current Source nodes in mapping graph
-        let source_nodes: Vec<(NodeIndex, String)> = self
-            .observable_graph
-            .nodes_iter()
-            .filter(|(_, node)| {
-                node.payload().node_type == ObservableNodeType::Source
-            })
-            .map(|(idx, node)| (idx, node.payload().name.clone()))
-            .collect();
-
-        // Build a map of Source nodes by name for quick lookup
-        let source_map: std::collections::HashMap<String, NodeIndex> =
-            source_nodes
-                .iter()
-                .map(|(idx, name)| (name.clone(), *idx))
-                .collect();
-
-        // Add missing Source nodes
-        for (state_idx, dyn_name) in &dyn_nodes {
-            if !source_map.contains_key(dyn_name) {
-                let new_idx =
-                    self.observable_graph.add_node(ObservableNode {
-                        name: dyn_name.clone(),
-                        node_type: ObservableNodeType::Source,
-                        state_node_idx: Some(*state_idx),
-                    });
-                if let Some(node) =
-                    self.observable_graph.node_mut(new_idx)
-                {
-                    node.set_label(dyn_name.clone());
-                }
-            }
-        }
-
-        // Remove Source nodes that no longer exist in dynamical system
-        let dyn_names: std::collections::HashSet<String> =
-            dyn_nodes.iter().map(|(_, name)| name.clone()).collect();
-
-        for (source_idx, source_name) in source_nodes {
-            if !dyn_names.contains(&source_name) {
-                self.observable_graph.remove_node(source_idx);
-            }
-        }
-
-        // Update names of Source nodes (in case of renames)
-        for (_, dyn_name) in &dyn_nodes {
-            if let Some(&source_idx) = source_map.get(dyn_name)
-                && let Some(source_node) =
-                    self.observable_graph.node_mut(source_idx)
-                && source_node.payload().name != *dyn_name
-            {
-                source_node.payload_mut().name = dyn_name.clone();
-                source_node.set_label(dyn_name.clone());
-            }
-        }
-    }
-
+impl store::GraphEditor {
     fn render_dynamical_system_tab(&mut self, ctx: &egui::Context) {
         // Calculate exact 1/3 split for all three panels
         let available_width = ctx.available_rect().width();
@@ -938,15 +852,15 @@ impl GraphEditor {
 
                 // Controls
                 if ui.button("Add Node").clicked() {
-                    let node_idx = self.state_graph.add_node(StateNode {
-                        name: String::new(),
+                    // Dispatch action instead of directly modifying state
+                    let node_count = self.state_graph.node_count();
+                    let default_name = format!("Node {}", node_count);
+                    self.dispatch(store::Action::AddStateNode {
+                        name: default_name,
+                        weight: 1.0,
                     });
-                    let default_name =
-                        format!("Node {}", node_idx.index());
-                    set_node_name(&mut self.state_graph, node_idx, default_name);
-                    self.layout_reset_needed = true;
-                    self.sync_source_nodes();
-                    self.recompute_observed_graph();
+                    // Effects (ResetStateLayout, SyncSourceNodes, RecomputeObservedGraph)
+                    // will be handled automatically via the effect queue
                 }
 
                 // Contents - node list
@@ -1014,6 +928,22 @@ impl GraphEditor {
                             }
                         });
 
+                        // Weight editor
+                        ui.horizontal(|ui| {
+                            ui.label("Weight:");
+                            let current_weight = self.state_graph.node(node_idx)
+                                .map(|n| n.payload().weight)
+                                .unwrap_or(1.0);
+                            let mut weight_str = format!("{:.2}", current_weight);
+                            let response = ui.text_edit_singleline(&mut weight_str);
+                            if response.changed()
+                                && let Ok(new_weight) = weight_str.parse::<f32>()
+                                    && let Some(node_mut) = self.state_graph.node_mut(node_idx) {
+                                        node_mut.payload_mut().weight = new_weight.max(0.0);
+                                        self.recompute_observed_graph();
+                                    }
+                        });
+
                         // Only show connection info if this node is selected
                         if is_selected {
 
@@ -1046,6 +976,47 @@ impl GraphEditor {
                         }
                     }
                 });
+
+                // Weight histogram at bottom
+                ui.separator();
+                ui.label("Weight Distribution");
+                let (bars, names) = create_weight_histogram(
+                    &self.state_graph,
+                    |node: &StateNode| node.weight,
+                    |node: &StateNode| node.name.clone(),
+                );
+
+                // Calculate max weight for proper y-axis range with padding
+                let max_weight = bars.iter()
+                    .map(|bar| bar.value)
+                    .fold(0.0f64, f64::max);
+                let y_max = (max_weight * 1.15).ceil(); // Add 15% padding at top and ceiling
+
+                let chart = egui_plot::BarChart::new("weights", bars)
+                    .color(egui::Color32::from_rgb(100, 150, 250))
+                    .highlight(true)
+                    .element_formatter(Box::new(|bar, _chart| {
+                        format!("{:.3}", bar.value)
+                    }));
+
+                egui_plot::Plot::new("state_weight_histogram")
+                    .height(150.0)
+                    .show_axes([true, true])
+                    .allow_zoom(false)
+                    .allow_drag(false)
+                    .allow_scroll(false)
+                    .show_background(false)
+                    .show_grid(false)
+                    .include_y(0.0)
+                    .include_y(y_max)
+                    .x_axis_formatter(move |val, _range| {
+                        let idx = val.value as usize;
+                        names.get(idx).cloned().unwrap_or_default()
+                    })
+                    .y_axis_label("Weight")
+                    .show(ui, |plot_ui| {
+                        plot_ui.bar_chart(chart);
+                    });
 
                 // Metadata at bottom
                 ui.with_layout(
@@ -1164,7 +1135,7 @@ impl GraphEditor {
 
                     // Clear edge selections when not in EdgeEditor mode,
                     // before creating GraphView
-                    if self.mode == EditMode::NodeEditor {
+                    if self.mode == store::EditMode::NodeEditor {
                         self.state_graph
                             .set_selected_edges(Vec::new());
                     }
@@ -1203,7 +1174,9 @@ impl GraphEditor {
                             );
 
                             // Edge editing functionality (only in Edge Editor mode)
-                            if self.mode == EditMode::EdgeEditor {
+                            if self.mode
+                                == store::EditMode::EdgeEditor
+                            {
                                 let pointer =
                                     ui.input(|i| i.pointer.clone());
 
@@ -1238,11 +1211,11 @@ impl GraphEditor {
                             let (mode_text, hint_text) = match self
                                 .mode
                             {
-                                EditMode::NodeEditor => (
+                                store::EditMode::NodeEditor => (
                                     "Mode: Node Editor",
                                     "Hold Ctrl for Edge Editor",
                                 ),
-                                EditMode::EdgeEditor => (
+                                store::EditMode::EdgeEditor => (
                                     "Mode: Edge Editor",
                                     "Release Ctrl for Node Editor",
                                 ),
@@ -1252,6 +1225,10 @@ impl GraphEditor {
                             ui.checkbox(
                                 &mut self.show_labels,
                                 "Show Labels",
+                            );
+                            ui.checkbox(
+                                &mut self.show_weights,
+                                "Show Weights",
                             );
                             ui.separator();
                         },
@@ -1460,6 +1437,7 @@ impl GraphEditor {
                                     &mut self.observable_graph,
                                     change,
                                 );
+                                self.recompute_observed_graph();
                             }
                         },
                     );
@@ -1498,7 +1476,7 @@ impl GraphEditor {
                     }
 
                     // Clear edge selections when not in EdgeEditor mode
-                    if self.mode == EditMode::NodeEditor {
+                    if self.mode == store::EditMode::NodeEditor {
                         self.observable_graph
                             .set_selected_edges(Vec::new());
                     }
@@ -1537,7 +1515,9 @@ impl GraphEditor {
                             );
 
                             // Edge editing functionality (only in Edge Editor mode)
-                            if self.mode == EditMode::EdgeEditor {
+                            if self.mode
+                                == store::EditMode::EdgeEditor
+                            {
                                 let pointer =
                                     ui.input(|i| i.pointer.clone());
 
@@ -1576,11 +1556,11 @@ impl GraphEditor {
                             let (mode_text, hint_text) = match self
                                 .mode
                             {
-                                EditMode::NodeEditor => (
+                                store::EditMode::NodeEditor => (
                                     "Mode: Node Editor",
                                     "Hold Ctrl for Edge Editor",
                                 ),
-                                EditMode::EdgeEditor => (
+                                store::EditMode::EdgeEditor => (
                                     "Mode: Edge Editor",
                                     "Release Ctrl for Node Editor",
                                 ),
@@ -1657,6 +1637,15 @@ impl GraphEditor {
                                     ui.label(&node_name);
                                 });
 
+                                // Display weight (read-only)
+                                ui.horizontal(|ui| {
+                                    ui.label("Weight:");
+                                    let weight = self.observed_graph.node(node_idx)
+                                        .map(|n| n.payload().weight)
+                                        .unwrap_or(0.0);
+                                    ui.label(format!("{:.4}", weight));
+                                });
+
                                 // Show connections when selected
                                 if is_selected {
                                     let incoming: Vec<String> = self
@@ -1702,6 +1691,47 @@ impl GraphEditor {
                                     }
                                 }
                             }
+                        });
+
+                    // Weight histogram at bottom
+                    ui.separator();
+                    ui.label("Weight Distribution");
+                    let (bars, names) = create_weight_histogram(
+                        &self.observed_graph,
+                        |node: &graph_state::ObservedNode| node.weight,
+                        |node: &graph_state::ObservedNode| node.name.clone(),
+                    );
+
+                    // Calculate max weight for proper y-axis range with padding
+                    let max_weight = bars.iter()
+                        .map(|bar| bar.value)
+                        .fold(0.0f64, f64::max);
+                    let y_max = (max_weight * 1.15).ceil(); // Add 15% padding at top and ceiling
+
+                    let chart = egui_plot::BarChart::new("weights", bars)
+                        .color(egui::Color32::from_rgb(250, 150, 100))
+                        .highlight(true)
+                        .element_formatter(Box::new(|bar, _chart| {
+                            format!("{:.3}", bar.value)
+                        }));
+
+                    egui_plot::Plot::new("observed_weight_histogram")
+                        .height(150.0)
+                        .show_axes([true, true])
+                        .allow_zoom(false)
+                        .allow_drag(false)
+                        .allow_scroll(false)
+                        .show_background(false)
+                        .show_grid(false)
+                        .include_y(0.0)
+                        .include_y(y_max)
+                        .x_axis_formatter(move |val, _range| {
+                            let idx = val.value as usize;
+                            names.get(idx).cloned().unwrap_or_default()
+                        })
+                        .y_axis_label("Weight")
+                        .show(ui, |plot_ui| {
+                            plot_ui.bar_chart(chart);
                         });
 
                     // Metadata at bottom
@@ -1848,6 +1878,10 @@ impl GraphEditor {
                             ui.checkbox(
                                 &mut self.show_labels,
                                 "Show Labels",
+                            );
+                            ui.checkbox(
+                                &mut self.show_weights,
+                                "Show Weights",
                             );
                             ui.separator();
                         },

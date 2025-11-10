@@ -13,9 +13,15 @@ use crate::graph_state::{
 // Serialization structures
 // ------------------------------------------------------------------
 
+fn default_weight() -> f32 {
+    1.0
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct SerializableNode {
     name: String,
+    #[serde(default = "default_weight")]
+    weight: f32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -71,6 +77,7 @@ pub fn graph_to_serializable<
     {
         nodes.push(SerializableNode {
             name: node.payload().name.clone(),
+            weight: node.payload().weight,
         });
         node_index_map.insert(node_idx, new_idx);
     }
@@ -98,6 +105,7 @@ pub fn serializable_to_graph(
     for node in &state.nodes {
         let idx = g.add_node(StateNode {
             name: node.name.clone(),
+            weight: node.weight,
         });
         node_indices.push(idx);
     }
