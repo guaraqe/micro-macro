@@ -7,6 +7,7 @@ use crate::graph_state::calculate_observed_graph_from_observable_display;
 use eframe::egui;
 use petgraph::stable_graph::NodeIndex;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EditMode {
@@ -26,22 +27,19 @@ pub enum ActiveTab {
 pub enum Action {
     /// Add a new node to the state graph
     AddStateNode { name: String, weight: f32 },
+    /// Save current project to file
+    SaveToFile { path: PathBuf },
+    /// Load project from file
+    LoadFromFile { path: PathBuf },
 }
 
-/// Effects that are executed after actions modify the state
-/// These handle side effects like layout resets and recomputations
+/// Deferred effects that must run outside the main reducer (e.g., file IO)
 #[derive(Debug, Clone)]
 pub enum Effect {
-    /// Reset layout for state graph (first graph) and observed graph (third graph)
-    ResetStateLayout,
-    /// Reset layout for observable graph (mapping graph)
-    ResetMappingLayout,
-    /// Reset layout for observed graph
-    ResetObservedLayout,
-    /// Synchronize source nodes in observable graph with state graph nodes
-    SyncSourceNodes,
-    /// Recompute the observed graph from current state
-    RecomputeObservedGraph,
+    /// Save current project to disk
+    SaveToFile { path: PathBuf },
+    /// Load a project from disk
+    LoadFromFile { path: PathBuf },
 }
 
 pub struct GraphEditor {
@@ -64,7 +62,7 @@ pub struct GraphEditor {
     pub error_message: Option<String>,
     /// Queue of actions to be processed
     action_queue: Vec<Action>,
-    /// Queue of effects to be executed
+    /// Queue of deferred effects (currently file IO) to be executed
     effect_queue: Vec<Effect>,
 }
 
@@ -104,17 +102,15 @@ impl GraphEditor {
     }
 
     /// Flush the action queue and apply all pending actions
-    /// Effects returned by actions are queued for later execution
     pub fn flush_actions(&mut self) {
         let actions = std::mem::take(&mut self.action_queue);
         for action in actions {
-            let effects = self.apply_action(action);
-            self.effect_queue.extend(effects);
+            let mut effects = self.apply_action(action);
+            self.effect_queue.append(&mut effects);
         }
     }
 
     /// Apply a single action to modify the state
-    /// Returns a vector of effects that should be executed after the state change
     fn apply_action(&mut self, action: Action) -> Vec<Effect> {
         match action {
             Action::AddStateNode { name, weight } => {
@@ -127,12 +123,18 @@ impl GraphEditor {
                 {
                     node.set_label(name);
                 }
-                // Return effects instead of setting flags directly
-                vec![
-                    Effect::ResetStateLayout,
-                    Effect::SyncSourceNodes,
-                    Effect::RecomputeObservedGraph,
-                ]
+                // Directly apply side effects needed for this action
+                self.layout_reset_needed = true;
+                self.observed_layout_reset_needed = true;
+                self.sync_source_nodes();
+                self.recompute_observed_graph();
+                Vec::new()
+            }
+            Action::SaveToFile { path } => {
+                vec![Effect::SaveToFile { path }]
+            }
+            Action::LoadFromFile { path } => {
+                vec![Effect::LoadFromFile { path }]
             }
         }
     }
@@ -148,26 +150,15 @@ impl GraphEditor {
     /// Execute a single effect
     fn run_effect(&mut self, effect: Effect) {
         match effect {
-            Effect::ResetStateLayout => {
-                // Reset layout for state graph (first) and observed graph (third)
-                self.layout_reset_needed = true;
-                self.observed_layout_reset_needed = true;
+            Effect::SaveToFile { path } => {
+                if let Err(e) = self.save_to_file(&path) {
+                    self.error_message = Some(e);
+                }
             }
-            Effect::ResetMappingLayout => {
-                // Reset layout for observable graph (mapping graph)
-                self.mapping_layout_reset_needed = true;
-            }
-            Effect::ResetObservedLayout => {
-                // Reset layout for observed graph only
-                self.observed_layout_reset_needed = true;
-            }
-            Effect::SyncSourceNodes => {
-                // Synchronize source nodes in observable graph with state graph nodes
-                self.sync_source_nodes();
-            }
-            Effect::RecomputeObservedGraph => {
-                // Recompute observed graph from current state
-                self.recompute_observed_graph();
+            Effect::LoadFromFile { path } => {
+                if let Err(e) = self.load_from_file(&path) {
+                    self.error_message = Some(e);
+                }
             }
         }
     }

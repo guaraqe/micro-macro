@@ -744,9 +744,8 @@ impl eframe::App for store::GraphEditor {
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("JSON", &["json"])
                             .save_file()
-                            && let Err(e) = self.save_to_file(&path)
                         {
-                            self.error_message = Some(e);
+                            self.dispatch(store::Action::SaveToFile { path });
                         }
                     }
 
@@ -755,9 +754,8 @@ impl eframe::App for store::GraphEditor {
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("JSON", &["json"])
                             .pick_file()
-                            && let Err(e) = self.load_from_file(&path)
                         {
-                            self.error_message = Some(e);
+                            self.dispatch(store::Action::LoadFromFile { path });
                         }
                     }
                 });
@@ -859,8 +857,7 @@ impl store::GraphEditor {
                         name: default_name,
                         weight: 1.0,
                     });
-                    // Effects (ResetStateLayout, SyncSourceNodes, RecomputeObservedGraph)
-                    // will be handled automatically via the effect queue
+                    // Related layout/sync work runs immediately inside apply_action
                 }
 
                 // Contents - node list
