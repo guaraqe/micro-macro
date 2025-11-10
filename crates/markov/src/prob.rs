@@ -61,11 +61,15 @@ where
         }
 
         if aggregated.len() > size {
-            return Err(BuildError::SizeMismatch(size, aggregated.len()));
+            return Err(BuildError::SizeMismatch(
+                size,
+                aggregated.len(),
+            ));
         }
 
         // Extract sorted distinct keys for IxMap
-        let keys: Vec<X> = aggregated.iter().map(|(x, _)| x.clone()).collect();
+        let keys: Vec<X> =
+            aggregated.iter().map(|(x, _)| x.clone()).collect();
         let map = IxMap::from_distinct_sorted(keys);
 
         // Place values into fixed-size array
@@ -134,7 +138,11 @@ impl<X, B, N> Dot<Markov<X, B, N>> for Prob<X, N>
 where
     X: Ord + Clone + std::fmt::Debug,
     B: Ord + Clone + std::fmt::Debug,
-    N: Float + Default + ndarray::ScalarOperand + 'static + std::ops::AddAssign,
+    N: Float
+        + Default
+        + ndarray::ScalarOperand
+        + 'static
+        + std::ops::AddAssign,
     for<'r> &'r N: std::ops::Mul<&'r N, Output = N>,
 {
     type Output = Prob<B, N>;
@@ -154,7 +162,9 @@ where
         for j in 0..n {
             let col = matrix.csc.outer_view(j).unwrap();
             // Dot product of self with column j
-            for (row_idx, &val) in col.indices().iter().zip(col.data().iter()) {
+            for (row_idx, &val) in
+                col.indices().iter().zip(col.data().iter())
+            {
                 result_vec[j] += self.probs[*row_idx] * val;
             }
         }
@@ -216,7 +226,10 @@ mod tests {
 
         // Verify probabilities sum to 1.0
         let sum: f64 = prob.probs.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-10, "Input probabilities should sum to 1.0");
+        assert!(
+            (sum - 1.0).abs() < 1e-10,
+            "Input probabilities should sum to 1.0"
+        );
 
         // Setup Markov matrix (3×2) with DIFFERENT input order:
         //          1     2
@@ -260,8 +273,10 @@ mod tests {
         //           = 0.15 + 0.18 + 0.16
         //           = 0.49
 
-        let p1 = result.prob(&1).expect("Result should have outcome 1");
-        let p2 = result.prob(&2).expect("Result should have outcome 2");
+        let p1 =
+            result.prob(&1).expect("Result should have outcome 1");
+        let p2 =
+            result.prob(&2).expect("Result should have outcome 2");
 
         assert!(
             (p1 - 0.51).abs() < 1e-10,
@@ -282,11 +297,15 @@ mod tests {
             result_sum
         );
 
-        println!("✓ Left multiplication (prob · markov) test passed!");
-        println!("  Input: alice={}, bob={}, chico={}",
-                 prob.prob(&"alice").unwrap(),
-                 prob.prob(&"bob").unwrap(),
-                 prob.prob(&"chico").unwrap());
+        println!(
+            "✓ Left multiplication (prob · markov) test passed!"
+        );
+        println!(
+            "  Input: alice={}, bob={}, chico={}",
+            prob.prob(&"alice").unwrap(),
+            prob.prob(&"bob").unwrap(),
+            prob.prob(&"chico").unwrap()
+        );
         println!("  Result: 1={}, 2={}", p1, p2);
     }
 
@@ -314,7 +333,8 @@ mod tests {
 
         // Setup probability vector over outcomes with DIFFERENT order: 2, 1
         // Will be sorted internally to: 1, 2
-        let prob = Prob::from_assoc(2, vec![(2, 0.4), (1, 0.6)]).unwrap();
+        let prob =
+            Prob::from_assoc(2, vec![(2, 0.4), (1, 0.6)]).unwrap();
 
         // Test: markov · prob (right multiplication, matrix × column vector)
         let result = markov.dot(&prob);
@@ -324,9 +344,12 @@ mod tests {
         // result[bob]   = 0.4×0.6 + 0.6×0.4 = 0.24 + 0.24 = 0.48
         // result[chico] = 0.2×0.6 + 0.8×0.4 = 0.12 + 0.32 = 0.44
 
-        let p_alice = result.prob(&"alice").expect("Result should have alice");
-        let p_bob = result.prob(&"bob").expect("Result should have bob");
-        let p_chico = result.prob(&"chico").expect("Result should have chico");
+        let p_alice =
+            result.prob(&"alice").expect("Result should have alice");
+        let p_bob =
+            result.prob(&"bob").expect("Result should have bob");
+        let p_chico =
+            result.prob(&"chico").expect("Result should have chico");
 
         assert!(
             (p_alice - 0.54).abs() < 1e-10,
@@ -347,8 +370,12 @@ mod tests {
         // Note: Result may not sum to 1.0 because this is matrix × vector,
         // not a probability propagation
         let result_sum: f64 = result.probs.iter().sum();
-        println!("✓ Right multiplication (markov · prob) test passed!");
-        println!("  Result: alice={}, bob={}, chico={} (sum={})",
-                 p_alice, p_bob, p_chico, result_sum);
+        println!(
+            "✓ Right multiplication (markov · prob) test passed!"
+        );
+        println!(
+            "  Result: alice={}, bob={}, chico={} (sum={})",
+            p_alice, p_bob, p_chico, result_sum
+        );
     }
 }

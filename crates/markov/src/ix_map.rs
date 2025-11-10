@@ -22,7 +22,9 @@ impl<T: Ord + Clone> IxMap<T> {
 
     /// Build from a pre-sorted iterator of distinct values.
     /// The input MUST be sorted and contain no duplicates.
-    pub fn from_distinct_sorted<I: IntoIterator<Item = T>>(vals: I) -> Self {
+    pub fn from_distinct_sorted<I: IntoIterator<Item = T>>(
+        vals: I,
+    ) -> Self {
         Self {
             values: vals.into_iter().collect(),
         }

@@ -34,7 +34,8 @@ where
         }
 
         // Collect and sort triplets by (A, B)
-        let mut triplets: Vec<(A, B, N)> = assoc.into_iter().collect();
+        let mut triplets: Vec<(A, B, N)> =
+            assoc.into_iter().collect();
         triplets.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
 
         // Check positivity and aggregate duplicates
@@ -170,7 +171,6 @@ where
                 .collect(),
         )
     }
-
 }
 
 // Implement Dot<Prob> for Markov: matrix · vector -> vector
@@ -178,7 +178,11 @@ impl<A, B, N> Dot<crate::prob::Prob<B, N>> for Markov<A, B, N>
 where
     A: Ord + Clone + std::fmt::Debug,
     B: Ord + Clone + std::fmt::Debug,
-    N: Float + Default + ndarray::ScalarOperand + 'static + std::ops::AddAssign,
+    N: Float
+        + Default
+        + ndarray::ScalarOperand
+        + 'static
+        + std::ops::AddAssign,
     for<'r> &'r N: std::ops::Mul<&'r N, Output = N>,
 {
     type Output = crate::prob::Prob<A, N>;
@@ -189,7 +193,10 @@ where
     ///
     /// Computes: result[a] = sum_b matrix[a, b] * rhs[b]
     /// Uses sprs CSC matrix-vector product via prod module
-    fn dot(&self, rhs: &crate::prob::Prob<B, N>) -> crate::prob::Prob<A, N> {
+    fn dot(
+        &self,
+        rhs: &crate::prob::Prob<B, N>,
+    ) -> crate::prob::Prob<A, N> {
         // Use sprs optimized CSC matrix · vector multiplication
         let m = self.rows.len();
         let mut result_vec = vec![N::zero(); m];
