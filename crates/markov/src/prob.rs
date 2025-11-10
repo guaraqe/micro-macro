@@ -1,5 +1,6 @@
 use ndarray::{linalg::Dot, Array1};
 use num_traits::Float;
+use std::cmp::Ordering;
 
 use crate::ix_map::IxMap;
 
@@ -48,7 +49,7 @@ where
         // Check positivity and aggregate duplicates
         let mut aggregated: Vec<(X, N)> = Vec::new();
         for (x, w) in pairs {
-            if !(w > N::zero()) {
+            if !matches!(w.partial_cmp(&N::zero()), Some(Ordering::Greater)) {
                 return Err(BuildError::NonPositive);
             }
             if let Some(last) = aggregated.last_mut() {
@@ -80,7 +81,7 @@ where
             probs[i] = w;
             total = total + w;
         }
-        if !(total > N::zero()) {
+        if !matches!(total.partial_cmp(&N::zero()), Some(Ordering::Greater)) {
             return Err(BuildError::NonPositive);
         }
 
@@ -158,14 +159,13 @@ where
         let n = matrix.cols.len();
         let mut result_vec = vec![N::zero(); n];
 
-        // For each column j
-        for j in 0..n {
-            let col = matrix.csc.outer_view(j).unwrap();
-            // Dot product of self with column j
-            for (row_idx, &val) in
-                col.indices().iter().zip(col.data().iter())
-            {
-                result_vec[j] += self.probs[*row_idx] * val;
+        for (j, acc) in result_vec.iter_mut().enumerate() {
+            if let Some(col) = matrix.csc.outer_view(j) {
+                for (row_idx, &val) in
+                    col.indices().iter().zip(col.data().iter())
+                {
+                    *acc += self.probs[*row_idx] * val;
+                }
             }
         }
 

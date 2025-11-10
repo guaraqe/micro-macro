@@ -4,6 +4,7 @@ use sprs::{prod, CsMat, TriMat};
 
 use crate::ix_map::IxMap;
 use crate::prob::BuildError;
+use std::cmp::Ordering;
 
 /// Row-stochastic Markov kernel with CSC storage:
 /// rows correspond to `A`, columns to `B`.
@@ -41,7 +42,7 @@ where
         // Check positivity and aggregate duplicates
         let mut aggregated: Vec<(A, B, N)> = Vec::new();
         for (a, b, w) in triplets {
-            if !(w > N::zero()) {
+            if !matches!(w.partial_cmp(&N::zero()), Some(Ordering::Greater)) {
                 return Err(BuildError::NonPositive);
             }
             if let Some(last) = aggregated.last_mut() {
@@ -93,7 +94,7 @@ where
             row_sums[i] = row_sums[i] + w;
         }
         for (i, s) in row_sums.iter().enumerate() {
-            if !(*s > N::zero()) {
+            if !matches!(s.partial_cmp(&N::zero()), Some(Ordering::Greater)) {
                 let name = row_map
                     .value_of(i)
                     .map(|x| format!("{x:?}"))

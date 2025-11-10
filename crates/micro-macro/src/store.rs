@@ -128,7 +128,7 @@ impl GraphEditor {
                 self.observed_layout_reset_needed = true;
                 self.sync_source_nodes();
                 self.recompute_observed_graph();
-                Vec::new()
+                vec![]
             }
             Action::SaveToFile { path } => {
                 vec![Effect::SaveToFile { path }]
