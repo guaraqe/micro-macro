@@ -116,7 +116,7 @@ impl Store {
             &self.state_graph,
             &self.observable_graph,
         );
-        self.bump_observable_layout_version();
+        self.observable_layout_reset.bump();
         self.mark_observed_graph_dirty();
     }
 
@@ -127,18 +127,6 @@ impl Store {
         );
         self.observed_graph = observed;
         self.observed_graph_dirty = false;
-    }
-
-    pub fn bump_state_layout_version(&mut self) {
-        self.state_layout_reset.bump();
-    }
-
-    pub fn bump_observable_layout_version(&mut self) {
-        self.observable_layout_reset.bump();
-    }
-
-    pub fn bump_observed_layout_version(&mut self) {
-        self.observed_layout_reset.bump();
     }
 
     pub fn mark_observed_graph_dirty(&mut self) {
@@ -152,9 +140,9 @@ impl Store {
     }
 
     pub fn mark_all_layouts_dirty(&mut self) {
-        self.bump_state_layout_version();
-        self.bump_observable_layout_version();
-        self.bump_observed_layout_version();
+        self.state_layout_reset.bump();
+        self.observable_layout_reset.bump();
+        self.observed_layout_reset.bump();
     }
 
     pub fn state_heatmap(&self) -> HeatmapData {

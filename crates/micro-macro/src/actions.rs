@@ -119,18 +119,18 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             if let Some(node) = store.state_graph.node_mut(node_idx) {
                 node.set_label(name);
             }
-            store.bump_state_layout_version();
-            store.bump_observable_layout_version();
-            store.bump_observed_layout_version();
+            store.state_layout_reset.bump();
+            store.observable_layout_reset.bump();
+            store.observed_layout_reset.bump();
             store.sync_source_nodes();
             store.mark_observed_graph_dirty();
             vec![]
         }
         Action::RemoveStateNode { node_idx } => {
             store.state_graph.remove_node(node_idx);
-            store.bump_state_layout_version();
-            store.bump_observable_layout_version();
-            store.bump_observed_layout_version();
+            store.state_layout_reset.bump();
+            store.observable_layout_reset.bump();
+            store.observed_layout_reset.bump();
             store.sync_source_nodes();
             store.mark_observed_graph_dirty();
             vec![]
@@ -140,9 +140,9 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                 node.payload_mut().name = new_name.clone();
                 node.set_label(new_name);
             }
-            store.bump_state_layout_version();
-            store.bump_observable_layout_version();
-            store.bump_observed_layout_version();
+            store.state_layout_reset.bump();
+            store.observable_layout_reset.bump();
+            store.observed_layout_reset.bump();
             store.sync_source_nodes();
             store.mark_observed_graph_dirty();
             vec![]
@@ -233,13 +233,13 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             {
                 node.set_label(name);
             }
-            store.bump_observable_layout_version();
+            store.observable_layout_reset.bump();
             store.mark_observed_graph_dirty();
             vec![]
         }
         Action::RemoveObservableDestinationNode { node_idx } => {
             store.observable_graph.remove_node(node_idx);
-            store.bump_observable_layout_version();
+            store.observable_layout_reset.bump();
             store.mark_observed_graph_dirty();
             vec![]
         }
