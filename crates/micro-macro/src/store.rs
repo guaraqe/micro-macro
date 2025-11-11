@@ -1,6 +1,7 @@
 use crate::graph_state::{
+    HasName, ObservableNode, ObservableNodeType,
     calculate_observed_graph, default_observable_graph,
-    default_state_graph, HasName, ObservableNode, ObservableNodeType,
+    default_state_graph,
 };
 use crate::graph_view;
 use crate::graph_view::{
@@ -61,6 +62,39 @@ impl LayoutReset {
 }
 
 #[derive(Clone)]
+pub struct NumberEditor {
+    node: Option<NodeIndex>,
+    value: String,
+}
+
+impl NumberEditor {
+    pub fn new() -> Self {
+        Self {
+            node: None,
+            value: "".to_string(),
+        }
+    }
+
+    pub fn node(&mut self) -> Option<NodeIndex> {
+        self.node
+    }
+    pub fn value(&mut self) -> String {
+        self.value.clone()
+    }
+
+    pub fn focus(&mut self, node: NodeIndex, value: String) {
+        self.node = Some(node);
+        self.value = value;
+    }
+
+    pub fn parse(
+        &mut self,
+    ) -> Result<f32, std::num::ParseFloatError> {
+        self.value.parse::<f32>()
+    }
+}
+
+#[derive(Clone)]
 pub struct Store {
     pub state_graph: Versioned<StateGraphDisplay>,
     pub observable_graph: Versioned<ObservableGraphDisplay>,
@@ -78,6 +112,7 @@ pub struct Store {
     pub heatmap_hovered_cell: Option<(usize, usize)>,
     pub heatmap_editing_cell: Option<(usize, usize)>,
     pub heatmap_edit_buffer: String,
+    pub weight_editor: NumberEditor,
     pub error_message: Option<String>,
 }
 
@@ -104,6 +139,7 @@ impl Store {
             heatmap_hovered_cell: None,
             heatmap_editing_cell: None,
             heatmap_edit_buffer: String::new(),
+            weight_editor: NumberEditor::new(),
             error_message: None,
         }
     }
@@ -161,7 +197,9 @@ impl Store {
     }
 
     pub fn observable_sorted_weights_uncached(&self) -> Vec<f32> {
-        collect_sorted_weights_from_display(self.observable_graph.get())
+        collect_sorted_weights_from_display(
+            self.observable_graph.get(),
+        )
     }
 
     pub fn observed_sorted_weights_uncached(&self) -> Vec<f32> {

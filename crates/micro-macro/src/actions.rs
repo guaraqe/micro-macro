@@ -21,6 +21,8 @@ pub enum Action {
         new_name: String,
     },
     /// Update the weight of a state graph node
+    UpdateStateNodeWeightEditor { node_idx: NodeIndex, value: String },
+    /// Update the weight of a state graph node
     UpdateStateNodeWeight {
         node_idx: NodeIndex,
         new_weight: f32,
@@ -112,11 +114,14 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
     match action {
         // State Graph Node Actions
         Action::AddStateNode { name, weight } => {
-            let node_idx = store.state_graph.get_mut().add_node(StateNode {
-                name: name.clone(),
-                weight,
-            });
-            if let Some(node) = store.state_graph.get_mut().node_mut(node_idx) {
+            let node_idx =
+                store.state_graph.get_mut().add_node(StateNode {
+                    name: name.clone(),
+                    weight,
+                });
+            if let Some(node) =
+                store.state_graph.get_mut().node_mut(node_idx)
+            {
                 node.set_label(name);
             }
             store.state_layout_reset.bump();
@@ -136,7 +141,9 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             vec![]
         }
         Action::RenameStateNode { node_idx, new_name } => {
-            if let Some(node) = store.state_graph.get_mut().node_mut(node_idx) {
+            if let Some(node) =
+                store.state_graph.get_mut().node_mut(node_idx)
+            {
                 node.payload_mut().name = new_name.clone();
                 node.set_label(new_name);
             }
@@ -147,11 +154,17 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             store.mark_observed_graph_dirty();
             vec![]
         }
+        Action::UpdateStateNodeWeightEditor { node_idx, value } => {
+            store.weight_editor.focus(node_idx, value);
+            vec![]
+        }
         Action::UpdateStateNodeWeight {
             node_idx,
             new_weight,
         } => {
-            if let Some(node) = store.state_graph.get_mut().node_mut(node_idx) {
+            if let Some(node) =
+                store.state_graph.get_mut().node_mut(node_idx)
+            {
                 node.payload_mut().weight = new_weight;
             }
             store.mark_observed_graph_dirty();
@@ -224,12 +237,13 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
 
         // Observable Graph Actions
         Action::AddObservableDestinationNode { name } => {
-            let node_idx =
-                store.observable_graph.get_mut().add_node(ObservableNode {
+            let node_idx = store.observable_graph.get_mut().add_node(
+                ObservableNode {
                     name: name.clone(),
                     node_type: ObservableNodeType::Destination,
                     state_node_idx: None,
-                });
+                },
+            );
             if let Some(node) =
                 store.observable_graph.get_mut().node_mut(node_idx)
             {
@@ -307,7 +321,10 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                     .g()
                     .find_edge(source_idx, target_idx)
                 {
-                    store.observable_graph.get_mut().remove_edge(edge_idx);
+                    store
+                        .observable_graph
+                        .get_mut()
+                        .remove_edge(edge_idx);
                 }
             } else if let Some(edge_idx) = store
                 .observable_graph
@@ -315,8 +332,10 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                 .g()
                 .find_edge(source_idx, target_idx)
             {
-                if let Some(edge) =
-                    store.observable_graph.get_mut().edge_mut(edge_idx)
+                if let Some(edge) = store
+                    .observable_graph
+                    .get_mut()
+                    .edge_mut(edge_idx)
                 {
                     *edge.payload_mut() = new_weight;
                 }
@@ -345,8 +364,14 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             store.prev_mode = store.mode;
             store.mode = mode;
             if store.mode != EditMode::EdgeEditor {
-                store.state_graph.get_mut().set_selected_edges(Vec::new());
-                store.observable_graph.get_mut().set_selected_edges(Vec::new());
+                store
+                    .state_graph
+                    .get_mut()
+                    .set_selected_edges(Vec::new());
+                store
+                    .observable_graph
+                    .get_mut()
+                    .set_selected_edges(Vec::new());
             }
             vec![]
         }
@@ -363,11 +388,17 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             vec![]
         }
         Action::ClearEdgeSelections => {
-            store.state_graph.get_mut().set_selected_edges(Vec::new());
+            store
+                .state_graph
+                .get_mut()
+                .set_selected_edges(Vec::new());
             vec![]
         }
         Action::ClearObservableEdgeSelections => {
-            store.observable_graph.get_mut().set_selected_edges(Vec::new());
+            store
+                .observable_graph
+                .get_mut()
+                .set_selected_edges(Vec::new());
             vec![]
         }
         Action::SetDraggingFrom { node_idx, position } => {

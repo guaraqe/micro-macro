@@ -329,8 +329,12 @@ impl State {
         if pointer.primary_clicked()
             && self.store.dragging_from.is_none()
         {
-            let selected_edges: Vec<_> =
-                self.store.state_graph.get().selected_edges().to_vec();
+            let selected_edges: Vec<_> = self
+                .store
+                .state_graph
+                .get()
+                .selected_edges()
+                .to_vec();
 
             // If exactly one edge is selected and clicked again, delete
             // it
@@ -444,8 +448,12 @@ impl State {
         if pointer.primary_clicked()
             && self.store.dragging_from.is_none()
         {
-            let selected_edges: Vec<_> =
-                self.store.observable_graph.get().selected_edges().to_vec();
+            let selected_edges: Vec<_> = self
+                .store
+                .observable_graph
+                .get()
+                .selected_edges()
+                .to_vec();
 
             if selected_edges.len() == 1 {
                 let clicked_edge = selected_edges[0];
@@ -668,26 +676,7 @@ impl State {
                         });
 
                         // Weight editor
-                        ui.horizontal(|ui| {
-                            ui.label("Weight:");
-                            let current_weight = self.store.state_graph.get().node(node_idx)
-                                .map(|n| n.payload().weight)
-                                .unwrap_or(1.0);
-                            let mut weight_str = current_weight.to_string();
-                            let response = ui.text_edit_singleline(&mut weight_str);
-                            if response.changed()
-                                && let Ok(new_weight) =
-                                    weight_str.parse::<f32>()
-                                {
-                                    self.dispatch(
-                                        actions::Action::UpdateStateNodeWeight {
-                                            node_idx,
-                                            new_weight: new_weight
-                                                .max(0.0),
-                                        },
-                                    );
-                                }
-                        });
+                        self.weight_editor(ui, node_idx);
 
                         // Only show connection info if this node is selected
                         if is_selected {
@@ -1675,11 +1664,17 @@ impl State {
                     let settings_style = self.get_settings_style();
 
                     // Update edge thicknesses based on global weight distribution
-                    let sorted_weights =
-                        self.cache.observed_sorted_weights.get(&self.store).clone();
+                    let sorted_weights = self
+                        .cache
+                        .observed_sorted_weights
+                        .get(&self.store)
+                        .clone();
 
                     // Get mutable reference to cached graph to preserve layout positions
-                    let observed_graph = self.cache.observed_graph.get_mut(&self.store);
+                    let observed_graph = self
+                        .cache
+                        .observed_graph
+                        .get_mut(&self.store);
                     graph_view::update_edge_thicknesses(
                         observed_graph,
                         sorted_weights,
@@ -1743,5 +1738,50 @@ impl State {
                     );
                 });
             });
+    }
+
+    fn weight_editor(
+        &mut self,
+        ui: &mut egui::Ui,
+        node_idx: NodeIndex,
+    ) {
+        // Weight editor
+        ui.horizontal(|ui| {
+            ui.label("Weight:");
+            let current_weight = self
+                .store
+                .state_graph
+                .get()
+                .node(node_idx)
+                .map(|n| n.payload().weight)
+                .unwrap_or(1.0);
+            let is_focused =
+                self.store.weight_editor.node() == Some(node_idx);
+            let mut weight_str = if is_focused {
+                self.store.weight_editor.value()
+            } else {
+                current_weight.to_string()
+            };
+            let response = ui.text_edit_singleline(&mut weight_str);
+            if response.gained_focus() || response.changed() {
+                self.dispatch(
+                    actions::Action::UpdateStateNodeWeightEditor {
+                        node_idx,
+                        value: weight_str,
+                    },
+                );
+            };
+            if response.lost_focus()
+                && let Ok(new_weight) =
+                    self.store.weight_editor.parse()
+            {
+                self.dispatch(
+                    actions::Action::UpdateStateNodeWeight {
+                        node_idx,
+                        new_weight: new_weight.max(0.0),
+                    },
+                );
+            }
+        });
     }
 }

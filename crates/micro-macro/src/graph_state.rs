@@ -1,6 +1,9 @@
 // Graph state module - centralized graph type definitions and operations
 
-use crate::graph_view::{StateGraphDisplay, ObservableGraphDisplay, ObservedGraphDisplay, setup_graph_display};
+use crate::graph_view::{
+    ObservableGraphDisplay, ObservedGraphDisplay, StateGraphDisplay,
+    setup_graph_display,
+};
 use petgraph::stable_graph::NodeIndex;
 use petgraph::stable_graph::StableGraph;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
@@ -134,7 +137,8 @@ pub fn calculate_observed_graph(
             observable_graph,
         );
 
-    let mut observed_graph = setup_graph_display(&observed_stable_graph);
+    let mut observed_graph =
+        setup_graph_display(&observed_stable_graph);
 
     match compute_observed_weights(state_graph, observable_graph) {
         Ok(weights) => {

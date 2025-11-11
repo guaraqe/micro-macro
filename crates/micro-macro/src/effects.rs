@@ -46,12 +46,12 @@ pub fn run(store: &mut Store, effect: Effect) {
                         &state.observable,
                         &state_graph_raw,
                     );
-                store.state_graph.set(
-                    setup_graph_display(&state_graph_raw)
-                );
-                store.observable_graph.set(
-                    setup_graph_display(&observable_graph_raw)
-                );
+                store
+                    .state_graph
+                    .set(setup_graph_display(&state_graph_raw));
+                store
+                    .observable_graph
+                    .set(setup_graph_display(&observable_graph_raw));
 
                 store.recompute_observed_graph();
                 store.mark_all_layouts_dirty();

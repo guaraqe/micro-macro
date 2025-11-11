@@ -12,7 +12,8 @@ pub struct Cache {
     pub observed_heatmap: Memoized<Store, (u64, u64), HeatmapData>,
     pub state_sorted_weights: Memoized<Store, u64, Vec<f32>>,
     pub observable_sorted_weights: Memoized<Store, u64, Vec<f32>>,
-    pub observed_sorted_weights: Memoized<Store, (u64, u64), Vec<f32>>,
+    pub observed_sorted_weights:
+        Memoized<Store, (u64, u64), Vec<f32>>,
 }
 
 impl Cache {

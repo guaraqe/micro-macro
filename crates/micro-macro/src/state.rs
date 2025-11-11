@@ -1,7 +1,7 @@
 use crate::actions::{self, Action};
+use crate::cache::Cache;
 use crate::effects::{self, Effect};
 use crate::store::Store;
-use crate::cache::Cache;
 
 pub struct State {
     pub store: Store,
