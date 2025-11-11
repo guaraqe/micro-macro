@@ -8,7 +8,6 @@ use crate::graph_view::{
 };
 use eframe::egui;
 use petgraph::stable_graph::{EdgeIndex, NodeIndex};
-use petgraph::visit::EdgeRef;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 

@@ -12,7 +12,7 @@ use egui_graphs::{
     SettingsStyle, reset_layout,
 };
 use graph_state::{
-    ObservableNode, ObservableNodeType, StateNode,
+    ObservableNodeType, StateNode,
     calculate_observed_graph_from_observable_display,
     default_observable_graph, default_state_graph,
 };
@@ -26,7 +26,6 @@ use layout_circular::{
 };
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
-use petgraph::{EdgeType, stable_graph::IndexType};
 
 // UI Constants
 const DRAG_THRESHOLD: f32 = 2.0;
@@ -155,22 +154,6 @@ fn main() -> eframe::Result<()> {
     )
 }
 
-fn set_node_name<
-    Ty: EdgeType,
-    Ix: IndexType,
-    Dn: DisplayNode<StateNode, f32, Ty, Ix>,
-    De: DisplayEdge<StateNode, f32, Ty, Ix, Dn>,
->(
-    graph: &mut Graph<StateNode, f32, Ty, Ix, Dn, De>,
-    node_idx: NodeIndex<Ix>,
-    name: String,
-) {
-    if let Some(node) = graph.node_mut(node_idx) {
-        node.payload_mut().name = name.clone();
-        node.set_label(name);
-    }
-}
-
 // ------------------------------------------------------------------
 
 type HeatmapData = (
@@ -202,40 +185,6 @@ where
     weights.insert(0, 0.0);
 
     weights
-}
-
-fn apply_weight_change_to_graph<N>(
-    graph: &mut graph_view::GraphDisplay<N>,
-    change: heatmap::WeightChange,
-) where
-    N: Clone,
-    N: graph_state::HasName,
-{
-    let src = change.source_idx;
-    let tgt = change.target_idx;
-
-    if change.new_weight == 0.0 {
-        // Remove edge
-        if let Some(edge_idx) = graph.g().find_edge(src, tgt) {
-            graph.remove_edge(edge_idx);
-        }
-    } else {
-        // Add or update edge
-        if let Some(edge_idx) = graph.g().find_edge(src, tgt) {
-            // Update existing edge weight
-            if let Some(edge) = graph.edge_mut(edge_idx) {
-                *edge.payload_mut() = change.new_weight;
-            }
-        } else {
-            // Add new edge
-            graph.add_edge_with_label(
-                src,
-                tgt,
-                change.new_weight,
-                String::new(),
-            );
-        }
-    }
 }
 
 fn build_heatmap_data<N>(
@@ -453,8 +402,11 @@ impl store::GraphEditor {
     }
 
     // Returns interaction settings based on current mode
-    fn get_settings_interaction(&self) -> SettingsInteraction {
-        match self.mode {
+    fn get_settings_interaction(
+        &self,
+        mode: store::EditMode,
+    ) -> SettingsInteraction {
+        match mode {
             store::EditMode::NodeEditor => SettingsInteraction::new()
                 .with_dragging_enabled(false)
                 .with_node_clicking_enabled(true)
@@ -750,6 +702,8 @@ impl eframe::App for store::GraphEditor {
         // Flush action queue at the beginning of update
         self.flush_actions();
 
+        let mut active_tab = self.active_tab;
+
         // Menu bar at the very top
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
@@ -785,46 +739,52 @@ impl eframe::App for store::GraphEditor {
         egui::TopBottomPanel::top("tabs").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(
-                    &mut self.active_tab,
+                    &mut active_tab,
                     store::ActiveTab::DynamicalSystem,
                     "Dynamical System",
                 );
                 ui.selectable_value(
-                    &mut self.active_tab,
+                    &mut active_tab,
                     store::ActiveTab::ObservableEditor,
                     "Observable Editor",
                 );
                 ui.selectable_value(
-                    &mut self.active_tab,
+                    &mut active_tab,
                     store::ActiveTab::ObservedDynamics,
                     "Observed Dynamics",
                 );
             });
         });
 
+        if active_tab != self.active_tab {
+            self.dispatch(store::Action::SetActiveTab {
+                tab: active_tab,
+            });
+        }
+
         // Detect Ctrl key to switch modes
         let ctrl_pressed = ctx.input(|i| i.modifiers.ctrl);
-        self.mode = if ctrl_pressed {
+        let desired_mode = if ctrl_pressed {
             store::EditMode::EdgeEditor
         } else {
             store::EditMode::NodeEditor
         };
 
-        // Clear edge selection state when transitioning from EdgeEditor
-        // to NodeEditor. Must happen before GraphView is created.
-        if self.prev_mode == store::EditMode::EdgeEditor
-            && self.mode == store::EditMode::NodeEditor
-        {
-            self.state_graph.set_selected_edges(Vec::new());
+        let mut frame_mode = self.mode;
+        if desired_mode != self.mode {
+            self.dispatch(store::Action::SetEditMode {
+                mode: desired_mode,
+            });
+            frame_mode = desired_mode;
         }
 
         // Render the appropriate view based on active tab
-        match self.active_tab {
+        match active_tab {
             store::ActiveTab::DynamicalSystem => {
-                self.render_dynamical_system_tab(ctx)
+                self.render_dynamical_system_tab(ctx, frame_mode)
             }
             store::ActiveTab::ObservableEditor => {
-                self.render_observable_editor_tab(ctx)
+                self.render_observable_editor_tab(ctx, frame_mode)
             }
             store::ActiveTab::ObservedDynamics => {
                 self.render_observed_dynamics_tab(ctx)
@@ -839,13 +799,12 @@ impl eframe::App for store::GraphEditor {
                 .show(ctx, |ui| {
                     ui.label(&error);
                     if ui.button("OK").clicked() {
-                        self.error_message = None;
+                        self.dispatch(
+                            store::Action::ClearErrorMessage,
+                        );
                     }
                 });
         }
-
-        // Update previous mode for next frame
-        self.prev_mode = self.mode;
 
         // Flush effects at the end of update
         self.flush_effects();
@@ -853,7 +812,11 @@ impl eframe::App for store::GraphEditor {
 }
 
 impl store::GraphEditor {
-    fn render_dynamical_system_tab(&mut self, ctx: &egui::Context) {
+    fn render_dynamical_system_tab(
+        &mut self,
+        ctx: &egui::Context,
+        mode: store::EditMode,
+    ) {
         // Calculate exact 1/3 split for all three panels
         let available_width = ctx.available_rect().width();
         let panel_width = available_width / 3.0;
@@ -940,12 +903,19 @@ impl store::GraphEditor {
                                 .unwrap_or(1.0);
                             let mut weight_str = format!("{:.2}", current_weight);
                             let response = ui.text_edit_singleline(&mut weight_str);
-                            if response.changed()
-                                && let Ok(new_weight) = weight_str.parse::<f32>()
-                                    && let Some(node_mut) = self.state_graph.node_mut(node_idx) {
-                                        node_mut.payload_mut().weight = new_weight.max(0.0);
-                                        self.recompute_observed_graph();
-                                    }
+                            if response.changed() {
+                                if let Ok(new_weight) =
+                                    weight_str.parse::<f32>()
+                                {
+                                    self.dispatch(
+                                        store::Action::UpdateStateNodeWeight {
+                                            node_idx,
+                                            new_weight: new_weight
+                                                .max(0.0),
+                                        },
+                                    );
+                                }
+                            }
                         });
 
                         // Only show connection info if this node is selected
@@ -1090,17 +1060,40 @@ impl store::GraphEditor {
                                 editing_state,
                             );
 
-                            self.heatmap_hovered_cell = new_hover;
-                            self.heatmap_editing_cell =
-                                new_editing.editing_cell;
-                            self.heatmap_edit_buffer =
-                                new_editing.edit_buffer;
+                            if new_hover != self.heatmap_hovered_cell {
+                                self.dispatch(
+                                    store::Action::SetHeatmapHoveredCell {
+                                        cell: new_hover,
+                                    },
+                                );
+                            }
+
+                            let editing_cell = new_editing.editing_cell;
+                            if editing_cell != self.heatmap_editing_cell {
+                                self.dispatch(
+                                    store::Action::SetHeatmapEditingCell {
+                                        cell: editing_cell,
+                                    },
+                                );
+                            }
+
+                            let edit_buffer = new_editing.edit_buffer;
+                            if edit_buffer != self.heatmap_edit_buffer {
+                                self.dispatch(
+                                    store::Action::SetHeatmapEditBuffer {
+                                        buffer: edit_buffer,
+                                    },
+                                );
+                            }
 
                             // Handle weight changes
                             if let Some(change) = weight_change {
-                                apply_weight_change_to_graph(
-                                    &mut self.state_graph,
-                                    change,
+                                self.dispatch(
+                                    store::Action::UpdateStateEdgeWeightFromHeatmap {
+                                        source_idx: change.source_idx,
+                                        target_idx: change.target_idx,
+                                        new_weight: change.new_weight,
+                                    },
                                 );
                             }
                         },
@@ -1141,7 +1134,7 @@ impl store::GraphEditor {
 
                     // Clear edge selections when not in EdgeEditor mode,
                     // before creating GraphView
-                    if self.mode == store::EditMode::NodeEditor {
+                    if mode == store::EditMode::NodeEditor {
                         self.dispatch(
                             store::Action::ClearEdgeSelections,
                         );
@@ -1156,7 +1149,7 @@ impl store::GraphEditor {
                     );
 
                     let settings_interaction =
-                        self.get_settings_interaction();
+                        self.get_settings_interaction(mode);
                     let settings_style = self.get_settings_style();
 
                     // Allocate remaining space for the graph
@@ -1181,9 +1174,7 @@ impl store::GraphEditor {
                             );
 
                             // Edge editing functionality (only in Edge Editor mode)
-                            if self.mode
-                                == store::EditMode::EdgeEditor
-                            {
+                            if mode == store::EditMode::EdgeEditor {
                                 let pointer =
                                     ui.input(|i| i.pointer.clone());
 
@@ -1203,10 +1194,20 @@ impl store::GraphEditor {
                                 self.handle_edge_deletion(&pointer);
                             } else {
                                 // Reset dragging state and clear selections when not in Edge Editor mode
-                                self.dragging_from = None;
-                                self.drag_started = false;
-                                self.state_graph
-                                    .set_selected_edges(Vec::new());
+                                self.dispatch(
+                                    store::Action::SetDraggingFrom {
+                                        node_idx: None,
+                                        position: None,
+                                    },
+                                );
+                                self.dispatch(
+                                    store::Action::SetDragStarted {
+                                        started: false,
+                                    },
+                                );
+                                self.dispatch(
+                                    store::Action::ClearEdgeSelections,
+                                );
                             }
                         },
                     );
@@ -1215,14 +1216,15 @@ impl store::GraphEditor {
                     ui.with_layout(
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
-                            let (mode_text, hint_text) = match self
-                                .mode
+                            let (mode_text, hint_text) =
+                                match mode
                             {
                                 store::EditMode::NodeEditor => (
                                     "Mode: Node Editor",
                                     "Hold Ctrl for Edge Editor",
                                 ),
-                                store::EditMode::EdgeEditor => (
+                                store::EditMode::EdgeEditor
+                                => (
                                     "Mode: Edge Editor",
                                     "Release Ctrl for Node Editor",
                                 ),
@@ -1261,7 +1263,11 @@ impl store::GraphEditor {
             });
     }
 
-    fn render_observable_editor_tab(&mut self, ctx: &egui::Context) {
+    fn render_observable_editor_tab(
+        &mut self,
+        ctx: &egui::Context,
+        mode: store::EditMode,
+    ) {
         // Calculate exact 1/3 split for all three panels
         let available_width = ctx.available_rect().width();
         let panel_width = available_width / 3.0;
@@ -1330,16 +1336,21 @@ impl store::GraphEditor {
                                     }
 
                                     let response = ui.text_edit_singleline(&mut node_name);
-                                    if response.changed()
-                                        && let Some(node) = self.observable_graph.node_mut(node_idx) {
-                                            node.payload_mut().name = node_name.clone();
-                                            node.set_label(node_name);
-                                            self.recompute_observed_graph();
-                                        }
+                                    if response.changed() {
+                                        self.dispatch(
+                                            store::Action::RenameObservableDestinationNode {
+                                                node_idx,
+                                                new_name: node_name
+                                                    .clone(),
+                                            },
+                                        );
+                                    }
                                     if ui.button("🗑").clicked() {
-                                        self.observable_graph.remove_node(node_idx);
-                                        self.mapping_layout_reset_needed = true;
-                                        self.recompute_observed_graph();
+                                        self.dispatch(
+                                            store::Action::RemoveObservableDestinationNode {
+                                                node_idx,
+                                            },
+                                        );
                                     }
                                 });
 
@@ -1443,19 +1454,41 @@ impl store::GraphEditor {
                                 editing_state,
                             );
 
-                            self.heatmap_hovered_cell = new_hover;
-                            self.heatmap_editing_cell =
-                                new_editing.editing_cell;
-                            self.heatmap_edit_buffer =
-                                new_editing.edit_buffer;
+                            if new_hover != self.heatmap_hovered_cell {
+                                self.dispatch(
+                                    store::Action::SetHeatmapHoveredCell {
+                                        cell: new_hover,
+                                    },
+                                );
+                            }
+
+                            let editing_cell = new_editing.editing_cell;
+                            if editing_cell != self.heatmap_editing_cell {
+                                self.dispatch(
+                                    store::Action::SetHeatmapEditingCell {
+                                        cell: editing_cell,
+                                    },
+                                );
+                            }
+
+                            let edit_buffer = new_editing.edit_buffer;
+                            if edit_buffer != self.heatmap_edit_buffer {
+                                self.dispatch(
+                                    store::Action::SetHeatmapEditBuffer {
+                                        buffer: edit_buffer,
+                                    },
+                                );
+                            }
 
                             // Handle weight changes
                             if let Some(change) = weight_change {
-                                apply_weight_change_to_graph(
-                                    &mut self.observable_graph,
-                                    change,
+                                self.dispatch(
+                                    store::Action::UpdateObservableEdgeWeightFromHeatmap {
+                                        source_idx: change.source_idx,
+                                        target_idx: change.target_idx,
+                                        new_weight: change.new_weight,
+                                    },
                                 );
-                                self.recompute_observed_graph();
                             }
                         },
                     );
@@ -1494,7 +1527,7 @@ impl store::GraphEditor {
                     }
 
                     // Clear edge selections when not in EdgeEditor mode
-                    if self.mode == store::EditMode::NodeEditor {
+                    if mode == store::EditMode::NodeEditor {
                         self.dispatch(store::Action::ClearObservableEdgeSelections);
                     }
 
@@ -1508,7 +1541,7 @@ impl store::GraphEditor {
                     );
 
                     let settings_interaction =
-                        self.get_settings_interaction();
+                        self.get_settings_interaction(mode);
                     let settings_style = self.get_settings_style();
 
                     // Allocate remaining space for the graph
@@ -1532,8 +1565,7 @@ impl store::GraphEditor {
                             );
 
                             // Edge editing functionality (only in Edge Editor mode)
-                            if self.mode
-                                == store::EditMode::EdgeEditor
+                            if mode == store::EditMode::EdgeEditor
                             {
                                 let pointer =
                                     ui.input(|i| i.pointer.clone());
@@ -1556,12 +1588,23 @@ impl store::GraphEditor {
                                 self.handle_mapping_edge_deletion(
                                     &pointer,
                                 );
-                                } else {
-                                    // Reset dragging state and clear selections when not in Edge Editor mode
-                                    self.dispatch(store::Action::SetDraggingFrom { node_idx: None, position: None });
-                                    self.dispatch(store::Action::SetDragStarted { started: false });
-                                    self.dispatch(store::Action::ClearObservableEdgeSelections);
-                                }
+                            } else {
+                                // Reset dragging state and clear selections when not in Edge Editor mode
+                                self.dispatch(
+                                    store::Action::SetDraggingFrom {
+                                        node_idx: None,
+                                        position: None,
+                                    },
+                                );
+                                self.dispatch(
+                                    store::Action::SetDragStarted {
+                                        started: false,
+                                    },
+                                );
+                                self.dispatch(
+                                    store::Action::ClearObservableEdgeSelections,
+                                );
+                            }
                         },
                     );
 
@@ -1569,9 +1612,7 @@ impl store::GraphEditor {
                     ui.with_layout(
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
-                            let (mode_text, hint_text) = match self
-                                .mode
-                            {
+                            let (mode_text, hint_text) = match mode {
                                 store::EditMode::NodeEditor => (
                                     "Mode: Node Editor",
                                     "Hold Ctrl for Edge Editor",
@@ -1583,10 +1624,18 @@ impl store::GraphEditor {
                             };
                             ui.label(hint_text);
                             ui.label(mode_text);
+                            let mut show_labels = self.show_labels;
                             ui.checkbox(
-                                &mut self.show_labels,
+                                &mut show_labels,
                                 "Show Labels",
                             );
+                            if show_labels != self.show_labels {
+                                self.dispatch(
+                                    store::Action::SetShowLabels {
+                                        show: show_labels,
+                                    },
+                                );
+                            }
                             ui.separator();
                         },
                     );
@@ -1895,14 +1944,30 @@ impl store::GraphEditor {
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
                             ui.label("Read-only view");
+                            let mut show_labels = self.show_labels;
                             ui.checkbox(
-                                &mut self.show_labels,
+                                &mut show_labels,
                                 "Show Labels",
                             );
+                            if show_labels != self.show_labels {
+                                self.dispatch(
+                                    store::Action::SetShowLabels {
+                                        show: show_labels,
+                                    },
+                                );
+                            }
+                            let mut show_weights = self.show_weights;
                             ui.checkbox(
-                                &mut self.show_weights,
+                                &mut show_weights,
                                 "Show Weights",
                             );
+                            if show_weights != self.show_weights {
+                                self.dispatch(
+                                    store::Action::SetShowWeights {
+                                        show: show_weights,
+                                    },
+                                );
+                            }
                             ui.separator();
                         },
                     );
