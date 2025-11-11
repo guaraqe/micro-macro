@@ -15,7 +15,6 @@ use eframe::egui;
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use std::collections::{HashMap, HashSet};
-use std::ops::{Deref, DerefMut};
 use std::fs;
 use std::path::Path;
 
@@ -75,7 +74,6 @@ pub struct Store {
     pub drag_started: bool,
     pub show_labels: bool,
     pub show_weights: bool,
-    pub show_flamegraph: bool,
     pub state_layout_reset: LayoutReset,
     pub observable_layout_reset: LayoutReset,
     pub observed_layout_reset: LayoutReset,
@@ -84,44 +82,6 @@ pub struct Store {
     pub heatmap_editing_cell: Option<(usize, usize)>,
     pub heatmap_edit_buffer: String,
     pub error_message: Option<String>,
-}
-
-/// Write guard for mutable access to the state graph
-pub struct StateGraphWriteGuard<'a> {
-    pub store: &'a mut Store,
-}
-
-impl<'a> Deref for StateGraphWriteGuard<'a> {
-    type Target = StateGraphDisplay;
-
-    fn deref(&self) -> &Self::Target {
-        &self.store.state_graph
-    }
-}
-
-impl<'a> DerefMut for StateGraphWriteGuard<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.store.state_graph
-    }
-}
-
-/// Write guard for mutable access to the observable graph
-pub struct ObservableGraphWriteGuard<'a> {
-    pub store: &'a mut Store,
-}
-
-impl<'a> Deref for ObservableGraphWriteGuard<'a> {
-    type Target = ObservableGraphDisplay;
-
-    fn deref(&self) -> &Self::Target {
-        &self.store.observable_graph
-    }
-}
-
-impl<'a> DerefMut for ObservableGraphWriteGuard<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.store.observable_graph
-    }
 }
 
 impl Store {
@@ -141,7 +101,6 @@ impl Store {
             drag_started: false,
             show_labels: true,
             show_weights: false,
-            show_flamegraph: false,
             state_layout_reset: LayoutReset::new(),
             observable_layout_reset: LayoutReset::new(),
             observed_layout_reset: LayoutReset::new(),
@@ -203,18 +162,6 @@ impl Store {
         );
         self.observed_graph = observed;
         self.observed_graph_dirty = false;
-    }
-
-    pub(crate) fn state_graph_mut(
-        &mut self,
-    ) -> StateGraphWriteGuard<'_> {
-        StateGraphWriteGuard { store: self }
-    }
-
-    pub(crate) fn observable_graph_mut(
-        &mut self,
-    ) -> ObservableGraphWriteGuard<'_> {
-        ObservableGraphWriteGuard { store: self }
     }
 
     pub fn bump_state_layout_version(&mut self) {
@@ -310,18 +257,6 @@ impl Store {
                 }
             })
             .collect()
-    }
-
-    pub fn state_edge_stats(&self) -> Vec<(String, String, f32)> {
-        collect_edge_stats(&self.state_graph)
-    }
-
-    pub fn observed_edge_stats(&self) -> Vec<(String, String, f32)> {
-        let observed = compute_observed_graph_with_weights(
-            &self.state_graph,
-            &self.observable_graph,
-        );
-        collect_edge_stats(&observed)
     }
 
     pub fn state_node_weight_stats(&self) -> Vec<(String, f32)> {
@@ -592,34 +527,6 @@ fn collect_state_node_weights(
         .collect();
     pairs.sort_by(|a, b| a.0.cmp(&b.0));
     pairs
-}
-
-fn collect_edge_stats<N>(
-    graph: &graph_view::GraphDisplay<N>,
-) -> Vec<(String, String, f32)>
-where
-    N: Clone + HasName,
-{
-    let mut edges = Vec::new();
-    let stable_g = graph.g();
-    for edge_ref in stable_g.edge_references() {
-        let source_idx = edge_ref.source();
-        let target_idx = edge_ref.target();
-        let weight = *edge_ref.weight().payload();
-
-        let source = graph
-            .node(source_idx)
-            .map(|n| n.payload().name())
-            .unwrap_or_default();
-        let target = graph
-            .node(target_idx)
-            .map(|n| n.payload().name())
-            .unwrap_or_default();
-
-        edges.push((source, target, weight));
-    }
-    edges.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
-    edges
 }
 
 fn collect_observed_node_weights(
