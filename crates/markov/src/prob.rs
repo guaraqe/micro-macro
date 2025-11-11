@@ -49,7 +49,10 @@ where
         // Check positivity and aggregate duplicates
         let mut aggregated: Vec<(X, N)> = Vec::new();
         for (x, w) in pairs {
-            if !matches!(w.partial_cmp(&N::zero()), Some(Ordering::Greater)) {
+            if !matches!(
+                w.partial_cmp(&N::zero()),
+                Some(Ordering::Greater)
+            ) {
                 return Err(BuildError::NonPositive);
             }
             if let Some(last) = aggregated.last_mut() {
@@ -81,7 +84,10 @@ where
             probs[i] = w;
             total = total + w;
         }
-        if !matches!(total.partial_cmp(&N::zero()), Some(Ordering::Greater)) {
+        if !matches!(
+            total.partial_cmp(&N::zero()),
+            Some(Ordering::Greater)
+        ) {
             return Err(BuildError::NonPositive);
         }
 

@@ -8,8 +8,8 @@ mod store;
 
 use eframe::egui;
 use egui_graphs::{
-    DisplayEdge, DisplayNode, Graph,
-    SettingsInteraction, SettingsStyle, reset_layout,
+    DisplayEdge, DisplayNode, Graph, SettingsInteraction,
+    SettingsStyle, reset_layout,
 };
 use graph_state::{
     ObservableNode, ObservableNodeType, StateNode,
@@ -17,8 +17,8 @@ use graph_state::{
     default_observable_graph, default_state_graph,
 };
 use graph_view::{
-    ObservableGraphDisplay, ObservableGraphView, ObservedGraphView, StateGraphDisplay,
-    StateGraphView, setup_graph_display,
+    ObservableGraphDisplay, ObservableGraphView, ObservedGraphView,
+    StateGraphDisplay, StateGraphView, setup_graph_display,
 };
 use layout_bipartite::LayoutStateBipartite;
 use layout_circular::{
@@ -173,7 +173,6 @@ fn set_node_name<
 
 // ------------------------------------------------------------------
 
-// Type alias for heatmap data return type
 type HeatmapData = (
     Vec<String>,                            // x_labels
     Vec<String>,                            // y_labels
@@ -558,16 +557,20 @@ impl store::GraphEditor {
                     self.state_graph.hovered_node()
                     && source_node != target_node
                 {
-                    self.state_graph.add_edge_with_label(
-                        source_node,
-                        target_node,
-                        1.0,
-                        String::new(),
-                    );
+                    self.dispatch(store::Action::AddStateEdge {
+                        source_idx: source_node,
+                        target_idx: target_node,
+                        weight: 1.0,
+                    });
                 }
             }
-            self.dragging_from = None;
-            self.drag_started = false;
+            self.dispatch(store::Action::SetDraggingFrom {
+                node_idx: None,
+                position: None,
+            });
+            self.dispatch(store::Action::SetDragStarted {
+                started: false,
+            });
         }
 
         arrow_coords
@@ -584,7 +587,11 @@ impl store::GraphEditor {
             // it
             if selected_edges.len() == 1 {
                 let clicked_edge = selected_edges[0];
-                self.state_graph.remove_edge(clicked_edge);
+                self.dispatch(
+                    store::Action::RemoveStateEdgeByIndex {
+                        edge_idx: clicked_edge,
+                    },
+                );
             }
             // If no edges or different edge clicked, library handles
             // selection automatically
@@ -650,19 +657,24 @@ impl store::GraphEditor {
                         Some(ObservableNodeType::Destination),
                     ) = (source_type, target_type)
                     {
-                        self.observable_graph.add_edge_with_label(
-                            source_node,
-                            target_node,
-                            1.0,
-                            String::new(),
+                        self.dispatch(
+                            store::Action::AddObservableEdge {
+                                source_idx: source_node,
+                                target_idx: target_node,
+                                weight: 1.0,
+                            },
                         );
-                        self.recompute_observed_graph();
                     }
                     // Silently ignore invalid edge attempts (Dest->Source, Source->Source, Dest->Dest)
                 }
             }
-            self.dragging_from = None;
-            self.drag_started = false;
+            self.dispatch(store::Action::SetDraggingFrom {
+                node_idx: None,
+                position: None,
+            });
+            self.dispatch(store::Action::SetDragStarted {
+                started: false,
+            });
         }
 
         arrow_coords
@@ -679,8 +691,11 @@ impl store::GraphEditor {
 
             if selected_edges.len() == 1 {
                 let clicked_edge = selected_edges[0];
-                self.observable_graph.remove_edge(clicked_edge);
-                self.recompute_observed_graph();
+                self.dispatch(
+                    store::Action::RemoveObservableEdgeByIndex {
+                        edge_idx: clicked_edge,
+                    },
+                );
             }
         }
     }
@@ -745,7 +760,9 @@ impl eframe::App for store::GraphEditor {
                             .add_filter("JSON", &["json"])
                             .save_file()
                         {
-                            self.dispatch(store::Action::SaveToFile { path });
+                            self.dispatch(
+                                store::Action::SaveToFile { path },
+                            );
                         }
                     }
 
@@ -755,7 +772,9 @@ impl eframe::App for store::GraphEditor {
                             .add_filter("JSON", &["json"])
                             .pick_file()
                         {
-                            self.dispatch(store::Action::LoadFromFile { path });
+                            self.dispatch(
+                                store::Action::LoadFromFile { path },
+                            );
                         }
                     }
                 });
@@ -886,42 +905,30 @@ impl store::GraphEditor {
                             if ui.small_button(arrow).clicked() {
                                 // Toggle selection
                                 if is_selected {
-                                    // Deselect this node
-                                    if let Some(node) = self.state_graph.node_mut(node_idx) {
-                                        node.set_selected(false);
-                                    }
+                                    self.dispatch(store::Action::SelectStateNode { node_idx, selected: false });
                                 } else {
                                     // Deselect all other nodes first
                                     let all_nodes: Vec<_> = self.state_graph.nodes_iter().map(|(idx, _)| idx).collect();
                                     for idx in all_nodes {
-                                        if let Some(node) = self.state_graph.node_mut(idx) {
-                                            node.set_selected(false);
+                                        if idx != node_idx {
+                                            self.dispatch(store::Action::SelectStateNode { node_idx: idx, selected: false });
                                         }
                                     }
                                     // Select this node
-                                    if let Some(node) = self.state_graph.node_mut(node_idx) {
-                                        node.set_selected(true);
-                                    }
+                                    self.dispatch(store::Action::SelectStateNode { node_idx, selected: true });
                                 }
                             }
 
                             let response =
                                 ui.text_edit_singleline(&mut node_name);
                             if response.changed() {
-                                set_node_name(
-                                    &mut self.state_graph,
+                                self.dispatch(store::Action::RenameStateNode {
                                     node_idx,
-                                    node_name,
-                                );
-                                self.layout_reset_needed = true;
-                                self.sync_source_nodes();
-                                self.recompute_observed_graph();
+                                    new_name: node_name.clone(),
+                                });
                             }
                             if ui.button("🗑").clicked() {
-                                self.state_graph.remove_node(node_idx);
-                                self.layout_reset_needed = true;
-                                self.sync_source_nodes();
-                                self.recompute_observed_graph();
+                                self.dispatch(store::Action::RemoveStateNode { node_idx });
                             }
                         });
 
@@ -1127,14 +1134,17 @@ impl store::GraphEditor {
                     // Reset layout if needed
                     if self.layout_reset_needed {
                         reset_layout::<LayoutStateCircular>(ui, None);
-                        self.layout_reset_needed = false;
+                        self.dispatch(
+                            store::Action::ClearLayoutResetFlags,
+                        );
                     }
 
                     // Clear edge selections when not in EdgeEditor mode,
                     // before creating GraphView
                     if self.mode == store::EditMode::NodeEditor {
-                        self.state_graph
-                            .set_selected_edges(Vec::new());
+                        self.dispatch(
+                            store::Action::ClearEdgeSelections,
+                        );
                     }
 
                     // Update edge thicknesses based on global weight distribution
@@ -1219,14 +1229,31 @@ impl store::GraphEditor {
                             };
                             ui.label(hint_text);
                             ui.label(mode_text);
+                            let mut show_labels = self.show_labels;
                             ui.checkbox(
-                                &mut self.show_labels,
+                                &mut show_labels,
                                 "Show Labels",
                             );
+                            if show_labels != self.show_labels {
+                                self.dispatch(
+                                    store::Action::SetShowLabels {
+                                        show: show_labels,
+                                    },
+                                );
+                            }
+
+                            let mut show_weights = self.show_weights;
                             ui.checkbox(
-                                &mut self.show_weights,
+                                &mut show_weights,
                                 "Show Weights",
                             );
+                            if show_weights != self.show_weights {
+                                self.dispatch(
+                                    store::Action::SetShowWeights {
+                                        show: show_weights,
+                                    },
+                                );
+                            }
                             ui.separator();
                         },
                     );
@@ -1250,18 +1277,12 @@ impl store::GraphEditor {
 
                     // Add Destination button
                     if ui.button("Add Value").clicked() {
-                        let node_idx = self.observable_graph.add_node(ObservableNode {
-                            name: String::new(),
-                            node_type: ObservableNodeType::Destination,
-                            state_node_idx: None,
-                        });
-                        let default_name = format!("Value {}", node_idx.index());
-                        if let Some(node) = self.observable_graph.node_mut(node_idx) {
-                            node.payload_mut().name = default_name.clone();
-                            node.set_label(default_name);
-                        }
-                        self.mapping_layout_reset_needed = true;
-                        self.recompute_observed_graph();
+                        let node_count = self.observable_graph
+                            .nodes_iter()
+                            .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Destination)
+                            .count();
+                        let default_name = format!("Value {}", node_count);
+                        self.dispatch(store::Action::AddObservableDestinationNode { name: default_name });
                     }
 
                     // Contents - Destination node list
@@ -1469,13 +1490,12 @@ impl store::GraphEditor {
                         reset_layout::<LayoutStateBipartite>(
                             ui, None,
                         );
-                        self.mapping_layout_reset_needed = false;
+                        self.dispatch(store::Action::ClearLayoutResetFlags);
                     }
 
                     // Clear edge selections when not in EdgeEditor mode
                     if self.mode == store::EditMode::NodeEditor {
-                        self.observable_graph
-                            .set_selected_edges(Vec::new());
+                        self.dispatch(store::Action::ClearObservableEdgeSelections);
                     }
 
                     // Update edge thicknesses based on global weight distribution
@@ -1536,13 +1556,12 @@ impl store::GraphEditor {
                                 self.handle_mapping_edge_deletion(
                                     &pointer,
                                 );
-                            } else {
-                                // Reset dragging state and clear selections when not in Edge Editor mode
-                                self.dragging_from = None;
-                                self.drag_started = false;
-                                self.observable_graph
-                                    .set_selected_edges(Vec::new());
-                            }
+                                } else {
+                                    // Reset dragging state and clear selections when not in Edge Editor mode
+                                    self.dispatch(store::Action::SetDraggingFrom { node_idx: None, position: None });
+                                    self.dispatch(store::Action::SetDragStarted { started: false });
+                                    self.dispatch(store::Action::ClearObservableEdgeSelections);
+                                }
                         },
                     );
 
@@ -1795,7 +1814,9 @@ impl store::GraphEditor {
                                 editing_state,
                             );
 
-                            self.heatmap_hovered_cell = new_hover;
+                            if new_hover != self.heatmap_hovered_cell {
+                                self.dispatch(store::Action::SetHeatmapHoveredCell { cell: new_hover });
+                            }
                             // Ignore editing and weight changes (read-only)
                         },
                     );
@@ -1828,7 +1849,9 @@ impl store::GraphEditor {
                     // Reset layout if needed
                     if self.observed_layout_reset_needed {
                         reset_layout::<LayoutStateCircular>(ui, None);
-                        self.observed_layout_reset_needed = false;
+                        self.dispatch(
+                            store::Action::ClearLayoutResetFlags,
+                        );
                     }
 
                     // Update edge thicknesses based on global weight distribution
