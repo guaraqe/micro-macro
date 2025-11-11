@@ -95,6 +95,34 @@ impl NumberEditor {
 }
 
 #[derive(Clone)]
+pub struct StringEditor {
+    node: Option<NodeIndex>,
+    value: String,
+}
+
+impl StringEditor {
+    pub fn new() -> Self {
+        Self {
+            node: None,
+            value: "".to_string(),
+        }
+    }
+
+    pub fn node(&self) -> Option<NodeIndex> {
+        self.node
+    }
+
+    pub fn value(&self) -> String {
+        self.value.clone()
+    }
+
+    pub fn focus(&mut self, node: NodeIndex, value: String) {
+        self.node = Some(node);
+        self.value = value;
+    }
+}
+
+#[derive(Clone)]
 pub struct Store {
     pub state_graph: Versioned<StateGraphDisplay>,
     pub observable_graph: Versioned<ObservableGraphDisplay>,
@@ -113,6 +141,7 @@ pub struct Store {
     pub heatmap_editing_cell: Option<(usize, usize)>,
     pub heatmap_edit_buffer: String,
     pub weight_editor: NumberEditor,
+    pub label_editor: StringEditor,
     pub error_message: Option<String>,
 }
 
@@ -140,6 +169,7 @@ impl Store {
             heatmap_editing_cell: None,
             heatmap_edit_buffer: String::new(),
             weight_editor: NumberEditor::new(),
+            label_editor: StringEditor::new(),
             error_message: None,
         }
     }

@@ -27,6 +27,8 @@ pub enum Action {
         node_idx: NodeIndex,
         new_weight: f32,
     },
+    /// Update the label editor for a state graph node
+    UpdateStateNodeLabelEditor { node_idx: NodeIndex, value: String },
     /// Set the selection state of a node
     SelectStateNode { node_idx: NodeIndex, selected: bool },
 
@@ -51,6 +53,11 @@ pub enum Action {
     AddObservableDestinationNode { name: String },
     /// Remove a Destination node from the observable graph
     RemoveObservableDestinationNode { node_idx: NodeIndex },
+    /// Update the label editor for an observable Destination node
+    UpdateObservableDestinationNodeLabelEditor {
+        node_idx: NodeIndex,
+        value: String,
+    },
     /// Rename an observable Destination node
     RenameObservableDestinationNode {
         node_idx: NodeIndex,
@@ -170,6 +177,10 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             store.mark_observed_graph_dirty();
             vec![]
         }
+        Action::UpdateStateNodeLabelEditor { node_idx, value } => {
+            store.label_editor.focus(node_idx, value);
+            vec![]
+        }
         Action::SelectStateNode { node_idx, selected } => {
             {
                 if let Some(node) =
@@ -259,6 +270,13 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             store.observable_layout_reset.bump();
             store.observed_layout_reset.bump();
             store.mark_observed_graph_dirty();
+            vec![]
+        }
+        Action::UpdateObservableDestinationNodeLabelEditor {
+            node_idx,
+            value,
+        } => {
+            store.label_editor.focus(node_idx, value);
             vec![]
         }
         Action::RenameObservableDestinationNode {

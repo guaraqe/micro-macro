@@ -633,7 +633,7 @@ impl State {
                         })
                         .collect();
 
-                    for (node_idx, mut node_name) in nodes {
+                    for (node_idx, node_name) in nodes {
                         let is_selected = self
                             .store
                             .state_graph
@@ -662,14 +662,14 @@ impl State {
                                 }
                             }
 
-                            let response =
-                                ui.text_edit_singleline(&mut node_name);
-                            if response.changed() {
-                                self.dispatch(actions::Action::RenameStateNode {
-                                    node_idx,
-                                    new_name: node_name.clone(),
-                                });
-                            }
+                            self.label_editor(
+                                ui,
+                                node_idx,
+                                node_name,
+                                |idx, value| actions::Action::UpdateStateNodeLabelEditor { node_idx: idx, value },
+                                |idx, new_name| actions::Action::RenameStateNode { node_idx: idx, new_name },
+                            );
+
                             if ui.button("🗑").clicked() {
                                 self.dispatch(actions::Action::RemoveStateNode { node_idx });
                             }
@@ -1065,7 +1065,7 @@ impl State {
                                 .map(|(idx, node)| (idx, node.payload().name.clone()))
                                 .collect();
 
-                            for (node_idx, mut node_name) in dest_nodes {
+                            for (node_idx, node_name) in dest_nodes {
                                 let is_selected = self
                                     .store.observable_graph
                                     .get()
@@ -1097,16 +1097,14 @@ impl State {
                                         }
                                     }
 
-                                    let response = ui.text_edit_singleline(&mut node_name);
-                                    if response.changed() {
-                                        self.dispatch(
-                                            actions::Action::RenameObservableDestinationNode {
-                                                node_idx,
-                                                new_name: node_name
-                                                    .clone(),
-                                            },
-                                        );
-                                    }
+                                    self.label_editor(
+                                        ui,
+                                        node_idx,
+                                        node_name,
+                                        |idx, value| actions::Action::UpdateObservableDestinationNodeLabelEditor { node_idx: idx, value },
+                                        |idx, new_name| actions::Action::RenameObservableDestinationNode { node_idx: idx, new_name },
+                                    );
+
                                     if ui.button("🗑").clicked() {
                                         self.dispatch(
                                             actions::Action::RemoveObservableDestinationNode {
@@ -1783,5 +1781,30 @@ impl State {
                 );
             }
         });
+    }
+
+    fn label_editor(
+        &mut self,
+        ui: &mut egui::Ui,
+        node_idx: NodeIndex,
+        current_label: String,
+        on_update: impl FnOnce(NodeIndex, String) -> actions::Action,
+        on_commit: impl FnOnce(NodeIndex, String) -> actions::Action,
+    ) {
+        let is_focused =
+            self.store.label_editor.node() == Some(node_idx);
+        let mut name_str = if is_focused {
+            self.store.label_editor.value()
+        } else {
+            current_label
+        };
+        let response = ui.text_edit_singleline(&mut name_str);
+        if response.gained_focus() || response.changed() {
+            self.dispatch(on_update(node_idx, name_str.clone()));
+        }
+        if response.lost_focus() {
+            let new_name = self.store.label_editor.value();
+            self.dispatch(on_commit(node_idx, new_name));
+        }
     }
 }
