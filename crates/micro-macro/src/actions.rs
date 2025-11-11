@@ -159,7 +159,9 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
         }
         Action::SelectStateNode { node_idx, selected } => {
             {
-                if let Some(node) = store.state_graph.node_mut(node_idx) {
+                if let Some(node) =
+                    store.state_graph.node_mut(node_idx)
+                {
                     node.set_selected(selected);
                 }
             }
@@ -190,15 +192,21 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             new_weight,
         } => {
             if new_weight == 0.0 {
-                if let Some(edge_idx) =
-                    store.state_graph.g().find_edge(source_idx, target_idx)
+                if let Some(edge_idx) = store
+                    .state_graph
+                    .g()
+                    .find_edge(source_idx, target_idx)
                 {
                     store.state_graph.remove_edge(edge_idx);
                 }
-            } else if let Some(edge_idx) =
-                store.state_graph.g().find_edge(source_idx, target_idx)
+            } else if let Some(edge_idx) = store
+                .state_graph
+                .g()
+                .find_edge(source_idx, target_idx)
             {
-                if let Some(edge) = store.state_graph.edge_mut(edge_idx) {
+                if let Some(edge) =
+                    store.state_graph.edge_mut(edge_idx)
+                {
                     *edge.payload_mut() = new_weight;
                 }
             } else {
@@ -214,12 +222,15 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
 
         // Observable Graph Actions
         Action::AddObservableDestinationNode { name } => {
-            let node_idx = store.observable_graph.add_node(ObservableNode {
-                name: name.clone(),
-                node_type: ObservableNodeType::Destination,
-                state_node_idx: None,
-            });
-            if let Some(node) = store.observable_graph.node_mut(node_idx) {
+            let node_idx =
+                store.observable_graph.add_node(ObservableNode {
+                    name: name.clone(),
+                    node_type: ObservableNodeType::Destination,
+                    state_node_idx: None,
+                });
+            if let Some(node) =
+                store.observable_graph.node_mut(node_idx)
+            {
                 node.set_label(name);
             }
             store.bump_observable_layout_version();
@@ -236,7 +247,9 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             node_idx,
             new_name,
         } => {
-            if let Some(node) = store.observable_graph.node_mut(node_idx) {
+            if let Some(node) =
+                store.observable_graph.node_mut(node_idx)
+            {
                 node.payload_mut().name = new_name.clone();
                 node.set_label(new_name);
             }
@@ -251,26 +264,22 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             weight,
         } => {
             let mut added = false;
-            if let Some(source_node) = store.observable_graph.node(source_idx) {
-                if source_node.payload().node_type
+            if let Some(source_node) =
+                store.observable_graph.node(source_idx)
+                && source_node.payload().node_type
                     == ObservableNodeType::Source
-                {
-                    if let Some(target_node) =
-                        store.observable_graph.node(target_idx)
-                    {
-                        if target_node.payload().node_type
-                            == ObservableNodeType::Destination
-                        {
-                            store.observable_graph.add_edge_with_label(
-                                source_idx,
-                                target_idx,
-                                weight,
-                                String::new(),
-                            );
-                            added = true;
-                        }
-                    }
-                }
+                && let Some(target_node) =
+                    store.observable_graph.node(target_idx)
+                && target_node.payload().node_type
+                    == ObservableNodeType::Destination
+            {
+                store.observable_graph.add_edge_with_label(
+                    source_idx,
+                    target_idx,
+                    weight,
+                    String::new(),
+                );
+                added = true;
             }
             if added {
                 store.mark_observed_graph_dirty();
@@ -288,38 +297,38 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             new_weight,
         } => {
             if new_weight == 0.0 {
-                if let Some(edge_idx) =
-                    store.observable_graph.g().find_edge(source_idx, target_idx)
+                if let Some(edge_idx) = store
+                    .observable_graph
+                    .g()
+                    .find_edge(source_idx, target_idx)
                 {
                     store.observable_graph.remove_edge(edge_idx);
                 }
-            } else if let Some(edge_idx) =
-                store.observable_graph.g().find_edge(source_idx, target_idx)
+            } else if let Some(edge_idx) = store
+                .observable_graph
+                .g()
+                .find_edge(source_idx, target_idx)
             {
-                if let Some(edge) = store.observable_graph.edge_mut(edge_idx) {
+                if let Some(edge) =
+                    store.observable_graph.edge_mut(edge_idx)
+                {
                     *edge.payload_mut() = new_weight;
                 }
             } else if let Some(source_node) =
                 store.observable_graph.node(source_idx)
-            {
-                if source_node.payload().node_type
+                && source_node.payload().node_type
                     == ObservableNodeType::Source
-                {
-                    if let Some(target_node) =
-                        store.observable_graph.node(target_idx)
-                    {
-                        if target_node.payload().node_type
-                            == ObservableNodeType::Destination
-                        {
-                            store.observable_graph.add_edge_with_label(
-                                source_idx,
-                                target_idx,
-                                new_weight,
-                                String::new(),
-                            );
-                        }
-                    }
-                }
+                && let Some(target_node) =
+                    store.observable_graph.node(target_idx)
+                && target_node.payload().node_type
+                    == ObservableNodeType::Destination
+            {
+                store.observable_graph.add_edge_with_label(
+                    source_idx,
+                    target_idx,
+                    new_weight,
+                    String::new(),
+                );
             }
             store.mark_observed_graph_dirty();
             vec![]

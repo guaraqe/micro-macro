@@ -15,7 +15,6 @@ use eframe::egui;
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::Path;
 
 const STATE_FILE: &str = "state.json";
@@ -112,40 +111,6 @@ impl Store {
         }
     }
 
-    pub fn save_to_file(
-        &mut self,
-        path: &Path,
-    ) -> Result<(), String> {
-        let state = self.current_serializable_state();
-        serialization::save_to_file(&state, path)
-    }
-
-    pub fn load_from_file(
-        &mut self,
-        path: &Path,
-    ) -> Result<(), String> {
-        let raw = fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read file: {e}"))?;
-        let state: serialization::SerializableState =
-            serde_json::from_str(&raw)
-                .map_err(|e| format!("Failed to parse JSON: {e}"))?;
-        let state_graph_raw = serialization::serializable_to_graph(
-            &state.dynamical_system,
-        );
-        let observable_graph_raw =
-            serialization::serializable_to_observable_graph(
-                &state.observable,
-                &state_graph_raw,
-            );
-        self.state_graph = setup_graph_display(&state_graph_raw);
-        self.observable_graph =
-            setup_graph_display(&observable_graph_raw);
-
-        self.recompute_observed_graph();
-        self.mark_all_layouts_dirty();
-        Ok(())
-    }
-
     pub fn sync_source_nodes(&mut self) {
         self.observable_graph = sync_source_nodes_display(
             &self.state_graph,
@@ -190,15 +155,6 @@ impl Store {
         self.bump_state_layout_version();
         self.bump_observable_layout_version();
         self.bump_observed_layout_version();
-    }
-
-    fn current_serializable_state(
-        &self,
-    ) -> serialization::SerializableState {
-        serializable_state_from_graphs(
-            &self.state_graph,
-            &self.observable_graph,
-        )
     }
 
     pub fn state_heatmap(&self) -> HeatmapData {
@@ -273,20 +229,6 @@ impl Store {
 }
 
 // Helper functions (converted from tracked queries)
-
-fn serializable_state_from_graphs(
-    state_graph: &StateGraphDisplay,
-    observable_graph: &ObservableGraphDisplay,
-) -> serialization::SerializableState {
-    serialization::SerializableState {
-        dynamical_system: serialization::graph_to_serializable(
-            state_graph,
-        ),
-        observable: serialization::observable_graph_to_serializable(
-            observable_graph,
-        ),
-    }
-}
 
 fn sync_source_nodes_display(
     state_graph: &StateGraphDisplay,
@@ -563,12 +505,11 @@ pub fn load_graphs_from_path(
 
 pub fn load_or_create_default_state()
 -> (StateGraphDisplay, ObservableGraphDisplay) {
-    if Path::new(STATE_FILE).exists() {
-        if let Ok(graphs) =
+    if Path::new(STATE_FILE).exists()
+        && let Ok(graphs) =
             load_graphs_from_path(Path::new(STATE_FILE))
-        {
-            return graphs;
-        }
+    {
+        return graphs;
     }
 
     let state_graph = default_state_graph();

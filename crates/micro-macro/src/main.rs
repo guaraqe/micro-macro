@@ -258,7 +258,8 @@ impl State {
     ) -> Option<(egui::Pos2, egui::Pos2)> {
         // Start potential drag from a node
         if pointer.primary_pressed()
-            && let Some(hovered) = self.store.state_graph.hovered_node()
+            && let Some(hovered) =
+                self.store.state_graph.hovered_node()
             && let Some(press_pos) = pointer.interact_pos()
         {
             self.store.dragging_from = Some((hovered, press_pos));
@@ -275,7 +276,9 @@ impl State {
 
         // Determine if preview arrow should be drawn
         let arrow_coords = if self.store.drag_started {
-            if let Some((_src_idx, from_pos)) = self.store.dragging_from {
+            if let Some((_src_idx, from_pos)) =
+                self.store.dragging_from
+            {
                 pointer.hover_pos().map(|to_pos| (from_pos, to_pos))
             } else {
                 None
@@ -286,7 +289,8 @@ impl State {
 
         // Handle mouse release - create edge if dragged
         if pointer.primary_released() {
-            if let Some((source_node, _pos)) = self.store.dragging_from
+            if let Some((source_node, _pos)) =
+                self.store.dragging_from
                 && self.store.drag_started
             {
                 // Drag completed - create edge if hovering different node
@@ -362,7 +366,9 @@ impl State {
 
         // Determine if preview arrow should be drawn
         let arrow_coords = if self.store.drag_started {
-            if let Some((_src_idx, from_pos)) = self.store.dragging_from {
+            if let Some((_src_idx, from_pos)) =
+                self.store.dragging_from
+            {
                 pointer.hover_pos().map(|to_pos| (from_pos, to_pos))
             } else {
                 None
@@ -373,7 +379,8 @@ impl State {
 
         // Handle mouse release - create edge if dragged
         if pointer.primary_released() {
-            if let Some((source_node, _pos)) = self.store.dragging_from
+            if let Some((source_node, _pos)) =
+                self.store.dragging_from
                 && self.store.drag_started
             {
                 // Drag completed - create edge if hovering different node
@@ -429,11 +436,8 @@ impl State {
         if pointer.primary_clicked()
             && self.store.dragging_from.is_none()
         {
-            let selected_edges: Vec<_> = self
-                .store
-                .observable_graph
-                .selected_edges()
-                .to_vec();
+            let selected_edges: Vec<_> =
+                self.store.observable_graph.selected_edges().to_vec();
 
             if selected_edges.len() == 1 {
                 let clicked_edge = selected_edges[0];
@@ -661,8 +665,8 @@ impl State {
                                 .unwrap_or(1.0);
                             let mut weight_str = format!("{:.2}", current_weight);
                             let response = ui.text_edit_singleline(&mut weight_str);
-                            if response.changed() {
-                                if let Ok(new_weight) =
+                            if response.changed()
+                                && let Ok(new_weight) =
                                     weight_str.parse::<f32>()
                                 {
                                     self.dispatch(
@@ -673,7 +677,6 @@ impl State {
                                         },
                                     );
                                 }
-                            }
                         });
 
                         // Only show connection info if this node is selected
@@ -1650,9 +1653,13 @@ impl State {
                     ui.separator();
 
                     // Reset layout if needed
-                    self.store.observed_layout_reset.run_if_needed(|| {
-                        reset_layout::<LayoutStateCircular>(ui, None);
-                    });
+                    self.store.observed_layout_reset.run_if_needed(
+                        || {
+                            reset_layout::<LayoutStateCircular>(
+                                ui, None,
+                            );
+                        },
+                    );
 
                     // Update edge thicknesses based on global weight distribution
                     let sorted_weights =
@@ -1695,7 +1702,8 @@ impl State {
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
                             ui.label("Read-only view");
-                            let mut show_labels = self.store.show_labels;
+                            let mut show_labels =
+                                self.store.show_labels;
                             ui.checkbox(
                                 &mut show_labels,
                                 "Show Labels",
@@ -1707,12 +1715,14 @@ impl State {
                                     },
                                 );
                             }
-                            let mut show_weights = self.store.show_weights;
+                            let mut show_weights =
+                                self.store.show_weights;
                             ui.checkbox(
                                 &mut show_weights,
                                 "Show Weights",
                             );
-                            if show_weights != self.store.show_weights {
+                            if show_weights != self.store.show_weights
+                            {
                                 self.dispatch(
                                     actions::Action::SetShowWeights {
                                         show: show_weights,
