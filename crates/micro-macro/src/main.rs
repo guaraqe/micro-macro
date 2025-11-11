@@ -1054,10 +1054,10 @@ impl State {
                     ui.separator();
 
                     // Reset layout if needed
-                    if self.layout_reset_needed {
+                    if self.state_layout_reset_needed {
                         reset_layout::<LayoutStateCircular>(ui, None);
                         self.dispatch(
-                            actions::Action::ClearStateLayoutResetFlag,
+                            actions::Action::ClearLayoutResetFlags,
                         );
                     }
 
@@ -1453,7 +1453,7 @@ impl State {
                             ui, None,
                         );
                         self.dispatch(
-                            actions::Action::ClearObservableLayoutResetFlag,
+                            actions::Action::ClearLayoutResetFlags,
                         );
                     }
 
@@ -1830,7 +1830,7 @@ impl State {
                     if self.observed_layout_reset_needed {
                         reset_layout::<LayoutStateCircular>(ui, None);
                         self.dispatch(
-                            actions::Action::ClearObservedLayoutResetFlag,
+                            actions::Action::ClearLayoutResetFlags,
                         );
                     }
 

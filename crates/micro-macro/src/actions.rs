@@ -80,12 +80,8 @@ pub enum Action {
     SetShowLabels { show: bool },
     /// Toggle weight display
     SetShowWeights { show: bool },
-    /// Clear state graph layout reset flag
-    ClearStateLayoutResetFlag,
-    /// Clear observable graph layout reset flag
-    ClearObservableLayoutResetFlag,
-    /// Clear observed graph layout reset flag
-    ClearObservedLayoutResetFlag,
+    /// Clear all layout reset flags
+    ClearLayoutResetFlags,
     /// Clear all selected edges in the state graph
     ClearEdgeSelections,
     /// Clear all selected edges in the observable graph
@@ -125,15 +121,16 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             if let Some(node) = store.state_graph.node_mut(node_idx) {
                 node.set_label(name);
             }
-            store.layout_reset_needed = true;
+            store.state_layout_reset_needed = true;
             store.observed_layout_reset_needed = true;
+            store.observable_layout_reset_needed = true;
             store.sync_source_nodes();
             store.recompute_observed_graph();
             vec![]
         }
         Action::RemoveStateNode { node_idx } => {
             store.state_graph.remove_node(node_idx);
-            store.layout_reset_needed = true;
+            store.state_layout_reset_needed = true;
             store.observed_layout_reset_needed = true;
             store.observable_layout_reset_needed = true;
             store.sync_source_nodes();
@@ -145,8 +142,9 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                 node.payload_mut().name = new_name.clone();
                 node.set_label(new_name);
             }
-            store.layout_reset_needed = true;
+            store.state_layout_reset_needed = true;
             store.observed_layout_reset_needed = true;
+            store.observable_layout_reset_needed = true;
             store.sync_source_nodes();
             store.recompute_observed_graph();
             vec![]
@@ -371,15 +369,9 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             store.show_weights = show;
             vec![]
         }
-        Action::ClearStateLayoutResetFlag => {
-            store.layout_reset_needed = false;
-            vec![]
-        }
-        Action::ClearObservableLayoutResetFlag => {
+        Action::ClearLayoutResetFlags => {
+            store.state_layout_reset_needed = false;
             store.observable_layout_reset_needed = false;
-            vec![]
-        }
-        Action::ClearObservedLayoutResetFlag => {
             store.observed_layout_reset_needed = false;
             vec![]
         }

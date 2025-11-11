@@ -44,7 +44,7 @@ pub struct Store {
     pub drag_started: bool,
     pub show_labels: bool,
     pub show_weights: bool,
-    pub layout_reset_needed: bool,
+    pub state_layout_reset_needed: bool,
     pub observable_layout_reset_needed: bool,
     pub observed_layout_reset_needed: bool,
     pub heatmap_hovered_cell: Option<(usize, usize)>,
@@ -71,7 +71,7 @@ impl Store {
             drag_started: false,
             show_labels: true,
             show_weights: false,
-            layout_reset_needed: false,
+            state_layout_reset_needed: false,
             observable_layout_reset_needed: false,
             observed_layout_reset_needed: true,
             heatmap_hovered_cell: None,
@@ -105,7 +105,7 @@ impl Store {
         self.observable_graph = observable_graph;
 
         self.recompute_observed_graph();
-        self.layout_reset_needed = true;
+        self.state_layout_reset_needed = true;
         self.observable_layout_reset_needed = true;
         self.observed_layout_reset_needed = true;
         Ok(())
