@@ -1,6 +1,14 @@
 use eframe::egui;
 use petgraph::stable_graph::NodeIndex;
 
+pub type HeatmapData = (
+    Vec<String>,           // x_labels
+    Vec<String>,           // y_labels
+    Vec<Vec<Option<f32>>>, // matrix
+    Vec<NodeIndex>,        // x_node_indices
+    Vec<NodeIndex>,        // y_node_indices
+);
+
 // Color scale configuration constants
 const COLOR_SCALE_MESH_POINTS: usize = 10;
 const COLOR_SCALE_HEIGHT: f32 = 30.0;

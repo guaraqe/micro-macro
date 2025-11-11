@@ -1,30 +1,33 @@
 use crate::graph_state::{
-    ObservableNode, ObservableNodeType,
+    HasName, ObservableNode, ObservableNodeType,
     calculate_observed_graph_from_observable_display,
     compute_observed_weights, default_observable_graph,
     default_state_graph,
 };
+use crate::graph_view;
 use crate::graph_view::{
     ObservableGraphDisplay, ObservedGraphDisplay, StateGraphDisplay,
     setup_graph_display,
 };
+use crate::heatmap::HeatmapData;
 use crate::serialization;
 use eframe::egui;
 use petgraph::stable_graph::NodeIndex;
-use salsa::Storage;
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
+use std::fs;
 use std::path::Path;
 
 const STATE_FILE: &str = "state.json";
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditMode {
     NodeEditor,
     EdgeEditor,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveTab {
     DynamicalSystem,
     ObservableEditor,
@@ -32,7 +35,36 @@ pub enum ActiveTab {
 }
 
 #[derive(Clone)]
-pub struct StoreData {
+pub struct LayoutReset {
+    version: u64,
+    last_acked: u64,
+}
+
+impl LayoutReset {
+    pub fn new() -> Self {
+        Self {
+            version: 1,
+            last_acked: 0,
+        }
+    }
+
+    pub fn bump(&mut self) {
+        self.version = self.version.saturating_add(1);
+    }
+
+    pub fn run_if_needed<F>(&mut self, mut f: F)
+    where
+        F: FnMut(),
+    {
+        if self.version > self.last_acked {
+            f();
+            self.last_acked = self.version;
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Store {
     pub state_graph: StateGraphDisplay,
     pub observable_graph: ObservableGraphDisplay,
     pub observed_graph: ObservedGraphDisplay,
@@ -43,20 +75,53 @@ pub struct StoreData {
     pub drag_started: bool,
     pub show_labels: bool,
     pub show_weights: bool,
-    pub state_layout_reset_needed: bool,
-    pub observable_layout_reset_needed: bool,
-    pub observed_layout_reset_needed: bool,
+    pub show_flamegraph: bool,
+    pub state_layout_reset: LayoutReset,
+    pub observable_layout_reset: LayoutReset,
+    pub observed_layout_reset: LayoutReset,
+    pub observed_graph_dirty: bool,
     pub heatmap_hovered_cell: Option<(usize, usize)>,
     pub heatmap_editing_cell: Option<(usize, usize)>,
     pub heatmap_edit_buffer: String,
     pub error_message: Option<String>,
 }
 
-#[salsa::db]
-#[derive(Clone)]
-pub struct Store {
-    storage: Storage<Self>,
-    data: StoreData,
+/// Write guard for mutable access to the state graph
+pub struct StateGraphWriteGuard<'a> {
+    pub store: &'a mut Store,
+}
+
+impl<'a> Deref for StateGraphWriteGuard<'a> {
+    type Target = StateGraphDisplay;
+
+    fn deref(&self) -> &Self::Target {
+        &self.store.state_graph
+    }
+}
+
+impl<'a> DerefMut for StateGraphWriteGuard<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.store.state_graph
+    }
+}
+
+/// Write guard for mutable access to the observable graph
+pub struct ObservableGraphWriteGuard<'a> {
+    pub store: &'a mut Store,
+}
+
+impl<'a> Deref for ObservableGraphWriteGuard<'a> {
+    type Target = ObservableGraphDisplay;
+
+    fn deref(&self) -> &Self::Target {
+        &self.store.observable_graph
+    }
+}
+
+impl<'a> DerefMut for ObservableGraphWriteGuard<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.store.observable_graph
+    }
 }
 
 impl Store {
@@ -66,40 +131,33 @@ impl Store {
         observed_graph: ObservedGraphDisplay,
     ) -> Self {
         Self {
-            storage: Storage::default(),
-            data: StoreData {
-                state_graph,
-                observable_graph,
-                observed_graph,
-                mode: EditMode::NodeEditor,
-                prev_mode: EditMode::NodeEditor,
-                active_tab: ActiveTab::DynamicalSystem,
-                dragging_from: None,
-                drag_started: false,
-                show_labels: true,
-                show_weights: false,
-                state_layout_reset_needed: false,
-                observable_layout_reset_needed: false,
-                observed_layout_reset_needed: true,
-                heatmap_hovered_cell: None,
-                heatmap_editing_cell: None,
-                heatmap_edit_buffer: String::new(),
-                error_message: None,
-            },
+            state_graph,
+            observable_graph,
+            observed_graph,
+            mode: EditMode::NodeEditor,
+            prev_mode: EditMode::NodeEditor,
+            active_tab: ActiveTab::DynamicalSystem,
+            dragging_from: None,
+            drag_started: false,
+            show_labels: true,
+            show_weights: false,
+            show_flamegraph: false,
+            state_layout_reset: LayoutReset::new(),
+            observable_layout_reset: LayoutReset::new(),
+            observed_layout_reset: LayoutReset::new(),
+            observed_graph_dirty: false,
+            heatmap_hovered_cell: None,
+            heatmap_editing_cell: None,
+            heatmap_edit_buffer: String::new(),
+            error_message: None,
         }
     }
 
-    pub fn save_to_file(&self, path: &Path) -> Result<(), String> {
-        let state = serialization::SerializableState {
-            dynamical_system: serialization::graph_to_serializable(
-                &self.data.state_graph,
-            ),
-            observable:
-                serialization::observable_graph_to_serializable(
-                    &self.data.observable_graph,
-                ),
-        };
-
+    pub fn save_to_file(
+        &mut self,
+        path: &Path,
+    ) -> Result<(), String> {
+        let state = self.current_serializable_state();
         serialization::save_to_file(&state, path)
     }
 
@@ -107,153 +165,476 @@ impl Store {
         &mut self,
         path: &Path,
     ) -> Result<(), String> {
-        let (state_graph, observable_graph) =
-            load_graphs_from_path(path)?;
-        self.data.state_graph = state_graph;
-        self.data.observable_graph = observable_graph;
+        let raw = fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read file: {e}"))?;
+        let state: serialization::SerializableState =
+            serde_json::from_str(&raw)
+                .map_err(|e| format!("Failed to parse JSON: {e}"))?;
+        let state_graph_raw = serialization::serializable_to_graph(
+            &state.dynamical_system,
+        );
+        let observable_graph_raw =
+            serialization::serializable_to_observable_graph(
+                &state.observable,
+                &state_graph_raw,
+            );
+        self.state_graph = setup_graph_display(&state_graph_raw);
+        self.observable_graph =
+            setup_graph_display(&observable_graph_raw);
 
         self.recompute_observed_graph();
-        self.data.state_layout_reset_needed = true;
-        self.data.observable_layout_reset_needed = true;
-        self.data.observed_layout_reset_needed = true;
+        self.mark_all_layouts_dirty();
         Ok(())
     }
 
     pub fn sync_source_nodes(&mut self) {
-        let dyn_nodes: Vec<(NodeIndex, String)> = self
-            .data
-            .state_graph
-            .nodes_iter()
-            .map(|(idx, node)| (idx, node.payload().name.clone()))
-            .collect();
-
-        let source_nodes: Vec<(NodeIndex, String)> = self
-            .data
-            .observable_graph
-            .nodes_iter()
-            .filter(|(_, node)| {
-                node.payload().node_type == ObservableNodeType::Source
-            })
-            .map(|(idx, node)| (idx, node.payload().name.clone()))
-            .collect();
-
-        let source_map: HashMap<String, NodeIndex> = source_nodes
-            .iter()
-            .map(|(idx, name)| (name.clone(), *idx))
-            .collect();
-
-        for (state_idx, dyn_name) in &dyn_nodes {
-            if !source_map.contains_key(dyn_name) {
-                let new_idx = self.data.observable_graph.add_node(
-                    ObservableNode {
-                        name: dyn_name.clone(),
-                        node_type: ObservableNodeType::Source,
-                        state_node_idx: Some(*state_idx),
-                    },
-                );
-                if let Some(node) =
-                    self.data.observable_graph.node_mut(new_idx)
-                {
-                    node.set_label(dyn_name.clone());
-                }
-            }
-        }
-
-        let dyn_names: HashSet<String> =
-            dyn_nodes.iter().map(|(_, name)| name.clone()).collect();
-
-        for (source_idx, source_name) in source_nodes {
-            if !dyn_names.contains(&source_name) {
-                self.data.observable_graph.remove_node(source_idx);
-            }
-        }
-
-        for (_, dyn_name) in &dyn_nodes {
-            if let Some(&source_idx) = source_map.get(dyn_name)
-                && let Some(source_node) =
-                    self.data.observable_graph.node_mut(source_idx)
-                && source_node.payload().name != *dyn_name
-            {
-                source_node.payload_mut().name = dyn_name.clone();
-                source_node.set_label(dyn_name.clone());
-            }
-        }
+        self.observable_graph = sync_source_nodes_display(
+            &self.state_graph,
+            &self.observable_graph,
+        );
+        self.bump_observable_layout_version();
+        self.mark_observed_graph_dirty();
     }
 
     pub fn recompute_observed_graph(&mut self) {
-        let observed_graph_raw =
-            calculate_observed_graph_from_observable_display(
-                &self.data.observable_graph,
-            );
-        self.data.observed_graph =
-            setup_graph_display(&observed_graph_raw);
+        let observed = compute_observed_graph_with_weights(
+            &self.state_graph,
+            &self.observable_graph,
+        );
+        self.observed_graph = observed;
+        self.observed_graph_dirty = false;
+    }
 
-        match compute_observed_weights(
-            &self.data.state_graph,
-            &self.data.observable_graph,
-        ) {
-            Ok(weights) => {
-                let node_updates: Vec<(NodeIndex, NodeIndex, f64)> =
-                    self.data
-                        .observed_graph
-                        .nodes_iter()
-                        .filter_map(|(obs_idx, node)| {
-                            let obs_dest_idx =
-                                node.payload().observable_node_idx;
-                            weights.get(&obs_dest_idx).map(
-                                |&weight| {
-                                    (obs_idx, obs_dest_idx, weight)
-                                },
-                            )
-                        })
-                        .collect();
+    pub(crate) fn state_graph_mut(
+        &mut self,
+    ) -> StateGraphWriteGuard<'_> {
+        StateGraphWriteGuard { store: self }
+    }
 
-                for (obs_idx, _, weight) in node_updates {
-                    if let Some(node_mut) =
-                        self.data.observed_graph.node_mut(obs_idx)
-                    {
-                        node_mut.payload_mut().weight = weight as f32;
-                    }
+    pub(crate) fn observable_graph_mut(
+        &mut self,
+    ) -> ObservableGraphWriteGuard<'_> {
+        ObservableGraphWriteGuard { store: self }
+    }
+
+    pub fn bump_state_layout_version(&mut self) {
+        self.state_layout_reset.bump();
+    }
+
+    pub fn bump_observable_layout_version(&mut self) {
+        self.observable_layout_reset.bump();
+    }
+
+    pub fn bump_observed_layout_version(&mut self) {
+        self.observed_layout_reset.bump();
+    }
+
+    pub fn mark_observed_graph_dirty(&mut self) {
+        self.observed_graph_dirty = true;
+    }
+
+    pub fn ensure_observed_graph_fresh(&mut self) {
+        if self.observed_graph_dirty {
+            self.recompute_observed_graph();
+        }
+    }
+
+    pub fn mark_all_layouts_dirty(&mut self) {
+        self.bump_state_layout_version();
+        self.bump_observable_layout_version();
+        self.bump_observed_layout_version();
+    }
+
+    fn current_serializable_state(
+        &self,
+    ) -> serialization::SerializableState {
+        serializable_state_from_graphs(
+            &self.state_graph,
+            &self.observable_graph,
+        )
+    }
+
+    pub fn state_heatmap(&self) -> HeatmapData {
+        compute_generic_heatmap_data(&self.state_graph)
+    }
+
+    pub fn observable_heatmap(&self) -> HeatmapData {
+        compute_observable_heatmap_data(&self.observable_graph)
+    }
+
+    pub fn observed_heatmap(&self) -> HeatmapData {
+        let observed = compute_observed_graph_with_weights(
+            &self.state_graph,
+            &self.observable_graph,
+        );
+        compute_generic_heatmap_data(&observed)
+    }
+
+    pub fn state_sorted_weights(&self) -> Vec<f32> {
+        collect_sorted_weights_from_display(&self.state_graph)
+    }
+
+    pub fn observable_sorted_weights(&self) -> Vec<f32> {
+        collect_sorted_weights_from_display(&self.observable_graph)
+    }
+
+    pub fn observed_sorted_weights(&self) -> Vec<f32> {
+        let observed = compute_observed_graph_with_weights(
+            &self.state_graph,
+            &self.observable_graph,
+        );
+        collect_sorted_weights_from_display(&observed)
+    }
+
+    pub fn state_selection(&self) -> Vec<usize> {
+        self.state_graph
+            .nodes_iter()
+            .filter_map(|(idx, node)| {
+                if node.selected() {
+                    Some(idx.index())
+                } else {
+                    None
                 }
+            })
+            .collect()
+    }
+
+    pub fn observable_selection(&self) -> Vec<usize> {
+        self.observable_graph
+            .nodes_iter()
+            .filter_map(|(idx, node)| {
+                if node.selected() {
+                    Some(idx.index())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    pub fn state_edge_stats(&self) -> Vec<(String, String, f32)> {
+        collect_edge_stats(&self.state_graph)
+    }
+
+    pub fn observed_edge_stats(&self) -> Vec<(String, String, f32)> {
+        let observed = compute_observed_graph_with_weights(
+            &self.state_graph,
+            &self.observable_graph,
+        );
+        collect_edge_stats(&observed)
+    }
+
+    pub fn state_node_weight_stats(&self) -> Vec<(String, f32)> {
+        collect_state_node_weights(&self.state_graph)
+    }
+
+    pub fn observed_node_weight_stats(&self) -> Vec<(String, f32)> {
+        let observed = compute_observed_graph_with_weights(
+            &self.state_graph,
+            &self.observable_graph,
+        );
+        collect_observed_node_weights(&observed)
+    }
+}
+
+// Helper functions (converted from tracked queries)
+
+fn serializable_state_from_graphs(
+    state_graph: &StateGraphDisplay,
+    observable_graph: &ObservableGraphDisplay,
+) -> serialization::SerializableState {
+    serialization::SerializableState {
+        dynamical_system: serialization::graph_to_serializable(
+            state_graph,
+        ),
+        observable: serialization::observable_graph_to_serializable(
+            observable_graph,
+        ),
+    }
+}
+
+fn sync_source_nodes_display(
+    state_graph: &StateGraphDisplay,
+    observable_graph: &ObservableGraphDisplay,
+) -> ObservableGraphDisplay {
+    let mut synced = observable_graph.clone();
+
+    let dyn_nodes: Vec<(NodeIndex, String)> = state_graph
+        .nodes_iter()
+        .map(|(idx, node)| (idx, node.payload().name.clone()))
+        .collect();
+
+    let source_nodes: Vec<(NodeIndex, String)> = synced
+        .nodes_iter()
+        .filter(|(_, node)| {
+            node.payload().node_type == ObservableNodeType::Source
+        })
+        .map(|(idx, node)| (idx, node.payload().name.clone()))
+        .collect();
+
+    let source_map: HashMap<String, NodeIndex> = source_nodes
+        .iter()
+        .map(|(idx, name)| (name.clone(), *idx))
+        .collect();
+
+    for (state_idx, dyn_name) in &dyn_nodes {
+        if !source_map.contains_key(dyn_name) {
+            let new_idx = synced.add_node(ObservableNode {
+                name: dyn_name.clone(),
+                node_type: ObservableNodeType::Source,
+                state_node_idx: Some(*state_idx),
+            });
+            if let Some(node) = synced.node_mut(new_idx) {
+                node.set_label(dyn_name.clone());
             }
-            Err(e) => {
-                eprintln!("Weight computation error: {}", e);
-                let node_indices: Vec<NodeIndex> = self
-                    .data
-                    .observed_graph
+        }
+    }
+
+    let dyn_names: HashSet<String> =
+        dyn_nodes.iter().map(|(_, name)| name.clone()).collect();
+
+    for (source_idx, source_name) in source_nodes {
+        if !dyn_names.contains(&source_name) {
+            synced.remove_node(source_idx);
+        }
+    }
+
+    for (_, dyn_name) in &dyn_nodes {
+        if let Some(&source_idx) = source_map.get(dyn_name)
+            && let Some(source_node) = synced.node_mut(source_idx)
+            && source_node.payload().name != *dyn_name
+        {
+            source_node.payload_mut().name = dyn_name.clone();
+            source_node.set_label(dyn_name.clone());
+        }
+    }
+
+    synced
+}
+
+fn compute_observed_graph_with_weights(
+    state_graph: &StateGraphDisplay,
+    observable_graph: &ObservableGraphDisplay,
+) -> ObservedGraphDisplay {
+    let observed_raw =
+        calculate_observed_graph_from_observable_display(
+            observable_graph,
+        );
+    let mut observed_display = setup_graph_display(&observed_raw);
+
+    match compute_observed_weights(state_graph, observable_graph) {
+        Ok(weights) => {
+            let node_updates: Vec<(NodeIndex, NodeIndex, f64)> =
+                observed_display
                     .nodes_iter()
-                    .map(|(obs_idx, _)| obs_idx)
+                    .filter_map(|(obs_idx, node)| {
+                        let obs_dest_idx =
+                            node.payload().observable_node_idx;
+                        weights.get(&obs_dest_idx).map(|&weight| {
+                            (obs_idx, obs_dest_idx, weight)
+                        })
+                    })
                     .collect();
 
-                for obs_idx in node_indices {
-                    if let Some(node_mut) =
-                        self.data.observed_graph.node_mut(obs_idx)
-                    {
-                        node_mut.payload_mut().weight = 0.0;
-                    }
+            for (obs_idx, _, weight) in node_updates {
+                if let Some(node_mut) =
+                    observed_display.node_mut(obs_idx)
+                {
+                    node_mut.payload_mut().weight = weight as f32;
                 }
             }
         }
-
-        self.data.observed_layout_reset_needed = true;
+        Err(e) => {
+            eprintln!("Weight computation error: {}", e);
+        }
     }
+
+    observed_display
 }
 
-impl Deref for Store {
-    type Target = StoreData;
-
-    fn deref(&self) -> &Self::Target {
-        &self.data
+fn compute_generic_heatmap_data<N>(
+    graph: &graph_view::GraphDisplay<N>,
+) -> HeatmapData
+where
+    N: Clone + HasName,
+{
+    let mut nodes: Vec<_> = graph
+        .nodes_iter()
+        .map(|(idx, node)| (idx, node.payload().name()))
+        .collect();
+    nodes.sort_by(|a, b| a.1.cmp(&b.1));
+    if nodes.is_empty() {
+        return (vec![], vec![], vec![], vec![], vec![]);
     }
+
+    let labels: Vec<String> =
+        nodes.iter().map(|(_, name)| name.clone()).collect();
+    let node_count = labels.len();
+
+    let mut index_map = HashMap::new();
+    for (pos, (idx, _)) in nodes.iter().enumerate() {
+        index_map.insert(*idx, pos);
+    }
+
+    let node_indices: Vec<NodeIndex> =
+        nodes.iter().map(|(idx, _)| *idx).collect();
+
+    let mut matrix = vec![vec![None; node_count]; node_count];
+    let stable_g = graph.g();
+    for edge_ref in stable_g.edge_references() {
+        let source_idx = edge_ref.source();
+        let target_idx = edge_ref.target();
+        let weight = *edge_ref.weight().payload();
+        if let (Some(&source_pos), Some(&target_pos)) =
+            (index_map.get(&source_idx), index_map.get(&target_idx))
+        {
+            matrix[source_pos][target_pos] = Some(weight);
+        }
+    }
+
+    (
+        labels.clone(),
+        labels,
+        matrix,
+        node_indices.clone(),
+        node_indices,
+    )
 }
 
-impl DerefMut for Store {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.data
+fn compute_observable_heatmap_data(
+    graph: &ObservableGraphDisplay,
+) -> HeatmapData {
+    let mut source_nodes: Vec<_> = graph
+        .nodes_iter()
+        .filter(|(_, node)| {
+            node.payload().node_type == ObservableNodeType::Source
+        })
+        .map(|(idx, node)| (idx, node.payload().name.clone()))
+        .collect();
+    let mut dest_nodes: Vec<_> = graph
+        .nodes_iter()
+        .filter(|(_, node)| {
+            node.payload().node_type
+                == ObservableNodeType::Destination
+        })
+        .map(|(idx, node)| (idx, node.payload().name.clone()))
+        .collect();
+    source_nodes.sort_by(|a, b| a.1.cmp(&b.1));
+    dest_nodes.sort_by(|a, b| a.1.cmp(&b.1));
+
+    if source_nodes.is_empty() || dest_nodes.is_empty() {
+        return (vec![], vec![], vec![], vec![], vec![]);
     }
+
+    let x_labels: Vec<String> =
+        dest_nodes.iter().map(|(_, name)| name.clone()).collect();
+    let y_labels: Vec<String> =
+        source_nodes.iter().map(|(_, name)| name.clone()).collect();
+
+    let mut source_index_map = HashMap::new();
+    for (y_pos, (idx, _)) in source_nodes.iter().enumerate() {
+        source_index_map.insert(*idx, y_pos);
+    }
+
+    let mut dest_index_map = HashMap::new();
+    for (x_pos, (idx, _)) in dest_nodes.iter().enumerate() {
+        dest_index_map.insert(*idx, x_pos);
+    }
+
+    let x_node_indices: Vec<NodeIndex> =
+        dest_nodes.iter().map(|(idx, _)| *idx).collect();
+    let y_node_indices: Vec<NodeIndex> =
+        source_nodes.iter().map(|(idx, _)| *idx).collect();
+
+    let mut matrix = vec![vec![None; x_labels.len()]; y_labels.len()];
+    let stable_g = graph.g();
+    for edge_ref in stable_g.edge_references() {
+        let source_idx = edge_ref.source();
+        let target_idx = edge_ref.target();
+        let weight = *edge_ref.weight().payload();
+        if let (Some(&source_row), Some(&dest_col)) = (
+            source_index_map.get(&source_idx),
+            dest_index_map.get(&target_idx),
+        ) {
+            matrix[source_row][dest_col] = Some(weight);
+        }
+    }
+
+    (x_labels, y_labels, matrix, x_node_indices, y_node_indices)
 }
 
-impl salsa::Database for Store {}
+fn collect_sorted_weights_from_display<N>(
+    graph: &graph_view::GraphDisplay<N>,
+) -> Vec<f32>
+where
+    N: Clone,
+{
+    let mut weights: Vec<f32> = graph
+        .edges_iter()
+        .map(|(_, edge)| *edge.payload())
+        .collect();
+    weights.sort_by(|a, b| {
+        a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    weights.insert(0, 0.0);
+    weights
+}
+
+fn collect_state_node_weights(
+    graph: &StateGraphDisplay,
+) -> Vec<(String, f32)> {
+    let mut pairs: Vec<(String, f32)> = graph
+        .nodes_iter()
+        .map(|(_, node)| {
+            let payload = node.payload();
+            (payload.name.clone(), payload.weight)
+        })
+        .collect();
+    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+    pairs
+}
+
+fn collect_edge_stats<N>(
+    graph: &graph_view::GraphDisplay<N>,
+) -> Vec<(String, String, f32)>
+where
+    N: Clone + HasName,
+{
+    let mut edges = Vec::new();
+    let stable_g = graph.g();
+    for edge_ref in stable_g.edge_references() {
+        let source_idx = edge_ref.source();
+        let target_idx = edge_ref.target();
+        let weight = *edge_ref.weight().payload();
+
+        let source = graph
+            .node(source_idx)
+            .map(|n| n.payload().name())
+            .unwrap_or_default();
+        let target = graph
+            .node(target_idx)
+            .map(|n| n.payload().name())
+            .unwrap_or_default();
+
+        edges.push((source, target, weight));
+    }
+    edges.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    edges
+}
+
+fn collect_observed_node_weights(
+    graph: &ObservedGraphDisplay,
+) -> Vec<(String, f32)> {
+    let mut pairs: Vec<(String, f32)> = graph
+        .nodes_iter()
+        .map(|(_, node)| {
+            let payload = node.payload();
+            (payload.name.clone(), payload.weight)
+        })
+        .collect();
+    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+    pairs
+}
 
 pub fn load_graphs_from_path(
     path: &Path,

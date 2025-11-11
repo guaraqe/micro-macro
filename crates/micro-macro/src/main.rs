@@ -10,24 +10,21 @@ mod state;
 mod store;
 
 use eframe::egui;
-use egui_graphs::{
-    DisplayEdge, DisplayNode, Graph, SettingsInteraction,
-    SettingsStyle, reset_layout,
-};
+use egui_graphs::{SettingsInteraction, SettingsStyle, reset_layout};
 use graph_state::{
-    ObservableNodeType, StateNode,
+    ObservableNodeType,
     calculate_observed_graph_from_observable_display,
 };
 use graph_view::{
-    ObservableGraphDisplay, ObservableGraphView, ObservedGraphView,
-    StateGraphView, setup_graph_display,
+    ObservableGraphView, ObservedGraphView, StateGraphView,
+    setup_graph_display,
 };
 use layout_bipartite::LayoutStateBipartite;
 use layout_circular::{
     LayoutCircular, LayoutStateCircular, SortOrder, SpacingConfig,
 };
 use petgraph::stable_graph::NodeIndex;
-use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+use petgraph::visit::EdgeRef;
 use state::State;
 use store::{ActiveTab, EditMode};
 
@@ -123,205 +120,22 @@ fn main() -> eframe::Result<()> {
 
 // ------------------------------------------------------------------
 
-type HeatmapData = (
-    Vec<String>,                            // x_labels
-    Vec<String>,                            // y_labels
-    Vec<Vec<Option<f32>>>,                  // matrix
-    Vec<petgraph::stable_graph::NodeIndex>, // x_node_indices
-    Vec<petgraph::stable_graph::NodeIndex>, // y_node_indices
-);
-
 /// Collect all edge weights from a graph and return them sorted (including duplicates)
 /// Always prepends 0.0 to ensure the smallest actual weight doesn't map to minimum thickness
-fn collect_sorted_weights<N>(
-    graph: &graph_view::GraphDisplay<N>,
-) -> Vec<f32>
-where
-    N: Clone,
-{
-    let mut weights: Vec<f32> = graph
-        .edges_iter()
-        .map(|(_, edge)| *edge.payload())
-        .collect();
-
-    weights.sort_by(|a, b| {
-        a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    // Prepend 0.0 to the list so smallest actual weight doesn't get thinnest edge
-    weights.insert(0, 0.0);
-
-    weights
-}
-
-fn build_heatmap_data<N>(
-    graph: &graph_view::GraphDisplay<N>,
-) -> HeatmapData
-where
-    N: Clone,
-    N: graph_state::HasName,
-{
-    // Get all nodes with their labels
-    let mut nodes: Vec<_> = graph
-        .nodes_iter()
-        .map(|(idx, node)| (idx, node.payload().name()))
-        .collect();
-
-    // Sort alphabetically by label
-    nodes.sort_by(|a, b| a.1.cmp(&b.1));
-
-    if nodes.is_empty() {
-        return (vec![], vec![], vec![], vec![], vec![]);
-    }
-
-    let labels: Vec<String> =
-        nodes.iter().map(|(_, name)| name.clone()).collect();
-    let node_count = labels.len();
-
-    // Build index map: NodeIndex -> position in sorted list
-    let mut index_map = std::collections::HashMap::new();
-    for (pos, (idx, _)) in nodes.iter().enumerate() {
-        index_map.insert(*idx, pos);
-    }
-
-    // Build node_indices array: position -> NodeIndex
-    let node_indices: Vec<petgraph::stable_graph::NodeIndex> =
-        nodes.iter().map(|(idx, _)| *idx).collect();
-
-    // Build adjacency matrix: matrix[y][x] = Some(weight) if edge from y to x
-    // Sources (y-axis/rows), Targets (x-axis/columns)
-    let mut matrix = vec![vec![None; node_count]; node_count];
-
-    // Iterate over all edges in the graph
-    let stable_g = graph.g();
-    for edge_ref in stable_g.edge_references() {
-        let source_idx = edge_ref.source();
-        let target_idx = edge_ref.target();
-        let weight = *edge_ref.weight().payload();
-
-        if let (Some(&source_pos), Some(&target_pos)) =
-            (index_map.get(&source_idx), index_map.get(&target_idx))
-        {
-            // matrix[source_row][target_col] = weight
-            matrix[source_pos][target_pos] = Some(weight);
-        }
-    }
-
-    // x_labels = targets (columns), y_labels = sources (rows)
-    // x_node_indices = targets, y_node_indices = sources
-    (
-        labels.clone(),
-        labels,
-        matrix,
-        node_indices.clone(),
-        node_indices,
-    )
-}
-
-fn build_observable_heatmap_data(
-    graph: &ObservableGraphDisplay,
-) -> HeatmapData {
-    // Get source nodes (y-axis/rows) and destination nodes (x-axis/columns)
-    let mut source_nodes: Vec<_> = graph
-        .nodes_iter()
-        .filter(|(_, node)| {
-            node.payload().node_type == ObservableNodeType::Source
-        })
-        .map(|(idx, node)| (idx, node.payload().name.clone()))
-        .collect();
-
-    let mut dest_nodes: Vec<_> = graph
-        .nodes_iter()
-        .filter(|(_, node)| {
-            node.payload().node_type
-                == ObservableNodeType::Destination
-        })
-        .map(|(idx, node)| (idx, node.payload().name.clone()))
-        .collect();
-
-    // Sort alphabetically
-    source_nodes.sort_by(|a, b| a.1.cmp(&b.1));
-    dest_nodes.sort_by(|a, b| a.1.cmp(&b.1));
-
-    if source_nodes.is_empty() || dest_nodes.is_empty() {
-        return (vec![], vec![], vec![], vec![], vec![]);
-    }
-
-    // SWAPPED: x_labels = destinations (columns), y_labels = sources (rows)
-    let x_labels: Vec<String> =
-        dest_nodes.iter().map(|(_, name)| name.clone()).collect();
-    let y_labels: Vec<String> =
-        source_nodes.iter().map(|(_, name)| name.clone()).collect();
-
-    // Build index maps
-    let mut source_index_map = std::collections::HashMap::new();
-    for (y_pos, (idx, _)) in source_nodes.iter().enumerate() {
-        source_index_map.insert(*idx, y_pos);
-    }
-
-    let mut dest_index_map = std::collections::HashMap::new();
-    for (x_pos, (idx, _)) in dest_nodes.iter().enumerate() {
-        dest_index_map.insert(*idx, x_pos);
-    }
-
-    // SWAPPED: x_node_indices = destinations, y_node_indices = sources
-    let x_node_indices: Vec<petgraph::stable_graph::NodeIndex> =
-        dest_nodes.iter().map(|(idx, _)| *idx).collect();
-    let y_node_indices: Vec<petgraph::stable_graph::NodeIndex> =
-        source_nodes.iter().map(|(idx, _)| *idx).collect();
-
-    // Build adjacency matrix: matrix[source_row][dest_col] = Some(weight)
-    let mut matrix = vec![vec![None; x_labels.len()]; y_labels.len()];
-
-    // Iterate over all edges in the graph
-    let stable_g = graph.g();
-    for edge_ref in stable_g.edge_references() {
-        let source_idx = edge_ref.source();
-        let target_idx = edge_ref.target();
-        let weight = *edge_ref.weight().payload();
-
-        if let (Some(&source_row), Some(&dest_col)) = (
-            source_index_map.get(&source_idx),
-            dest_index_map.get(&target_idx),
-        ) {
-            matrix[source_row][dest_col] = Some(weight);
-        }
-    }
-
-    (x_labels, y_labels, matrix, x_node_indices, y_node_indices)
-}
-
 // Helper function to create histogram data from node weights
-fn create_weight_histogram<N, E, Ty, Ix, Dn, De>(
-    graph: &Graph<N, E, Ty, Ix, Dn, De>,
-    get_weight: impl Fn(&N) -> f32,
-    get_name: impl Fn(&N) -> String,
-) -> (Vec<egui_plot::Bar>, Vec<String>)
-where
-    N: Clone,
-    E: Clone,
-    Ty: petgraph::EdgeType,
-    Ix: petgraph::graph::IndexType,
-    Dn: DisplayNode<N, E, Ty, Ix>,
-    De: DisplayEdge<N, E, Ty, Ix, Dn>,
-{
-    // Collect nodes with their names and weights
-    let mut nodes: Vec<(String, f32)> = graph
-        .nodes_iter()
-        .map(|(_, node)| {
-            let payload = node.payload();
-            (get_name(payload), get_weight(payload))
-        })
-        .collect();
+fn create_weight_histogram(
+    data: &[(String, f32)],
+) -> (Vec<egui_plot::Bar>, Vec<String>) {
+    if data.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
 
-    // Sort by name
+    let mut nodes: Vec<(String, f32)> = data.to_vec();
     nodes.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // Separate names for labels
     let names: Vec<String> =
         nodes.iter().map(|(name, _)| name.clone()).collect();
 
-    // Create bars
     let bars = nodes
         .into_iter()
         .enumerate()
@@ -342,11 +156,13 @@ impl State {
         node_idx: NodeIndex,
     ) -> (Vec<String>, Vec<String>) {
         let incoming: Vec<String> = self
+            .store
             .state_graph
             .edges_directed(node_idx, petgraph::Direction::Incoming)
             .map(|edge_ref| {
                 let other_idx = edge_ref.source();
-                self.state_graph
+                self.store
+                    .state_graph
                     .node(other_idx)
                     .map(|n| n.payload().name.clone())
                     .unwrap_or_else(|| String::from("???"))
@@ -354,11 +170,13 @@ impl State {
             .collect();
 
         let outgoing: Vec<String> = self
+            .store
             .state_graph
             .edges_directed(node_idx, petgraph::Direction::Outgoing)
             .map(|edge_ref| {
                 let other_idx = edge_ref.target();
-                self.state_graph
+                self.store
+                    .state_graph
                     .node(other_idx)
                     .map(|n| n.payload().name.clone())
                     .unwrap_or_else(|| String::from("???"))
@@ -391,7 +209,7 @@ impl State {
     // always visible
     fn get_settings_style(&self) -> SettingsStyle {
         SettingsStyle::new()
-            .with_labels_always(self.show_labels)
+            .with_labels_always(self.store.show_labels)
             .with_node_stroke_hook(
                 |selected,
                  _dragged,
@@ -440,24 +258,24 @@ impl State {
     ) -> Option<(egui::Pos2, egui::Pos2)> {
         // Start potential drag from a node
         if pointer.primary_pressed()
-            && let Some(hovered) = self.state_graph.hovered_node()
+            && let Some(hovered) = self.store.state_graph.hovered_node()
             && let Some(press_pos) = pointer.interact_pos()
         {
-            self.dragging_from = Some((hovered, press_pos));
-            self.drag_started = false;
+            self.store.dragging_from = Some((hovered, press_pos));
+            self.store.drag_started = false;
         }
 
         // Detect if mouse has moved (drag started)
         if pointer.primary_down()
-            && self.dragging_from.is_some()
+            && self.store.dragging_from.is_some()
             && pointer.delta().length() > DRAG_THRESHOLD
         {
-            self.drag_started = true;
+            self.store.drag_started = true;
         }
 
         // Determine if preview arrow should be drawn
-        let arrow_coords = if self.drag_started {
-            if let Some((_src_idx, from_pos)) = self.dragging_from {
+        let arrow_coords = if self.store.drag_started {
+            if let Some((_src_idx, from_pos)) = self.store.dragging_from {
                 pointer.hover_pos().map(|to_pos| (from_pos, to_pos))
             } else {
                 None
@@ -468,12 +286,12 @@ impl State {
 
         // Handle mouse release - create edge if dragged
         if pointer.primary_released() {
-            if let Some((source_node, _pos)) = self.dragging_from
-                && self.drag_started
+            if let Some((source_node, _pos)) = self.store.dragging_from
+                && self.store.drag_started
             {
                 // Drag completed - create edge if hovering different node
                 if let Some(target_node) =
-                    self.state_graph.hovered_node()
+                    self.store.state_graph.hovered_node()
                     && source_node != target_node
                 {
                     self.dispatch(actions::Action::AddStateEdge {
@@ -498,9 +316,11 @@ impl State {
     // Two-click edge deletion: first click selects, second click
     // deletes. Uses graph library's selection state.
     fn handle_edge_deletion(&mut self, pointer: &egui::PointerState) {
-        if pointer.primary_clicked() && self.dragging_from.is_none() {
+        if pointer.primary_clicked()
+            && self.store.dragging_from.is_none()
+        {
             let selected_edges: Vec<_> =
-                self.state_graph.selected_edges().to_vec();
+                self.store.state_graph.selected_edges().to_vec();
 
             // If exactly one edge is selected and clicked again, delete
             // it
@@ -525,24 +345,24 @@ impl State {
         // Start potential drag from a node
         if pointer.primary_pressed()
             && let Some(hovered) =
-                self.observable_graph.hovered_node()
+                self.store.observable_graph.hovered_node()
             && let Some(press_pos) = pointer.interact_pos()
         {
-            self.dragging_from = Some((hovered, press_pos));
-            self.drag_started = false;
+            self.store.dragging_from = Some((hovered, press_pos));
+            self.store.drag_started = false;
         }
 
         // Detect if mouse has moved (drag started)
         if pointer.primary_down()
-            && self.dragging_from.is_some()
+            && self.store.dragging_from.is_some()
             && pointer.delta().length() > DRAG_THRESHOLD
         {
-            self.drag_started = true;
+            self.store.drag_started = true;
         }
 
         // Determine if preview arrow should be drawn
-        let arrow_coords = if self.drag_started {
-            if let Some((_src_idx, from_pos)) = self.dragging_from {
+        let arrow_coords = if self.store.drag_started {
+            if let Some((_src_idx, from_pos)) = self.store.dragging_from {
                 pointer.hover_pos().map(|to_pos| (from_pos, to_pos))
             } else {
                 None
@@ -553,20 +373,22 @@ impl State {
 
         // Handle mouse release - create edge if dragged
         if pointer.primary_released() {
-            if let Some((source_node, _pos)) = self.dragging_from
-                && self.drag_started
+            if let Some((source_node, _pos)) = self.store.dragging_from
+                && self.store.drag_started
             {
                 // Drag completed - create edge if hovering different node
                 if let Some(target_node) =
-                    self.observable_graph.hovered_node()
+                    self.store.observable_graph.hovered_node()
                     && source_node != target_node
                 {
                     // Check node types: only allow Source -> Destination
                     let source_type = self
+                        .store
                         .observable_graph
                         .node(source_node)
                         .map(|n| n.payload().node_type);
                     let target_type = self
+                        .store
                         .observable_graph
                         .node(target_node)
                         .map(|n| n.payload().node_type);
@@ -604,9 +426,14 @@ impl State {
         &mut self,
         pointer: &egui::PointerState,
     ) {
-        if pointer.primary_clicked() && self.dragging_from.is_none() {
-            let selected_edges: Vec<_> =
-                self.observable_graph.selected_edges().to_vec();
+        if pointer.primary_clicked()
+            && self.store.dragging_from.is_none()
+        {
+            let selected_edges: Vec<_> = self
+                .store
+                .observable_graph
+                .selected_edges()
+                .to_vec();
 
             if selected_edges.len() == 1 {
                 let clicked_edge = selected_edges[0];
@@ -629,7 +456,7 @@ impl eframe::App for State {
         // Flush action queue at the beginning of update
         self.flush_actions();
 
-        let mut active_tab = self.active_tab;
+        let mut active_tab = self.store.active_tab;
 
         // Menu bar at the very top
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
@@ -685,7 +512,7 @@ impl eframe::App for State {
             });
         });
 
-        if active_tab != self.active_tab {
+        if active_tab != self.store.active_tab {
             self.dispatch(actions::Action::SetActiveTab {
                 tab: active_tab,
             });
@@ -699,8 +526,8 @@ impl eframe::App for State {
             EditMode::NodeEditor
         };
 
-        let mut frame_mode = self.mode;
-        if desired_mode != self.mode {
+        let mut frame_mode = self.store.mode;
+        if desired_mode != self.store.mode {
             self.dispatch(actions::Action::SetEditMode {
                 mode: desired_mode,
             });
@@ -721,7 +548,7 @@ impl eframe::App for State {
         }
 
         // Display error dialog if there's an error message
-        if let Some(error) = self.error_message.clone() {
+        if let Some(error) = self.store.error_message.clone() {
             egui::Window::new("Error")
                 .collapsible(false)
                 .resizable(false)
@@ -762,7 +589,7 @@ impl State {
                 // Controls
                 if ui.button("Add Node").clicked() {
                     // Dispatch action instead of directly modifying state
-                    let node_count = self.state_graph.node_count();
+                    let node_count = self.store.state_graph.node_count();
                     let default_name = format!("Node {}", node_count);
                     self.dispatch(actions::Action::AddStateNode {
                         name: default_name,
@@ -777,6 +604,7 @@ impl State {
                     .max_height(available_height)
                     .show(ui, |ui| {
                     let nodes: Vec<_> = self
+                        .store
                         .state_graph
                         .nodes_iter()
                         .map(|(idx, node)| {
@@ -786,6 +614,7 @@ impl State {
 
                     for (node_idx, mut node_name) in nodes {
                         let is_selected = self
+                            .store
                             .state_graph
                             .node(node_idx)
                             .map(|n| n.selected())
@@ -800,7 +629,7 @@ impl State {
                                     self.dispatch(actions::Action::SelectStateNode { node_idx, selected: false });
                                 } else {
                                     // Deselect all other nodes first
-                                    let all_nodes: Vec<_> = self.state_graph.nodes_iter().map(|(idx, _)| idx).collect();
+                                    let all_nodes: Vec<_> = self.store.state_graph.nodes_iter().map(|(idx, _)| idx).collect();
                                     for idx in all_nodes {
                                         if idx != node_idx {
                                             self.dispatch(actions::Action::SelectStateNode { node_idx: idx, selected: false });
@@ -827,7 +656,7 @@ impl State {
                         // Weight editor
                         ui.horizontal(|ui| {
                             ui.label("Weight:");
-                            let current_weight = self.state_graph.node(node_idx)
+                            let current_weight = self.store.state_graph.node(node_idx)
                                 .map(|n| n.payload().weight)
                                 .unwrap_or(1.0);
                             let mut weight_str = format!("{:.2}", current_weight);
@@ -883,11 +712,9 @@ impl State {
                 // Weight histogram at bottom
                 ui.separator();
                 ui.label("Weight Distribution");
-                let (bars, names) = create_weight_histogram(
-                    &self.state_graph,
-                    |node: &StateNode| node.weight,
-                    |node: &StateNode| node.name.clone(),
-                );
+                let node_stats = self.store.state_node_weight_stats();
+                let (bars, names) =
+                    create_weight_histogram(node_stats.as_ref());
 
                 // Calculate max weight for proper y-axis range with padding
                 let max_weight = bars.iter()
@@ -925,7 +752,7 @@ impl State {
                 ui.with_layout(
                     egui::Layout::bottom_up(egui::Align::LEFT),
                     |ui| {
-                        ui.label(format!("Nodes: {}", self.state_graph.node_count()));
+                        ui.label(format!("Nodes: {}", self.store.state_graph.node_count()));
                         ui.separator();
                     },
                 );
@@ -962,15 +789,15 @@ impl State {
                                 matrix,
                                 x_node_indices,
                                 y_node_indices,
-                            ) = build_heatmap_data(&self.state_graph);
+                            ) = self.store.state_heatmap();
 
                             // Display heatmap with editing support
                             let editing_state =
                                 heatmap::EditingState {
                                     editing_cell: self
-                                        .heatmap_editing_cell,
+                                        .store.heatmap_editing_cell,
                                     edit_buffer: self
-                                        .heatmap_edit_buffer
+                                        .store.heatmap_edit_buffer
                                         .clone(),
                                 };
 
@@ -985,11 +812,11 @@ impl State {
                                 &matrix,
                                 &x_node_indices,
                                 &y_node_indices,
-                                self.heatmap_hovered_cell,
+                                self.store.heatmap_hovered_cell,
                                 editing_state,
                             );
 
-                            if new_hover != self.heatmap_hovered_cell {
+                            if new_hover != self.store.heatmap_hovered_cell {
                                 self.dispatch(
                                     actions::Action::SetHeatmapHoveredCell {
                                         cell: new_hover,
@@ -998,7 +825,7 @@ impl State {
                             }
 
                             let editing_cell = new_editing.editing_cell;
-                            if editing_cell != self.heatmap_editing_cell {
+                            if editing_cell != self.store.heatmap_editing_cell {
                                 self.dispatch(
                                     actions::Action::SetHeatmapEditingCell {
                                         cell: editing_cell,
@@ -1007,7 +834,7 @@ impl State {
                             }
 
                             let edit_buffer = new_editing.edit_buffer;
-                            if edit_buffer != self.heatmap_edit_buffer {
+                            if edit_buffer != self.store.heatmap_edit_buffer {
                                 self.dispatch(
                                     actions::Action::SetHeatmapEditBuffer {
                                         buffer: edit_buffer,
@@ -1032,9 +859,14 @@ impl State {
                     ui.with_layout(
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
+                            let selected = self.store.state_selection();
+                            ui.label(format!(
+                                "Selected: {}",
+                                selected.len()
+                            ));
                             ui.label(format!(
                                 "Edges: {}",
-                                self.state_graph.edge_count()
+                                self.store.state_graph.edge_count()
                             ));
                             ui.separator();
                         },
@@ -1054,12 +886,9 @@ impl State {
                     ui.separator();
 
                     // Reset layout if needed
-                    if self.state_layout_reset_needed {
+                    self.store.state_layout_reset.run_if_needed(|| {
                         reset_layout::<LayoutStateCircular>(ui, None);
-                        self.dispatch(
-                            actions::Action::ClearStateLayoutResetFlag,
-                        );
-                    }
+                    });
 
                     // Clear edge selections when not in EdgeEditor mode,
                     // before creating GraphView
@@ -1070,10 +899,9 @@ impl State {
                     }
 
                     // Update edge thicknesses based on global weight distribution
-                    let sorted_weights =
-                        collect_sorted_weights(&self.state_graph);
+                    let sorted_weights = self.store.state_sorted_weights();
                     graph_view::update_edge_thicknesses(
-                        &mut self.state_graph,
+                        &mut self.store.state_graph,
                         sorted_weights,
                     );
 
@@ -1094,7 +922,7 @@ impl State {
                         |ui| {
                             ui.add(
                                 &mut StateGraphView::new(
-                                    &mut self.state_graph,
+                                    &mut self.store.state_graph,
                                 )
                                 .with_interactions(
                                     &settings_interaction,
@@ -1160,12 +988,12 @@ impl State {
                             };
                             ui.label(hint_text);
                             ui.label(mode_text);
-                            let mut show_labels = self.show_labels;
+                            let mut show_labels = self.store.show_labels;
                             ui.checkbox(
                                 &mut show_labels,
                                 "Show Labels",
                             );
-                            if show_labels != self.show_labels {
+                            if show_labels != self.store.show_labels {
                                 self.dispatch(
                                     actions::Action::SetShowLabels {
                                         show: show_labels,
@@ -1173,12 +1001,12 @@ impl State {
                                 );
                             }
 
-                            let mut show_weights = self.show_weights;
+                            let mut show_weights = self.store.show_weights;
                             ui.checkbox(
                                 &mut show_weights,
                                 "Show Weights",
                             );
-                            if show_weights != self.show_weights {
+                            if show_weights != self.store.show_weights {
                                 self.dispatch(
                                     actions::Action::SetShowWeights {
                                         show: show_weights,
@@ -1212,7 +1040,7 @@ impl State {
 
                     // Add Destination button
                     if ui.button("Add Value").clicked() {
-                        let node_count = self.observable_graph
+                        let node_count = self.store.observable_graph
                             .nodes_iter()
                             .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Destination)
                             .count();
@@ -1227,7 +1055,7 @@ impl State {
                         .show(ui, |ui| {
                             // Collect Destination nodes
                             let dest_nodes: Vec<_> = self
-                                .observable_graph
+                                .store.observable_graph
                                 .nodes_iter()
                                 .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Destination)
                                 .map(|(idx, node)| (idx, node.payload().name.clone()))
@@ -1235,7 +1063,7 @@ impl State {
 
                             for (node_idx, mut node_name) in dest_nodes {
                                 let is_selected = self
-                                    .observable_graph
+                                    .store.observable_graph
                                     .node(node_idx)
                                     .map(|n| n.selected())
                                     .unwrap_or(false);
@@ -1246,19 +1074,19 @@ impl State {
                                     if ui.small_button(arrow).clicked() {
                                         // Toggle selection
                                         if is_selected {
-                                            if let Some(node) = self.observable_graph.node_mut(node_idx) {
+                                            if let Some(node) = self.store.observable_graph.node_mut(node_idx) {
                                                 node.set_selected(false);
                                             }
                                         } else {
                                             // Deselect all other nodes first
-                                            let all_nodes: Vec<_> = self.observable_graph.nodes_iter().map(|(idx, _)| idx).collect();
+                                            let all_nodes: Vec<_> = self.store.observable_graph.nodes_iter().map(|(idx, _)| idx).collect();
                                             for idx in all_nodes {
-                                                if let Some(node) = self.observable_graph.node_mut(idx) {
+                                                if let Some(node) = self.store.observable_graph.node_mut(idx) {
                                                     node.set_selected(false);
                                                 }
                                             }
                                             // Select this node
-                                            if let Some(node) = self.observable_graph.node_mut(node_idx) {
+                                            if let Some(node) = self.store.observable_graph.node_mut(node_idx) {
                                                 node.set_selected(true);
                                             }
                                         }
@@ -1286,11 +1114,11 @@ impl State {
                                 // Show incoming Source nodes when selected
                                 if is_selected {
                                     let incoming_sources: Vec<String> = self
-                                        .observable_graph
+                                        .store.observable_graph
                                         .edges_directed(node_idx, petgraph::Direction::Incoming)
                                         .map(|edge_ref| {
                                             let source_idx = edge_ref.source();
-                                            self.observable_graph
+                                            self.store.observable_graph
                                                 .node(source_idx)
                                                 .map(|n| n.payload().name.clone())
                                                 .unwrap_or_else(|| String::from("???"))
@@ -1314,6 +1142,7 @@ impl State {
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
                             let dest_count = self
+                                .store
                                 .observable_graph
                                 .nodes_iter()
                                 .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Destination)
@@ -1354,17 +1183,15 @@ impl State {
                                 matrix,
                                 x_node_indices,
                                 y_node_indices,
-                            ) = build_observable_heatmap_data(
-                                &self.observable_graph,
-                            );
+                            ) = self.store.observable_heatmap();
 
                             // Display heatmap with editing support
                             let editing_state =
                                 heatmap::EditingState {
                                     editing_cell: self
-                                        .heatmap_editing_cell,
+                                        .store.heatmap_editing_cell,
                                     edit_buffer: self
-                                        .heatmap_edit_buffer
+                                        .store.heatmap_edit_buffer
                                         .clone(),
                                 };
 
@@ -1379,11 +1206,11 @@ impl State {
                                 &matrix,
                                 &x_node_indices,
                                 &y_node_indices,
-                                self.heatmap_hovered_cell,
+                                self.store.heatmap_hovered_cell,
                                 editing_state,
                             );
 
-                            if new_hover != self.heatmap_hovered_cell {
+                            if new_hover != self.store.heatmap_hovered_cell {
                                 self.dispatch(
                                     actions::Action::SetHeatmapHoveredCell {
                                         cell: new_hover,
@@ -1392,7 +1219,7 @@ impl State {
                             }
 
                             let editing_cell = new_editing.editing_cell;
-                            if editing_cell != self.heatmap_editing_cell {
+                            if editing_cell != self.store.heatmap_editing_cell {
                                 self.dispatch(
                                     actions::Action::SetHeatmapEditingCell {
                                         cell: editing_cell,
@@ -1401,7 +1228,7 @@ impl State {
                             }
 
                             let edit_buffer = new_editing.edit_buffer;
-                            if edit_buffer != self.heatmap_edit_buffer {
+                            if edit_buffer != self.store.heatmap_edit_buffer {
                                 self.dispatch(
                                     actions::Action::SetHeatmapEditBuffer {
                                         buffer: edit_buffer,
@@ -1426,9 +1253,14 @@ impl State {
                     ui.with_layout(
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
+                            let selected = self.store.observable_selection();
+                            ui.label(format!(
+                                "Selected: {}",
+                                selected.len()
+                            ));
                             ui.label(format!(
                                 "Observables: {}",
-                                self.observable_graph.edge_count()
+                                self.store.observable_graph.edge_count()
                             ));
                             ui.separator();
                         },
@@ -1448,14 +1280,9 @@ impl State {
                     ui.separator();
 
                     // Reset layout if needed
-                    if self.observable_layout_reset_needed {
-                        reset_layout::<LayoutStateBipartite>(
-                            ui, None,
-                        );
-                        self.dispatch(
-                            actions::Action::ClearObservableLayoutResetFlag,
-                        );
-                    }
+                    self.store.observable_layout_reset.run_if_needed(|| {
+                        reset_layout::<LayoutStateBipartite>(ui, None);
+                    });
 
                     // Clear edge selections when not in EdgeEditor mode
                     if mode == EditMode::NodeEditor {
@@ -1463,11 +1290,10 @@ impl State {
                     }
 
                     // Update edge thicknesses based on global weight distribution
-                    let sorted_weights = collect_sorted_weights(
-                        &self.observable_graph,
-                    );
+                    let sorted_weights =
+                        self.store.observable_sorted_weights();
                     graph_view::update_edge_thicknesses(
-                        &mut self.observable_graph,
+                        &mut self.store.observable_graph,
                         sorted_weights,
                     );
 
@@ -1487,7 +1313,7 @@ impl State {
                         |ui| {
                             ui.add(
                                 &mut ObservableGraphView::new(
-                                    &mut self.observable_graph,
+                                    &mut self.store.observable_graph,
                                 )
                                 .with_interactions(
                                     &settings_interaction,
@@ -1555,12 +1381,12 @@ impl State {
                             };
                             ui.label(hint_text);
                             ui.label(mode_text);
-                            let mut show_labels = self.show_labels;
+                            let mut show_labels = self.store.show_labels;
                             ui.checkbox(
                                 &mut show_labels,
                                 "Show Labels",
                             );
-                            if show_labels != self.show_labels {
+                            if show_labels != self.store.show_labels {
                                 self.dispatch(
                                     actions::Action::SetShowLabels {
                                         show: show_labels,
@@ -1575,6 +1401,7 @@ impl State {
     }
 
     fn render_observed_dynamics_tab(&mut self, ctx: &egui::Context) {
+        self.store.ensure_observed_graph_fresh();
         // Calculate exact 1/3 split for all three panels
         let available_width = ctx.available_rect().width();
         let panel_width = available_width / 3.0;
@@ -1594,7 +1421,7 @@ impl State {
                         .max_height(available_height)
                         .show(ui, |ui| {
                             let nodes: Vec<_> = self
-                                .observed_graph
+                                .store.observed_graph
                                 .nodes_iter()
                                 .map(|(idx, node)| {
                                     (idx, node.payload().name.clone())
@@ -1603,7 +1430,7 @@ impl State {
 
                             for (node_idx, node_name) in nodes {
                                 let is_selected = self
-                                    .observed_graph
+                                    .store.observed_graph
                                     .node(node_idx)
                                     .map(|n| n.selected())
                                     .unwrap_or(false);
@@ -1613,17 +1440,17 @@ impl State {
                                     let arrow = if is_selected { "▼" } else { "▶" };
                                     if ui.small_button(arrow).clicked() {
                                         if is_selected {
-                                            if let Some(node) = self.observed_graph.node_mut(node_idx) {
+                                            if let Some(node) = self.store.observed_graph.node_mut(node_idx) {
                                                 node.set_selected(false);
                                             }
                                         } else {
-                                            let all_nodes: Vec<_> = self.observed_graph.nodes_iter().map(|(idx, _)| idx).collect();
+                                            let all_nodes: Vec<_> = self.store.observed_graph.nodes_iter().map(|(idx, _)| idx).collect();
                                             for idx in all_nodes {
-                                                if let Some(node) = self.observed_graph.node_mut(idx) {
+                                                if let Some(node) = self.store.observed_graph.node_mut(idx) {
                                                     node.set_selected(false);
                                                 }
                                             }
-                                            if let Some(node) = self.observed_graph.node_mut(node_idx) {
+                                            if let Some(node) = self.store.observed_graph.node_mut(node_idx) {
                                                 node.set_selected(true);
                                             }
                                         }
@@ -1636,7 +1463,7 @@ impl State {
                                 // Display weight (read-only)
                                 ui.horizontal(|ui| {
                                     ui.label("Weight:");
-                                    let weight = self.observed_graph.node(node_idx)
+                                    let weight = self.store.observed_graph.node(node_idx)
                                         .map(|n| n.payload().weight)
                                         .unwrap_or(0.0);
                                     ui.label(format!("{:.4}", weight));
@@ -1645,11 +1472,11 @@ impl State {
                                 // Show connections when selected
                                 if is_selected {
                                     let incoming: Vec<String> = self
-                                        .observed_graph
+                                        .store.observed_graph
                                         .edges_directed(node_idx, petgraph::Direction::Incoming)
                                         .map(|edge_ref| {
                                             let other_idx = edge_ref.source();
-                                            self.observed_graph
+                                            self.store.observed_graph
                                                 .node(other_idx)
                                                 .map(|n| n.payload().name.clone())
                                                 .unwrap_or_else(|| String::from("???"))
@@ -1657,11 +1484,11 @@ impl State {
                                         .collect();
 
                                     let outgoing: Vec<String> = self
-                                        .observed_graph
+                                        .store.observed_graph
                                         .edges_directed(node_idx, petgraph::Direction::Outgoing)
                                         .map(|edge_ref| {
                                             let other_idx = edge_ref.target();
-                                            self.observed_graph
+                                            self.store.observed_graph
                                                 .node(other_idx)
                                                 .map(|n| n.payload().name.clone())
                                                 .unwrap_or_else(|| String::from("???"))
@@ -1692,11 +1519,9 @@ impl State {
                     // Weight histogram at bottom
                     ui.separator();
                     ui.label("Weight Distribution");
-                    let (bars, names) = create_weight_histogram(
-                        &self.observed_graph,
-                        |node: &graph_state::ObservedNode| node.weight,
-                        |node: &graph_state::ObservedNode| node.name.clone(),
-                    );
+                    let observed_stats = self.store.observed_node_weight_stats();
+                    let (bars, names) =
+                        create_weight_histogram(&observed_stats);
 
                     // Calculate max weight for proper y-axis range with padding
                     let max_weight = bars.iter()
@@ -1734,7 +1559,7 @@ impl State {
                     ui.with_layout(
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
-                            ui.label(format!("Values: {}", self.observed_graph.node_count()));
+                            ui.label(format!("Values: {}", self.store.observed_graph.node_count()));
                             ui.separator();
                         },
                     );
@@ -1768,9 +1593,7 @@ impl State {
                                 matrix,
                                 x_node_indices,
                                 y_node_indices,
-                            ) = build_heatmap_data(
-                                &self.observed_graph,
-                            );
+                            ) = self.store.observed_heatmap();
 
                             // Display heatmap without editing
                             let editing_state =
@@ -1790,11 +1613,11 @@ impl State {
                                 &matrix,
                                 &x_node_indices,
                                 &y_node_indices,
-                                self.heatmap_hovered_cell,
+                                self.store.heatmap_hovered_cell,
                                 editing_state,
                             );
 
-                            if new_hover != self.heatmap_hovered_cell {
+                            if new_hover != self.store.heatmap_hovered_cell {
                                 self.dispatch(actions::Action::SetHeatmapHoveredCell { cell: new_hover });
                             }
                             // Ignore editing and weight changes (read-only)
@@ -1807,7 +1630,7 @@ impl State {
                         |ui| {
                             ui.label(format!(
                                 "Edges: {}",
-                                self.observed_graph.edge_count()
+                                self.store.observed_graph.edge_count()
                             ));
                             ui.separator();
                         },
@@ -1827,18 +1650,15 @@ impl State {
                     ui.separator();
 
                     // Reset layout if needed
-                    if self.observed_layout_reset_needed {
+                    self.store.observed_layout_reset.run_if_needed(|| {
                         reset_layout::<LayoutStateCircular>(ui, None);
-                        self.dispatch(
-                            actions::Action::ClearObservedLayoutResetFlag,
-                        );
-                    }
+                    });
 
                     // Update edge thicknesses based on global weight distribution
                     let sorted_weights =
-                        collect_sorted_weights(&self.observed_graph);
+                        self.store.observed_sorted_weights();
                     graph_view::update_edge_thicknesses(
-                        &mut self.observed_graph,
+                        &mut self.store.observed_graph,
                         sorted_weights,
                     );
 
@@ -1860,7 +1680,7 @@ impl State {
                         |ui| {
                             ui.add(
                                 &mut ObservedGraphView::new(
-                                    &mut self.observed_graph,
+                                    &mut self.store.observed_graph,
                                 )
                                 .with_interactions(
                                     &settings_interaction,
@@ -1875,24 +1695,24 @@ impl State {
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
                             ui.label("Read-only view");
-                            let mut show_labels = self.show_labels;
+                            let mut show_labels = self.store.show_labels;
                             ui.checkbox(
                                 &mut show_labels,
                                 "Show Labels",
                             );
-                            if show_labels != self.show_labels {
+                            if show_labels != self.store.show_labels {
                                 self.dispatch(
                                     actions::Action::SetShowLabels {
                                         show: show_labels,
                                     },
                                 );
                             }
-                            let mut show_weights = self.show_weights;
+                            let mut show_weights = self.store.show_weights;
                             ui.checkbox(
                                 &mut show_weights,
                                 "Show Weights",
                             );
-                            if show_weights != self.show_weights {
+                            if show_weights != self.store.show_weights {
                                 self.dispatch(
                                     actions::Action::SetShowWeights {
                                         show: show_weights,

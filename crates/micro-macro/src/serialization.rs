@@ -17,32 +17,32 @@ fn default_weight() -> f32 {
     1.0
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SerializableNode {
     name: String,
     #[serde(default = "default_weight")]
     weight: f32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SerializableEdge {
     source: usize,
     target: usize,
     weight: f32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SerializableGraphState {
     nodes: Vec<SerializableNode>,
     edges: Vec<SerializableEdge>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SerializableDestinationNode {
     name: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SerializableObservableState {
     /// Only Destination nodes are serialized; Source nodes are derived from StateGraph
     destination_nodes: Vec<SerializableDestinationNode>,
@@ -50,7 +50,7 @@ pub struct SerializableObservableState {
     edges: Vec<SerializableEdge>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SerializableState {
     pub dynamical_system: SerializableGraphState,
     pub observable: SerializableObservableState,

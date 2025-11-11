@@ -1,7 +1,6 @@
 use crate::actions::{self, Action};
 use crate::effects::{self, Effect};
 use crate::store::Store;
-use std::ops::{Deref, DerefMut};
 
 pub struct State {
     pub store: Store,
@@ -29,6 +28,7 @@ impl State {
                 actions::update(&mut self.store, action);
             self.effect_queue.append(&mut effects);
         }
+        self.store.ensure_observed_graph_fresh();
     }
 
     pub fn flush_effects(&mut self) {
@@ -36,19 +36,5 @@ impl State {
         for effect in effects {
             effects::run(&mut self.store, effect);
         }
-    }
-}
-
-impl Deref for State {
-    type Target = Store;
-
-    fn deref(&self) -> &Self::Target {
-        &self.store
-    }
-}
-
-impl DerefMut for State {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.store
     }
 }
