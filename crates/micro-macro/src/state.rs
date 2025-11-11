@@ -1,9 +1,11 @@
 use crate::actions::{self, Action};
 use crate::effects::{self, Effect};
 use crate::store::Store;
+use crate::cache::Cache;
 
 pub struct State {
     pub store: Store,
+    pub cache: Cache,
     action_queue: Vec<Action>,
     effect_queue: Vec<Effect>,
 }
@@ -12,6 +14,7 @@ impl State {
     pub fn new(store: Store) -> Self {
         Self {
             store,
+            cache: Cache::new(),
             action_queue: Vec::new(),
             effect_queue: Vec::new(),
         }

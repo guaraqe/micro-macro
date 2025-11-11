@@ -1,5 +1,6 @@
 // Graph state module - centralized graph type definitions and operations
 
+use crate::graph_view::{StateGraphDisplay, ObservableGraphDisplay, ObservedGraphDisplay, setup_graph_display};
 use petgraph::stable_graph::NodeIndex;
 use petgraph::stable_graph::StableGraph;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
@@ -124,32 +125,45 @@ impl HasName for ObservedNode {
 
 pub type ObservedGraph = StableGraph<ObservedNode, f32>;
 
-#[allow(dead_code)] // Alternative interface, kept for potential future use
 pub fn calculate_observed_graph(
-    _state_graph: &StateGraph,
-    observable_graph: &ObservableGraph,
-) -> ObservedGraph {
-    let mut g = ObservedGraph::new();
+    state_graph: &StateGraphDisplay,
+    observable_graph: &ObservableGraphDisplay,
+) -> ObservedGraphDisplay {
+    let observed_stable_graph =
+        calculate_observed_graph_from_observable_display(
+            observable_graph,
+        );
 
-    // Create nodes from Destination nodes in the observable graph
-    for (idx, node) in observable_graph
-        .node_indices()
-        .zip(observable_graph.node_weights())
-    {
-        if node.node_type == ObservableNodeType::Destination {
-            g.add_node(ObservedNode {
-                name: node.name.clone(),
-                observable_node_idx: idx,
-                weight: 0.0,
-            });
+    let mut observed_graph = setup_graph_display(&observed_stable_graph);
+
+    match compute_observed_weights(state_graph, observable_graph) {
+        Ok(weights) => {
+            let node_updates: Vec<(NodeIndex, NodeIndex, f64)> =
+                observed_graph
+                    .nodes_iter()
+                    .filter_map(|(obs_idx, node)| {
+                        let obs_dest_idx =
+                            node.payload().observable_node_idx;
+                        weights.get(&obs_dest_idx).map(|&weight| {
+                            (obs_idx, obs_dest_idx, weight)
+                        })
+                    })
+                    .collect();
+
+            for (obs_idx, _, weight) in node_updates {
+                if let Some(node_mut) =
+                    observed_graph.node_mut(obs_idx)
+                {
+                    node_mut.payload_mut().weight = weight as f32;
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Weight computation error: {}", e);
         }
     }
 
-    // TODO: Implement edge computation logic
-    // Edges will be computed based on state transitions and observable relationships
-    // This is left as placeholder for future user implementation
-
-    g
+    observed_graph
 }
 
 // Helper function to calculate observed graph from ObservableGraphDisplay

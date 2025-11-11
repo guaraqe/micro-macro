@@ -1,8 +1,6 @@
 use crate::graph_state::{
-    HasName, ObservableNode, ObservableNodeType,
-    calculate_observed_graph_from_observable_display,
-    compute_observed_weights, default_observable_graph,
-    default_state_graph,
+    calculate_observed_graph, default_observable_graph,
+    default_state_graph, HasName, ObservableNode, ObservableNodeType,
 };
 use crate::graph_view;
 use crate::graph_view::{
@@ -11,6 +9,7 @@ use crate::graph_view::{
 };
 use crate::heatmap::HeatmapData;
 use crate::serialization;
+use crate::versioned::Versioned;
 use eframe::egui;
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
@@ -63,6 +62,8 @@ impl LayoutReset {
 
 #[derive(Clone)]
 pub struct Store {
+    pub state_graph_v: Versioned<StateGraphDisplay>,
+    pub observable_graph_v: Versioned<ObservableGraphDisplay>,
     pub state_graph: StateGraphDisplay,
     pub observable_graph: ObservableGraphDisplay,
     pub observed_graph: ObservedGraphDisplay,
@@ -90,6 +91,8 @@ impl Store {
         observed_graph: ObservedGraphDisplay,
     ) -> Self {
         Self {
+            state_graph_v: Versioned::new(state_graph.clone()),
+            observable_graph_v: Versioned::new(observable_graph.clone()),
             state_graph,
             observable_graph,
             observed_graph,
@@ -121,7 +124,7 @@ impl Store {
     }
 
     pub fn recompute_observed_graph(&mut self) {
-        let observed = compute_observed_graph_with_weights(
+        let observed = calculate_observed_graph(
             &self.state_graph,
             &self.observable_graph,
         );
@@ -154,7 +157,7 @@ impl Store {
     }
 
     pub fn observed_heatmap(&self) -> HeatmapData {
-        let observed = compute_observed_graph_with_weights(
+        let observed = calculate_observed_graph(
             &self.state_graph,
             &self.observable_graph,
         );
@@ -170,7 +173,7 @@ impl Store {
     }
 
     pub fn observed_sorted_weights(&self) -> Vec<f32> {
-        let observed = compute_observed_graph_with_weights(
+        let observed = calculate_observed_graph(
             &self.state_graph,
             &self.observable_graph,
         );
@@ -208,7 +211,7 @@ impl Store {
     }
 
     pub fn observed_node_weight_stats(&self) -> Vec<(String, f32)> {
-        let observed = compute_observed_graph_with_weights(
+        let observed = calculate_observed_graph(
             &self.state_graph,
             &self.observable_graph,
         );
@@ -275,46 +278,6 @@ fn sync_source_nodes_display(
     }
 
     synced
-}
-
-fn compute_observed_graph_with_weights(
-    state_graph: &StateGraphDisplay,
-    observable_graph: &ObservableGraphDisplay,
-) -> ObservedGraphDisplay {
-    let observed_raw =
-        calculate_observed_graph_from_observable_display(
-            observable_graph,
-        );
-    let mut observed_display = setup_graph_display(&observed_raw);
-
-    match compute_observed_weights(state_graph, observable_graph) {
-        Ok(weights) => {
-            let node_updates: Vec<(NodeIndex, NodeIndex, f64)> =
-                observed_display
-                    .nodes_iter()
-                    .filter_map(|(obs_idx, node)| {
-                        let obs_dest_idx =
-                            node.payload().observable_node_idx;
-                        weights.get(&obs_dest_idx).map(|&weight| {
-                            (obs_idx, obs_dest_idx, weight)
-                        })
-                    })
-                    .collect();
-
-            for (obs_idx, _, weight) in node_updates {
-                if let Some(node_mut) =
-                    observed_display.node_mut(obs_idx)
-                {
-                    node_mut.payload_mut().weight = weight as f32;
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("Weight computation error: {}", e);
-        }
-    }
-
-    observed_display
 }
 
 fn compute_generic_heatmap_data<N>(

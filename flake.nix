@@ -23,6 +23,7 @@
           pkgs.rustup
           pkgs.rust-analyzer
           pkgs.cargo-watch
+          pkgs.bacon
         ] ++ runLibs;
 
         # make the dynamic linker see the libs at runtime

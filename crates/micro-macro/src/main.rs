@@ -1,4 +1,5 @@
 mod actions;
+mod cache;
 mod effects;
 mod graph_state;
 mod graph_view;
@@ -8,6 +9,7 @@ mod layout_circular;
 mod serialization;
 mod state;
 mod store;
+mod versioned;
 
 use eframe::egui;
 use egui_graphs::{SettingsInteraction, SettingsStyle, reset_layout};
