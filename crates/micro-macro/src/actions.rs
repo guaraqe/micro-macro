@@ -80,8 +80,12 @@ pub enum Action {
     SetShowLabels { show: bool },
     /// Toggle weight display
     SetShowWeights { show: bool },
-    /// Clear all layout reset flags
-    ClearLayoutResetFlags,
+    /// Clear the state graph layout reset flag
+    ClearStateLayoutResetFlag,
+    /// Clear the observable graph layout reset flag
+    ClearObservableLayoutResetFlag,
+    /// Clear the observed graph layout reset flag
+    ClearObservedLayoutResetFlag,
     /// Clear all selected edges in the state graph
     ClearEdgeSelections,
     /// Clear all selected edges in the observable graph
@@ -369,9 +373,15 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             store.show_weights = show;
             vec![]
         }
-        Action::ClearLayoutResetFlags => {
+        Action::ClearStateLayoutResetFlag => {
             store.state_layout_reset_needed = false;
+            vec![]
+        }
+        Action::ClearObservableLayoutResetFlag => {
             store.observable_layout_reset_needed = false;
+            vec![]
+        }
+        Action::ClearObservedLayoutResetFlag => {
             store.observed_layout_reset_needed = false;
             vec![]
         }

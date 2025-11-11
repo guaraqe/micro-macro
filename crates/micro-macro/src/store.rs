@@ -13,6 +13,7 @@ use eframe::egui;
 use petgraph::stable_graph::NodeIndex;
 use salsa::Storage;
 use std::collections::{HashMap, HashSet};
+use std::ops::{Deref, DerefMut};
 use std::path::Path;
 
 const STATE_FILE: &str = "state.json";
@@ -30,10 +31,8 @@ pub enum ActiveTab {
     ObservedDynamics,
 }
 
-#[salsa::db]
 #[derive(Clone)]
-pub struct Store {
-    storage: Storage<Self>,
+pub struct StoreData {
     pub state_graph: StateGraphDisplay,
     pub observable_graph: ObservableGraphDisplay,
     pub observed_graph: ObservedGraphDisplay,
@@ -53,6 +52,13 @@ pub struct Store {
     pub error_message: Option<String>,
 }
 
+#[salsa::db]
+#[derive(Clone)]
+pub struct Store {
+    storage: Storage<Self>,
+    data: StoreData,
+}
+
 impl Store {
     pub fn new(
         state_graph: StateGraphDisplay,
@@ -61,34 +67,36 @@ impl Store {
     ) -> Self {
         Self {
             storage: Storage::default(),
-            state_graph,
-            observable_graph,
-            observed_graph,
-            mode: EditMode::NodeEditor,
-            prev_mode: EditMode::NodeEditor,
-            active_tab: ActiveTab::DynamicalSystem,
-            dragging_from: None,
-            drag_started: false,
-            show_labels: true,
-            show_weights: false,
-            state_layout_reset_needed: false,
-            observable_layout_reset_needed: false,
-            observed_layout_reset_needed: true,
-            heatmap_hovered_cell: None,
-            heatmap_editing_cell: None,
-            heatmap_edit_buffer: String::new(),
-            error_message: None,
+            data: StoreData {
+                state_graph,
+                observable_graph,
+                observed_graph,
+                mode: EditMode::NodeEditor,
+                prev_mode: EditMode::NodeEditor,
+                active_tab: ActiveTab::DynamicalSystem,
+                dragging_from: None,
+                drag_started: false,
+                show_labels: true,
+                show_weights: false,
+                state_layout_reset_needed: false,
+                observable_layout_reset_needed: false,
+                observed_layout_reset_needed: true,
+                heatmap_hovered_cell: None,
+                heatmap_editing_cell: None,
+                heatmap_edit_buffer: String::new(),
+                error_message: None,
+            },
         }
     }
 
     pub fn save_to_file(&self, path: &Path) -> Result<(), String> {
         let state = serialization::SerializableState {
             dynamical_system: serialization::graph_to_serializable(
-                &self.state_graph,
+                &self.data.state_graph,
             ),
             observable:
                 serialization::observable_graph_to_serializable(
-                    &self.observable_graph,
+                    &self.data.observable_graph,
                 ),
         };
 
@@ -101,24 +109,26 @@ impl Store {
     ) -> Result<(), String> {
         let (state_graph, observable_graph) =
             load_graphs_from_path(path)?;
-        self.state_graph = state_graph;
-        self.observable_graph = observable_graph;
+        self.data.state_graph = state_graph;
+        self.data.observable_graph = observable_graph;
 
         self.recompute_observed_graph();
-        self.state_layout_reset_needed = true;
-        self.observable_layout_reset_needed = true;
-        self.observed_layout_reset_needed = true;
+        self.data.state_layout_reset_needed = true;
+        self.data.observable_layout_reset_needed = true;
+        self.data.observed_layout_reset_needed = true;
         Ok(())
     }
 
     pub fn sync_source_nodes(&mut self) {
         let dyn_nodes: Vec<(NodeIndex, String)> = self
+            .data
             .state_graph
             .nodes_iter()
             .map(|(idx, node)| (idx, node.payload().name.clone()))
             .collect();
 
         let source_nodes: Vec<(NodeIndex, String)> = self
+            .data
             .observable_graph
             .nodes_iter()
             .filter(|(_, node)| {
@@ -134,14 +144,15 @@ impl Store {
 
         for (state_idx, dyn_name) in &dyn_nodes {
             if !source_map.contains_key(dyn_name) {
-                let new_idx =
-                    self.observable_graph.add_node(ObservableNode {
+                let new_idx = self.data.observable_graph.add_node(
+                    ObservableNode {
                         name: dyn_name.clone(),
                         node_type: ObservableNodeType::Source,
                         state_node_idx: Some(*state_idx),
-                    });
+                    },
+                );
                 if let Some(node) =
-                    self.observable_graph.node_mut(new_idx)
+                    self.data.observable_graph.node_mut(new_idx)
                 {
                     node.set_label(dyn_name.clone());
                 }
@@ -153,14 +164,14 @@ impl Store {
 
         for (source_idx, source_name) in source_nodes {
             if !dyn_names.contains(&source_name) {
-                self.observable_graph.remove_node(source_idx);
+                self.data.observable_graph.remove_node(source_idx);
             }
         }
 
         for (_, dyn_name) in &dyn_nodes {
             if let Some(&source_idx) = source_map.get(dyn_name)
                 && let Some(source_node) =
-                    self.observable_graph.node_mut(source_idx)
+                    self.data.observable_graph.node_mut(source_idx)
                 && source_node.payload().name != *dyn_name
             {
                 source_node.payload_mut().name = dyn_name.clone();
@@ -172,18 +183,19 @@ impl Store {
     pub fn recompute_observed_graph(&mut self) {
         let observed_graph_raw =
             calculate_observed_graph_from_observable_display(
-                &self.observable_graph,
+                &self.data.observable_graph,
             );
-        self.observed_graph =
+        self.data.observed_graph =
             setup_graph_display(&observed_graph_raw);
 
         match compute_observed_weights(
-            &self.state_graph,
-            &self.observable_graph,
+            &self.data.state_graph,
+            &self.data.observable_graph,
         ) {
             Ok(weights) => {
                 let node_updates: Vec<(NodeIndex, NodeIndex, f64)> =
-                    self.observed_graph
+                    self.data
+                        .observed_graph
                         .nodes_iter()
                         .filter_map(|(obs_idx, node)| {
                             let obs_dest_idx =
@@ -198,7 +210,7 @@ impl Store {
 
                 for (obs_idx, _, weight) in node_updates {
                     if let Some(node_mut) =
-                        self.observed_graph.node_mut(obs_idx)
+                        self.data.observed_graph.node_mut(obs_idx)
                     {
                         node_mut.payload_mut().weight = weight as f32;
                     }
@@ -207,6 +219,7 @@ impl Store {
             Err(e) => {
                 eprintln!("Weight computation error: {}", e);
                 let node_indices: Vec<NodeIndex> = self
+                    .data
                     .observed_graph
                     .nodes_iter()
                     .map(|(obs_idx, _)| obs_idx)
@@ -214,7 +227,7 @@ impl Store {
 
                 for obs_idx in node_indices {
                     if let Some(node_mut) =
-                        self.observed_graph.node_mut(obs_idx)
+                        self.data.observed_graph.node_mut(obs_idx)
                     {
                         node_mut.payload_mut().weight = 0.0;
                     }
@@ -222,11 +235,24 @@ impl Store {
             }
         }
 
-        self.observed_layout_reset_needed = true;
+        self.data.observed_layout_reset_needed = true;
     }
 }
 
-#[salsa::db]
+impl Deref for Store {
+    type Target = StoreData;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl DerefMut for Store {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
+
 impl salsa::Database for Store {}
 
 pub fn load_graphs_from_path(
