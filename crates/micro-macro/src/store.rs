@@ -62,11 +62,8 @@ impl LayoutReset {
 
 #[derive(Clone)]
 pub struct Store {
-    pub state_graph_v: Versioned<StateGraphDisplay>,
-    pub observable_graph_v: Versioned<ObservableGraphDisplay>,
-    pub state_graph: StateGraphDisplay,
-    pub observable_graph: ObservableGraphDisplay,
-    pub observed_graph: ObservedGraphDisplay,
+    pub state_graph: Versioned<StateGraphDisplay>,
+    pub observable_graph: Versioned<ObservableGraphDisplay>,
     pub mode: EditMode,
     pub prev_mode: EditMode,
     pub active_tab: ActiveTab,
@@ -88,14 +85,11 @@ impl Store {
     pub fn new(
         state_graph: StateGraphDisplay,
         observable_graph: ObservableGraphDisplay,
-        observed_graph: ObservedGraphDisplay,
+        _observed_graph: ObservedGraphDisplay,
     ) -> Self {
         Self {
-            state_graph_v: Versioned::new(state_graph.clone()),
-            observable_graph_v: Versioned::new(observable_graph.clone()),
-            state_graph,
-            observable_graph,
-            observed_graph,
+            state_graph: Versioned::new(state_graph),
+            observable_graph: Versioned::new(observable_graph),
             mode: EditMode::NodeEditor,
             prev_mode: EditMode::NodeEditor,
             active_tab: ActiveTab::DynamicalSystem,
@@ -115,20 +109,17 @@ impl Store {
     }
 
     pub fn sync_source_nodes(&mut self) {
-        self.observable_graph = sync_source_nodes_display(
-            &self.state_graph,
-            &self.observable_graph,
+        let synced = sync_source_nodes_display(
+            self.state_graph.get(),
+            self.observable_graph.get(),
         );
+        self.observable_graph.set(synced);
         self.observable_layout_reset.bump();
         self.mark_observed_graph_dirty();
     }
 
     pub fn recompute_observed_graph(&mut self) {
-        let observed = calculate_observed_graph(
-            &self.state_graph,
-            &self.observable_graph,
-        );
-        self.observed_graph = observed;
+        // This is now handled by the cache
         self.observed_graph_dirty = false;
     }
 
@@ -148,40 +139,42 @@ impl Store {
         self.observed_layout_reset.bump();
     }
 
-    pub fn state_heatmap(&self) -> HeatmapData {
-        compute_generic_heatmap_data(&self.state_graph)
+    // Uncached versions (used internally by cache)
+    pub fn state_heatmap_uncached(&self) -> HeatmapData {
+        compute_generic_heatmap_data(self.state_graph.get())
     }
 
-    pub fn observable_heatmap(&self) -> HeatmapData {
-        compute_observable_heatmap_data(&self.observable_graph)
+    pub fn observable_heatmap_uncached(&self) -> HeatmapData {
+        compute_observable_heatmap_data(self.observable_graph.get())
     }
 
-    pub fn observed_heatmap(&self) -> HeatmapData {
+    pub fn observed_heatmap_uncached(&self) -> HeatmapData {
         let observed = calculate_observed_graph(
-            &self.state_graph,
-            &self.observable_graph,
+            self.state_graph.get(),
+            self.observable_graph.get(),
         );
         compute_generic_heatmap_data(&observed)
     }
 
-    pub fn state_sorted_weights(&self) -> Vec<f32> {
-        collect_sorted_weights_from_display(&self.state_graph)
+    pub fn state_sorted_weights_uncached(&self) -> Vec<f32> {
+        collect_sorted_weights_from_display(self.state_graph.get())
     }
 
-    pub fn observable_sorted_weights(&self) -> Vec<f32> {
-        collect_sorted_weights_from_display(&self.observable_graph)
+    pub fn observable_sorted_weights_uncached(&self) -> Vec<f32> {
+        collect_sorted_weights_from_display(self.observable_graph.get())
     }
 
-    pub fn observed_sorted_weights(&self) -> Vec<f32> {
+    pub fn observed_sorted_weights_uncached(&self) -> Vec<f32> {
         let observed = calculate_observed_graph(
-            &self.state_graph,
-            &self.observable_graph,
+            self.state_graph.get(),
+            self.observable_graph.get(),
         );
         collect_sorted_weights_from_display(&observed)
     }
 
     pub fn state_selection(&self) -> Vec<usize> {
         self.state_graph
+            .get()
             .nodes_iter()
             .filter_map(|(idx, node)| {
                 if node.selected() {
@@ -195,6 +188,7 @@ impl Store {
 
     pub fn observable_selection(&self) -> Vec<usize> {
         self.observable_graph
+            .get()
             .nodes_iter()
             .filter_map(|(idx, node)| {
                 if node.selected() {
@@ -207,13 +201,13 @@ impl Store {
     }
 
     pub fn state_node_weight_stats(&self) -> Vec<(String, f32)> {
-        collect_state_node_weights(&self.state_graph)
+        collect_state_node_weights(self.state_graph.get())
     }
 
     pub fn observed_node_weight_stats(&self) -> Vec<(String, f32)> {
         let observed = calculate_observed_graph(
-            &self.state_graph,
-            &self.observable_graph,
+            self.state_graph.get(),
+            self.observable_graph.get(),
         );
         collect_observed_node_weights(&observed)
     }

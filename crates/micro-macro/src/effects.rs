@@ -20,8 +20,8 @@ pub fn run(store: &mut Store, effect: Effect) {
     match effect {
         Effect::SaveToFile { path } => {
             let state = serializable_state_from_graphs(
-                &store.state_graph,
-                &store.observable_graph,
+                store.state_graph.get(),
+                store.observable_graph.get(),
             );
             if let Err(e) = serialization::save_to_file(&state, &path)
             {
@@ -46,10 +46,12 @@ pub fn run(store: &mut Store, effect: Effect) {
                         &state.observable,
                         &state_graph_raw,
                     );
-                store.state_graph =
-                    setup_graph_display(&state_graph_raw);
-                store.observable_graph =
-                    setup_graph_display(&observable_graph_raw);
+                store.state_graph.set(
+                    setup_graph_display(&state_graph_raw)
+                );
+                store.observable_graph.set(
+                    setup_graph_display(&observable_graph_raw)
+                );
 
                 store.recompute_observed_graph();
                 store.mark_all_layouts_dirty();

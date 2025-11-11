@@ -414,7 +414,7 @@ pub fn show_heatmap(
 
                                 new_editing_cell = Some((next_x, next_y));
                                 new_edit_buffer = matrix[next_y][next_x]
-                                    .map(|w| format!("{:.1}", w))
+                                    .map(|w| w.to_string())
                                     .unwrap_or_default();
                             }
                             // Handle Escape key or clicking outside - cancel editing
@@ -446,7 +446,7 @@ pub fn show_heatmap(
                         if response.clicked() {
                             new_editing_cell = Some((x_idx, y_idx));
                             new_edit_buffer = weight_opt
-                                .map(|w| format!("{:.1}", w))
+                                .map(|w| w.to_string())
                                 .unwrap_or_default();
                         }
 

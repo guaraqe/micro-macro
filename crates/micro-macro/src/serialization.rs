@@ -271,12 +271,15 @@ mod tests {
         let mut state_graph = StateGraph::new();
         let a = state_graph.add_node(crate::graph_state::StateNode {
             name: "A".to_string(),
+            weight: 1.0,
         });
         let b = state_graph.add_node(crate::graph_state::StateNode {
             name: "B".to_string(),
+            weight: 1.0,
         });
         let c = state_graph.add_node(crate::graph_state::StateNode {
             name: "C".to_string(),
+            weight: 1.0,
         });
 
         // Add edges in state graph
