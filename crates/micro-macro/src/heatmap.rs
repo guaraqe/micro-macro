@@ -26,7 +26,7 @@ fn inferno(t: f32) -> egui::Color32 {
 }
 
 /// Calculate color interpolation value based on weight position in sorted list
-/// Returns value between 0.0 and 1.0 for Inferno color mapping
+/// Returns value between 0.0 and 1.0 for the Inferno color gradient
 /// Handles any weight value by finding where it fits in the sorted list
 fn calculate_color_position(
     weight: f32,

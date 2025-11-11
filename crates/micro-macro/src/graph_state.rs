@@ -146,7 +146,7 @@ pub fn calculate_observed_graph(
     }
 
     // TODO: Implement edge computation logic
-    // Edges will be computed based on state transitions and observable mappings
+    // Edges will be computed based on state transitions and observable relationships
     // This is left as placeholder for future user implementation
 
     g
@@ -194,7 +194,7 @@ where
     }
 
     // TODO: Implement edge computation logic
-    // Edges will be computed based on state transitions and observable mappings
+    // Edges will be computed based on state transitions and observable relationships
     // This is left as placeholder for future user implementation
 
     g

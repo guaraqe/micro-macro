@@ -89,7 +89,7 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
         // NOTE: This layout is specifically designed for ObservableNode.
         // The unsafe cast is required because:
         // 1. The Layout trait is generic over N but doesn't allow adding trait bounds
-        // 2. This layout is only ever used with ObservableNode (enforced by MappingGraphView type alias)
+        // 2. This layout is only ever used with ObservableNode (enforced by ObservableGraphView type alias)
         // 3. The memory layout is compatible (we're just reinterpreting the reference)
         // 4. This is safer than the alternative of string parsing node labels
         let mut source_nodes: Vec<_> = Vec::new();
@@ -99,7 +99,7 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
             let label = node.label().to_string();
             let payload = node.payload();
 
-            // SAFETY: This layout is only instantiated with N = ObservableNode via MappingGraphView
+            // SAFETY: This layout is only instantiated with N = ObservableNode via ObservableGraphView
             let node_data = unsafe {
                 &*(payload as *const N as *const ObservableNode)
             };

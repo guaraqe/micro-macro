@@ -1,9 +1,12 @@
+mod actions;
+mod effects;
 mod graph_state;
 mod graph_view;
 mod heatmap;
 mod layout_bipartite;
 mod layout_circular;
 mod serialization;
+mod state;
 mod store;
 
 use eframe::egui;
@@ -14,11 +17,10 @@ use egui_graphs::{
 use graph_state::{
     ObservableNodeType, StateNode,
     calculate_observed_graph_from_observable_display,
-    default_observable_graph, default_state_graph,
 };
 use graph_view::{
     ObservableGraphDisplay, ObservableGraphView, ObservedGraphView,
-    StateGraphDisplay, StateGraphView, setup_graph_display,
+    StateGraphView, setup_graph_display,
 };
 use layout_bipartite::LayoutStateBipartite;
 use layout_circular::{
@@ -26,6 +28,8 @@ use layout_circular::{
 };
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+use state::State;
+use store::{ActiveTab, EditMode};
 
 // UI Constants
 const DRAG_THRESHOLD: f32 = 2.0;
@@ -88,45 +92,6 @@ fn combined_config() -> LayoutCircular {
 // Initialization helpers
 // ------------------------------------------------------------------
 
-fn load_graphs_from_path(
-    path: &std::path::Path,
-) -> Result<(StateGraphDisplay, ObservableGraphDisplay), String> {
-    let state = serialization::load_from_file(path)?;
-
-    let g =
-        serialization::serializable_to_graph(&state.dynamical_system);
-    let mg = serialization::serializable_to_observable_graph(
-        &state.observable,
-        &g,
-    );
-
-    Ok((setup_graph_display(&g), setup_graph_display(&mg)))
-}
-
-fn load_or_create_default_state()
--> (StateGraphDisplay, ObservableGraphDisplay) {
-    const STATE_FILE: &str = "state.json";
-
-    if std::path::Path::new(STATE_FILE).exists() {
-        // Try to load from state.json
-        match load_graphs_from_path(std::path::Path::new(STATE_FILE))
-        {
-            Ok(graphs) => return graphs,
-            Err(e) => {
-                eprintln!(
-                    "Error loading state.json: {}. Using default state.",
-                    e
-                );
-            }
-        }
-    }
-
-    // Fall back to default state
-    let g = default_state_graph();
-    let mg = default_observable_graph(&g);
-    (setup_graph_display(&g), setup_graph_display(&mg))
-}
-
 // ------------------------------------------------------------------
 
 fn main() -> eframe::Result<()> {
@@ -136,7 +101,7 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|_cc| {
             let (graph, observable_graph) =
-                load_or_create_default_state();
+                store::load_or_create_default_state();
 
             let observed_graph_raw =
                 calculate_observed_graph_from_observable_display(
@@ -145,11 +110,13 @@ fn main() -> eframe::Result<()> {
             let observed_graph =
                 setup_graph_display(&observed_graph_raw);
 
-            Ok(Box::new(store::GraphEditor::new(
+            let store = store::Store::new(
                 graph,
                 observable_graph,
                 observed_graph,
-            )))
+            );
+
+            Ok(Box::new(State::new(store)))
         }),
     )
 }
@@ -368,7 +335,7 @@ where
     (bars, names)
 }
 
-impl store::GraphEditor {
+impl State {
     // Returns (incoming_nodes, outgoing_nodes) for a given node
     fn get_node_connections(
         &self,
@@ -404,15 +371,15 @@ impl store::GraphEditor {
     // Returns interaction settings based on current mode
     fn get_settings_interaction(
         &self,
-        mode: store::EditMode,
+        mode: EditMode,
     ) -> SettingsInteraction {
         match mode {
-            store::EditMode::NodeEditor => SettingsInteraction::new()
+            EditMode::NodeEditor => SettingsInteraction::new()
                 .with_dragging_enabled(false)
                 .with_node_clicking_enabled(true)
                 .with_node_selection_enabled(true)
                 .with_edge_selection_enabled(true),
-            store::EditMode::EdgeEditor => SettingsInteraction::new()
+            EditMode::EdgeEditor => SettingsInteraction::new()
                 .with_dragging_enabled(false)
                 .with_edge_clicking_enabled(true)
                 .with_edge_selection_enabled(true)
@@ -509,18 +476,18 @@ impl store::GraphEditor {
                     self.state_graph.hovered_node()
                     && source_node != target_node
                 {
-                    self.dispatch(store::Action::AddStateEdge {
+                    self.dispatch(actions::Action::AddStateEdge {
                         source_idx: source_node,
                         target_idx: target_node,
                         weight: 1.0,
                     });
                 }
             }
-            self.dispatch(store::Action::SetDraggingFrom {
+            self.dispatch(actions::Action::SetDraggingFrom {
                 node_idx: None,
                 position: None,
             });
-            self.dispatch(store::Action::SetDragStarted {
+            self.dispatch(actions::Action::SetDragStarted {
                 started: false,
             });
         }
@@ -540,7 +507,7 @@ impl store::GraphEditor {
             if selected_edges.len() == 1 {
                 let clicked_edge = selected_edges[0];
                 self.dispatch(
-                    store::Action::RemoveStateEdgeByIndex {
+                    actions::Action::RemoveStateEdgeByIndex {
                         edge_idx: clicked_edge,
                     },
                 );
@@ -550,8 +517,8 @@ impl store::GraphEditor {
         }
     }
 
-    // Edge creation for mapping graph with Source->Destination constraint
-    fn handle_mapping_edge_creation(
+    // Edge creation for observable graph with Source->Destination constraint
+    fn handle_observable_edge_creation(
         &mut self,
         pointer: &egui::PointerState,
     ) -> Option<(egui::Pos2, egui::Pos2)> {
@@ -610,7 +577,7 @@ impl store::GraphEditor {
                     ) = (source_type, target_type)
                     {
                         self.dispatch(
-                            store::Action::AddObservableEdge {
+                            actions::Action::AddObservableEdge {
                                 source_idx: source_node,
                                 target_idx: target_node,
                                 weight: 1.0,
@@ -620,11 +587,11 @@ impl store::GraphEditor {
                     // Silently ignore invalid edge attempts (Dest->Source, Source->Source, Dest->Dest)
                 }
             }
-            self.dispatch(store::Action::SetDraggingFrom {
+            self.dispatch(actions::Action::SetDraggingFrom {
                 node_idx: None,
                 position: None,
             });
-            self.dispatch(store::Action::SetDragStarted {
+            self.dispatch(actions::Action::SetDragStarted {
                 started: false,
             });
         }
@@ -632,8 +599,8 @@ impl store::GraphEditor {
         arrow_coords
     }
 
-    // Edge deletion for mapping graph
-    fn handle_mapping_edge_deletion(
+    // Edge deletion for observable graph
+    fn handle_observable_edge_deletion(
         &mut self,
         pointer: &egui::PointerState,
     ) {
@@ -644,56 +611,16 @@ impl store::GraphEditor {
             if selected_edges.len() == 1 {
                 let clicked_edge = selected_edges[0];
                 self.dispatch(
-                    store::Action::RemoveObservableEdgeByIndex {
+                    actions::Action::RemoveObservableEdgeByIndex {
                         edge_idx: clicked_edge,
                     },
                 );
             }
         }
     }
-
-    fn save_to_file(
-        &self,
-        path: &std::path::Path,
-    ) -> Result<(), String> {
-        let state = serialization::SerializableState {
-            dynamical_system: serialization::graph_to_serializable(
-                &self.state_graph,
-            ),
-            observable:
-                serialization::observable_graph_to_serializable(
-                    &self.observable_graph,
-                ),
-        };
-
-        serialization::save_to_file(&state, path)
-    }
-
-    fn load_from_file(
-        &mut self,
-        path: &std::path::Path,
-    ) -> Result<(), String> {
-        let (g, mg) = load_graphs_from_path(path)?;
-
-        self.state_graph = g;
-        self.observable_graph = mg;
-        let observed_graph_raw =
-            calculate_observed_graph_from_observable_display(
-                &self.observable_graph,
-            );
-        self.observed_graph =
-            setup_graph_display(&observed_graph_raw);
-
-        // Reset layouts to display new graphs
-        self.layout_reset_needed = true;
-        self.mapping_layout_reset_needed = true;
-        self.observed_layout_reset_needed = true;
-
-        Ok(())
-    }
 }
 
-impl eframe::App for store::GraphEditor {
+impl eframe::App for State {
     fn update(
         &mut self,
         ctx: &egui::Context,
@@ -715,7 +642,7 @@ impl eframe::App for store::GraphEditor {
                             .save_file()
                         {
                             self.dispatch(
-                                store::Action::SaveToFile { path },
+                                actions::Action::SaveToFile { path },
                             );
                         }
                     }
@@ -727,7 +654,9 @@ impl eframe::App for store::GraphEditor {
                             .pick_file()
                         {
                             self.dispatch(
-                                store::Action::LoadFromFile { path },
+                                actions::Action::LoadFromFile {
+                                    path,
+                                },
                             );
                         }
                     }
@@ -740,24 +669,24 @@ impl eframe::App for store::GraphEditor {
             ui.horizontal(|ui| {
                 ui.selectable_value(
                     &mut active_tab,
-                    store::ActiveTab::DynamicalSystem,
+                    ActiveTab::DynamicalSystem,
                     "Dynamical System",
                 );
                 ui.selectable_value(
                     &mut active_tab,
-                    store::ActiveTab::ObservableEditor,
+                    ActiveTab::ObservableEditor,
                     "Observable Editor",
                 );
                 ui.selectable_value(
                     &mut active_tab,
-                    store::ActiveTab::ObservedDynamics,
+                    ActiveTab::ObservedDynamics,
                     "Observed Dynamics",
                 );
             });
         });
 
         if active_tab != self.active_tab {
-            self.dispatch(store::Action::SetActiveTab {
+            self.dispatch(actions::Action::SetActiveTab {
                 tab: active_tab,
             });
         }
@@ -765,14 +694,14 @@ impl eframe::App for store::GraphEditor {
         // Detect Ctrl key to switch modes
         let ctrl_pressed = ctx.input(|i| i.modifiers.ctrl);
         let desired_mode = if ctrl_pressed {
-            store::EditMode::EdgeEditor
+            EditMode::EdgeEditor
         } else {
-            store::EditMode::NodeEditor
+            EditMode::NodeEditor
         };
 
         let mut frame_mode = self.mode;
         if desired_mode != self.mode {
-            self.dispatch(store::Action::SetEditMode {
+            self.dispatch(actions::Action::SetEditMode {
                 mode: desired_mode,
             });
             frame_mode = desired_mode;
@@ -780,13 +709,13 @@ impl eframe::App for store::GraphEditor {
 
         // Render the appropriate view based on active tab
         match active_tab {
-            store::ActiveTab::DynamicalSystem => {
+            ActiveTab::DynamicalSystem => {
                 self.render_dynamical_system_tab(ctx, frame_mode)
             }
-            store::ActiveTab::ObservableEditor => {
+            ActiveTab::ObservableEditor => {
                 self.render_observable_editor_tab(ctx, frame_mode)
             }
-            store::ActiveTab::ObservedDynamics => {
+            ActiveTab::ObservedDynamics => {
                 self.render_observed_dynamics_tab(ctx)
             }
         }
@@ -800,7 +729,7 @@ impl eframe::App for store::GraphEditor {
                     ui.label(&error);
                     if ui.button("OK").clicked() {
                         self.dispatch(
-                            store::Action::ClearErrorMessage,
+                            actions::Action::ClearErrorMessage,
                         );
                     }
                 });
@@ -811,11 +740,11 @@ impl eframe::App for store::GraphEditor {
     }
 }
 
-impl store::GraphEditor {
+impl State {
     fn render_dynamical_system_tab(
         &mut self,
         ctx: &egui::Context,
-        mode: store::EditMode,
+        mode: EditMode,
     ) {
         // Calculate exact 1/3 split for all three panels
         let available_width = ctx.available_rect().width();
@@ -835,7 +764,7 @@ impl store::GraphEditor {
                     // Dispatch action instead of directly modifying state
                     let node_count = self.state_graph.node_count();
                     let default_name = format!("Node {}", node_count);
-                    self.dispatch(store::Action::AddStateNode {
+                    self.dispatch(actions::Action::AddStateNode {
                         name: default_name,
                         weight: 1.0,
                     });
@@ -868,30 +797,30 @@ impl store::GraphEditor {
                             if ui.small_button(arrow).clicked() {
                                 // Toggle selection
                                 if is_selected {
-                                    self.dispatch(store::Action::SelectStateNode { node_idx, selected: false });
+                                    self.dispatch(actions::Action::SelectStateNode { node_idx, selected: false });
                                 } else {
                                     // Deselect all other nodes first
                                     let all_nodes: Vec<_> = self.state_graph.nodes_iter().map(|(idx, _)| idx).collect();
                                     for idx in all_nodes {
                                         if idx != node_idx {
-                                            self.dispatch(store::Action::SelectStateNode { node_idx: idx, selected: false });
+                                            self.dispatch(actions::Action::SelectStateNode { node_idx: idx, selected: false });
                                         }
                                     }
                                     // Select this node
-                                    self.dispatch(store::Action::SelectStateNode { node_idx, selected: true });
+                                    self.dispatch(actions::Action::SelectStateNode { node_idx, selected: true });
                                 }
                             }
 
                             let response =
                                 ui.text_edit_singleline(&mut node_name);
                             if response.changed() {
-                                self.dispatch(store::Action::RenameStateNode {
+                                self.dispatch(actions::Action::RenameStateNode {
                                     node_idx,
                                     new_name: node_name.clone(),
                                 });
                             }
                             if ui.button("🗑").clicked() {
-                                self.dispatch(store::Action::RemoveStateNode { node_idx });
+                                self.dispatch(actions::Action::RemoveStateNode { node_idx });
                             }
                         });
 
@@ -908,7 +837,7 @@ impl store::GraphEditor {
                                     weight_str.parse::<f32>()
                                 {
                                     self.dispatch(
-                                        store::Action::UpdateStateNodeWeight {
+                                        actions::Action::UpdateStateNodeWeight {
                                             node_idx,
                                             new_weight: new_weight
                                                 .max(0.0),
@@ -1062,7 +991,7 @@ impl store::GraphEditor {
 
                             if new_hover != self.heatmap_hovered_cell {
                                 self.dispatch(
-                                    store::Action::SetHeatmapHoveredCell {
+                                    actions::Action::SetHeatmapHoveredCell {
                                         cell: new_hover,
                                     },
                                 );
@@ -1071,7 +1000,7 @@ impl store::GraphEditor {
                             let editing_cell = new_editing.editing_cell;
                             if editing_cell != self.heatmap_editing_cell {
                                 self.dispatch(
-                                    store::Action::SetHeatmapEditingCell {
+                                    actions::Action::SetHeatmapEditingCell {
                                         cell: editing_cell,
                                     },
                                 );
@@ -1080,7 +1009,7 @@ impl store::GraphEditor {
                             let edit_buffer = new_editing.edit_buffer;
                             if edit_buffer != self.heatmap_edit_buffer {
                                 self.dispatch(
-                                    store::Action::SetHeatmapEditBuffer {
+                                    actions::Action::SetHeatmapEditBuffer {
                                         buffer: edit_buffer,
                                     },
                                 );
@@ -1089,7 +1018,7 @@ impl store::GraphEditor {
                             // Handle weight changes
                             if let Some(change) = weight_change {
                                 self.dispatch(
-                                    store::Action::UpdateStateEdgeWeightFromHeatmap {
+                                    actions::Action::UpdateStateEdgeWeightFromHeatmap {
                                         source_idx: change.source_idx,
                                         target_idx: change.target_idx,
                                         new_weight: change.new_weight,
@@ -1128,15 +1057,15 @@ impl store::GraphEditor {
                     if self.layout_reset_needed {
                         reset_layout::<LayoutStateCircular>(ui, None);
                         self.dispatch(
-                            store::Action::ClearLayoutResetFlags,
+                            actions::Action::ClearStateLayoutResetFlag,
                         );
                     }
 
                     // Clear edge selections when not in EdgeEditor mode,
                     // before creating GraphView
-                    if mode == store::EditMode::NodeEditor {
+                    if mode == EditMode::NodeEditor {
                         self.dispatch(
-                            store::Action::ClearEdgeSelections,
+                            actions::Action::ClearEdgeSelections,
                         );
                     }
 
@@ -1174,7 +1103,7 @@ impl store::GraphEditor {
                             );
 
                             // Edge editing functionality (only in Edge Editor mode)
-                            if mode == store::EditMode::EdgeEditor {
+                            if mode == EditMode::EdgeEditor {
                                 let pointer =
                                     ui.input(|i| i.pointer.clone());
 
@@ -1195,18 +1124,18 @@ impl store::GraphEditor {
                             } else {
                                 // Reset dragging state and clear selections when not in Edge Editor mode
                                 self.dispatch(
-                                    store::Action::SetDraggingFrom {
+                                    actions::Action::SetDraggingFrom {
                                         node_idx: None,
                                         position: None,
                                     },
                                 );
                                 self.dispatch(
-                                    store::Action::SetDragStarted {
+                                    actions::Action::SetDragStarted {
                                         started: false,
                                     },
                                 );
                                 self.dispatch(
-                                    store::Action::ClearEdgeSelections,
+                                    actions::Action::ClearEdgeSelections,
                                 );
                             }
                         },
@@ -1219,11 +1148,11 @@ impl store::GraphEditor {
                             let (mode_text, hint_text) =
                                 match mode
                             {
-                                store::EditMode::NodeEditor => (
+                                EditMode::NodeEditor => (
                                     "Mode: Node Editor",
                                     "Hold Ctrl for Edge Editor",
                                 ),
-                                store::EditMode::EdgeEditor
+                                EditMode::EdgeEditor
                                 => (
                                     "Mode: Edge Editor",
                                     "Release Ctrl for Node Editor",
@@ -1238,7 +1167,7 @@ impl store::GraphEditor {
                             );
                             if show_labels != self.show_labels {
                                 self.dispatch(
-                                    store::Action::SetShowLabels {
+                                    actions::Action::SetShowLabels {
                                         show: show_labels,
                                     },
                                 );
@@ -1251,7 +1180,7 @@ impl store::GraphEditor {
                             );
                             if show_weights != self.show_weights {
                                 self.dispatch(
-                                    store::Action::SetShowWeights {
+                                    actions::Action::SetShowWeights {
                                         show: show_weights,
                                     },
                                 );
@@ -1266,7 +1195,7 @@ impl store::GraphEditor {
     fn render_observable_editor_tab(
         &mut self,
         ctx: &egui::Context,
-        mode: store::EditMode,
+        mode: EditMode,
     ) {
         // Calculate exact 1/3 split for all three panels
         let available_width = ctx.available_rect().width();
@@ -1288,7 +1217,7 @@ impl store::GraphEditor {
                             .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Destination)
                             .count();
                         let default_name = format!("Value {}", node_count);
-                        self.dispatch(store::Action::AddObservableDestinationNode { name: default_name });
+                        self.dispatch(actions::Action::AddObservableDestinationNode { name: default_name });
                     }
 
                     // Contents - Destination node list
@@ -1338,7 +1267,7 @@ impl store::GraphEditor {
                                     let response = ui.text_edit_singleline(&mut node_name);
                                     if response.changed() {
                                         self.dispatch(
-                                            store::Action::RenameObservableDestinationNode {
+                                            actions::Action::RenameObservableDestinationNode {
                                                 node_idx,
                                                 new_name: node_name
                                                     .clone(),
@@ -1347,7 +1276,7 @@ impl store::GraphEditor {
                                     }
                                     if ui.button("🗑").clicked() {
                                         self.dispatch(
-                                            store::Action::RemoveObservableDestinationNode {
+                                            actions::Action::RemoveObservableDestinationNode {
                                                 node_idx,
                                             },
                                         );
@@ -1405,7 +1334,7 @@ impl store::GraphEditor {
             )
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
-                    ui.heading("Mapping Heatmap");
+                    ui.heading("Observable Heatmap");
                     ui.separator();
 
                     // Contents - heatmap
@@ -1456,7 +1385,7 @@ impl store::GraphEditor {
 
                             if new_hover != self.heatmap_hovered_cell {
                                 self.dispatch(
-                                    store::Action::SetHeatmapHoveredCell {
+                                    actions::Action::SetHeatmapHoveredCell {
                                         cell: new_hover,
                                     },
                                 );
@@ -1465,7 +1394,7 @@ impl store::GraphEditor {
                             let editing_cell = new_editing.editing_cell;
                             if editing_cell != self.heatmap_editing_cell {
                                 self.dispatch(
-                                    store::Action::SetHeatmapEditingCell {
+                                    actions::Action::SetHeatmapEditingCell {
                                         cell: editing_cell,
                                     },
                                 );
@@ -1474,7 +1403,7 @@ impl store::GraphEditor {
                             let edit_buffer = new_editing.edit_buffer;
                             if edit_buffer != self.heatmap_edit_buffer {
                                 self.dispatch(
-                                    store::Action::SetHeatmapEditBuffer {
+                                    actions::Action::SetHeatmapEditBuffer {
                                         buffer: edit_buffer,
                                     },
                                 );
@@ -1483,7 +1412,7 @@ impl store::GraphEditor {
                             // Handle weight changes
                             if let Some(change) = weight_change {
                                 self.dispatch(
-                                    store::Action::UpdateObservableEdgeWeightFromHeatmap {
+                                    actions::Action::UpdateObservableEdgeWeightFromHeatmap {
                                         source_idx: change.source_idx,
                                         target_idx: change.target_idx,
                                         new_weight: change.new_weight,
@@ -1498,7 +1427,7 @@ impl store::GraphEditor {
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
                             ui.label(format!(
-                                "Mappings: {}",
+                                "Observables: {}",
                                 self.observable_graph.edge_count()
                             ));
                             ui.separator();
@@ -1519,16 +1448,18 @@ impl store::GraphEditor {
                     ui.separator();
 
                     // Reset layout if needed
-                    if self.mapping_layout_reset_needed {
+                    if self.observable_layout_reset_needed {
                         reset_layout::<LayoutStateBipartite>(
                             ui, None,
                         );
-                        self.dispatch(store::Action::ClearLayoutResetFlags);
+                        self.dispatch(
+                            actions::Action::ClearObservableLayoutResetFlag,
+                        );
                     }
 
                     // Clear edge selections when not in EdgeEditor mode
-                    if mode == store::EditMode::NodeEditor {
-                        self.dispatch(store::Action::ClearObservableEdgeSelections);
+                    if mode == EditMode::NodeEditor {
+                        self.dispatch(actions::Action::ClearObservableEdgeSelections);
                     }
 
                     // Update edge thicknesses based on global weight distribution
@@ -1565,14 +1496,14 @@ impl store::GraphEditor {
                             );
 
                             // Edge editing functionality (only in Edge Editor mode)
-                            if mode == store::EditMode::EdgeEditor
+                            if mode == EditMode::EdgeEditor
                             {
                                 let pointer =
                                     ui.input(|i| i.pointer.clone());
 
                                 // Handle edge creation and draw preview line if needed
                                 if let Some((from_pos, to_pos)) = self
-                                    .handle_mapping_edge_creation(
+                                    .handle_observable_edge_creation(
                                         &pointer,
                                     )
                                 {
@@ -1585,24 +1516,24 @@ impl store::GraphEditor {
                                     );
                                 }
 
-                                self.handle_mapping_edge_deletion(
+                                self.handle_observable_edge_deletion(
                                     &pointer,
                                 );
                             } else {
                                 // Reset dragging state and clear selections when not in Edge Editor mode
                                 self.dispatch(
-                                    store::Action::SetDraggingFrom {
+                                    actions::Action::SetDraggingFrom {
                                         node_idx: None,
                                         position: None,
                                     },
                                 );
                                 self.dispatch(
-                                    store::Action::SetDragStarted {
+                                    actions::Action::SetDragStarted {
                                         started: false,
                                     },
                                 );
                                 self.dispatch(
-                                    store::Action::ClearObservableEdgeSelections,
+                                    actions::Action::ClearObservableEdgeSelections,
                                 );
                             }
                         },
@@ -1613,11 +1544,11 @@ impl store::GraphEditor {
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
                             let (mode_text, hint_text) = match mode {
-                                store::EditMode::NodeEditor => (
+                                EditMode::NodeEditor => (
                                     "Mode: Node Editor",
                                     "Hold Ctrl for Edge Editor",
                                 ),
-                                store::EditMode::EdgeEditor => (
+                                EditMode::EdgeEditor => (
                                     "Mode: Edge Editor",
                                     "Release Ctrl for Node Editor",
                                 ),
@@ -1631,7 +1562,7 @@ impl store::GraphEditor {
                             );
                             if show_labels != self.show_labels {
                                 self.dispatch(
-                                    store::Action::SetShowLabels {
+                                    actions::Action::SetShowLabels {
                                         show: show_labels,
                                     },
                                 );
@@ -1864,7 +1795,7 @@ impl store::GraphEditor {
                             );
 
                             if new_hover != self.heatmap_hovered_cell {
-                                self.dispatch(store::Action::SetHeatmapHoveredCell { cell: new_hover });
+                                self.dispatch(actions::Action::SetHeatmapHoveredCell { cell: new_hover });
                             }
                             // Ignore editing and weight changes (read-only)
                         },
@@ -1899,7 +1830,7 @@ impl store::GraphEditor {
                     if self.observed_layout_reset_needed {
                         reset_layout::<LayoutStateCircular>(ui, None);
                         self.dispatch(
-                            store::Action::ClearLayoutResetFlags,
+                            actions::Action::ClearObservedLayoutResetFlag,
                         );
                     }
 
@@ -1951,7 +1882,7 @@ impl store::GraphEditor {
                             );
                             if show_labels != self.show_labels {
                                 self.dispatch(
-                                    store::Action::SetShowLabels {
+                                    actions::Action::SetShowLabels {
                                         show: show_labels,
                                     },
                                 );
@@ -1963,7 +1894,7 @@ impl store::GraphEditor {
                             );
                             if show_weights != self.show_weights {
                                 self.dispatch(
-                                    store::Action::SetShowWeights {
+                                    actions::Action::SetShowWeights {
                                         show: show_weights,
                                     },
                                 );

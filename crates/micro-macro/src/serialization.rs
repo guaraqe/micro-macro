@@ -140,7 +140,7 @@ pub fn observable_graph_to_serializable<
         let obs_node = node.payload();
         match obs_node.node_type {
             ObservableNodeType::Source => {
-                // Source nodes reference StateGraph - store that mapping
+                // Source nodes reference StateGraph - store that reference
                 if let Some(state_idx) = obs_node.state_node_idx {
                     source_to_state_idx
                         .insert(node_idx, state_idx.index());
