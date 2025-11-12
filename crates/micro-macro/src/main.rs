@@ -1752,14 +1752,14 @@ impl State {
         if !incoming.is_empty() {
             ui.label(format!("Incoming ({}):", incoming.len()));
             for name in incoming {
-                ui.label(format!("  ← {}", name));
+                ui.label(format!("  ⬅ {}", name));
             }
         }
 
         if !outgoing.is_empty() {
             ui.label(format!("Outgoing ({}):", outgoing.len()));
             for name in outgoing {
-                ui.label(format!("  → {}", name));
+                ui.label(format!("  ➡ {}", name));
             }
         }
     }
@@ -1772,7 +1772,7 @@ impl State {
         on_select: impl Fn(NodeIndex, bool) -> actions::Action,
         all_node_indices: Vec<NodeIndex>,
     ) {
-        let arrow = if is_selected { "▼" } else { "▶" };
+        let arrow = if is_selected { "⏷" } else { "⏵" };
         if ui.small_button(arrow).clicked() {
             if is_selected {
                 self.dispatch(on_select(node_idx, false));
