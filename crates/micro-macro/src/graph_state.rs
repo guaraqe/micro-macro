@@ -1,17 +1,15 @@
 // Graph state module - centralized graph type definitions and operations
 
 use crate::graph_view::{
-    GraphDisplay, ObservableGraphDisplay, ObservedGraphDisplay,
-    StateGraphDisplay, setup_graph_display,
+    ObservableGraphDisplay, ObservedGraphDisplay, StateGraphDisplay,
+    setup_graph_display,
 };
+use markov::{Markov, Prob};
+use ndarray::linalg::Dot;
 use petgraph::stable_graph::NodeIndex;
 use petgraph::stable_graph::StableGraph;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use markov::{Markov, Prob, Vector};
-use ndarray::linalg::Dot;
-
 
 // Trait for types that have a name
 pub trait HasName {
@@ -131,25 +129,6 @@ impl HasName for ObservedNode {
 
 pub type ObservedGraph = StableGraph<ObservedNode, f32>;
 
-pub fn calculate_observed_graph_new(
-    state_graph: &StateGraphDisplay,
-    observable_graph: &ObservableGraphDisplay,
-) {
-    let mut nodes = Vec::new();
-
-    // Create nodes from Destination nodes in the observable graph
-    for (idx, node) in observable_graph.nodes_iter() {
-        let obs_node = node.payload();
-        if obs_node.node_type == ObservableNodeType::Destination {
-            nodes.push(ObservedNode {
-                name: obs_node.name.clone(),
-                observable_node_idx: idx,
-                weight: 0.0,
-            });
-        }
-    }
-}
-
 pub fn calculate_observed_graph(
     state_graph: &StateGraphDisplay,
     observable_graph: &ObservableGraphDisplay,
@@ -162,32 +141,83 @@ pub fn calculate_observed_graph(
     let mut observed_graph =
         setup_graph_display(&observed_stable_graph);
 
-    match compute_statistics(state_graph, observable_graph) {
-        Ok(statistics) => {
-            let weights = compute_observed_weights(&statistics, observable_graph);
-
-            let node_updates: Vec<(NodeIndex, NodeIndex, f64)> =
-                observed_graph
-                    .nodes_iter()
-                    .filter_map(|(obs_idx, node)| {
-                        let obs_dest_idx =
-                            node.payload().observable_node_idx;
-                        weights.get(&obs_dest_idx).map(|&weight| {
-                            (obs_idx, obs_dest_idx, weight)
+    match compute_input_statistics(state_graph, observable_graph) {
+        Ok(input_stats) => {
+            match compute_output_statistics(&input_stats) {
+                Ok(output_stats) => {
+                    // Update node weights from observed_prob
+                    let node_updates: Vec<(
+                        NodeIndex,
+                        NodeIndex,
+                        f64,
+                    )> = observed_graph
+                        .nodes_iter()
+                        .filter_map(|(obs_idx, node)| {
+                            let obs_dest_idx =
+                                node.payload().observable_node_idx;
+                            output_stats
+                                .observed_prob
+                                .prob(&obs_dest_idx)
+                                .map(|weight| {
+                                    (obs_idx, obs_dest_idx, weight)
+                                })
                         })
-                    })
-                    .collect();
+                        .collect();
 
-            for (obs_idx, _, weight) in node_updates {
-                if let Some(node_mut) =
-                    observed_graph.node_mut(obs_idx)
-                {
-                    node_mut.payload_mut().weight = weight as f32;
+                    for (obs_idx, _, weight) in node_updates {
+                        if let Some(node_mut) =
+                            observed_graph.node_mut(obs_idx)
+                        {
+                            node_mut.payload_mut().weight =
+                                weight as f32;
+                        }
+                    }
+
+                    // Update edge weights from observed_markov
+                    // Create a mapping from observable node indices to observed graph node indices
+                    let obs_to_observed_idx: std::collections::HashMap<NodeIndex, NodeIndex> =
+                        observed_graph
+                            .nodes_iter()
+                            .map(|(obs_idx, node)| {
+                                (node.payload().observable_node_idx, obs_idx)
+                            })
+                            .collect();
+
+                    // Add edges based on observed_markov transitions
+                    for (source_obs_idx, target_obs_idx, weight) in
+                        output_stats.observed_markov.enumerate()
+                    {
+                        // Skip edges with negligible weight
+                        if weight.abs() < 1e-10 {
+                            continue;
+                        }
+
+                        // Map observable indices to observed graph indices
+                        if let (
+                            Some(&source_idx),
+                            Some(&target_idx),
+                        ) = (
+                            obs_to_observed_idx.get(&source_obs_idx),
+                            obs_to_observed_idx.get(&target_obs_idx),
+                        ) {
+                            observed_graph.add_edge(
+                                source_idx,
+                                target_idx,
+                                weight as f32,
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Output statistics computation error: {}",
+                        e
+                    );
                 }
             }
         }
         Err(e) => {
-            eprintln!("Statistics computation error: {}", e);
+            eprintln!("Input statistics computation error: {}", e);
         }
     }
 
@@ -255,16 +285,16 @@ pub enum StatisticsError {
 }
 
 #[derive(Clone)]
-pub struct Statistics {
-    pub state_prob: Prob<NodeIndex,f64>,
-    pub state_markov: Markov<NodeIndex,NodeIndex,f64>,
-    pub observable_markov: Markov<NodeIndex,NodeIndex,f64>,
+pub struct InputStatistics {
+    pub state_prob: Prob<NodeIndex, f64>,
+    pub state_markov: Markov<NodeIndex, NodeIndex, f64>,
+    pub observable_markov: Markov<NodeIndex, NodeIndex, f64>,
 }
 
-pub fn compute_statistics(
+pub fn compute_input_statistics(
     state_graph: &StateGraphDisplay,
     observable_graph: &ObservableGraphDisplay,
-) -> Result<Statistics, StatisticsError> {
+) -> Result<InputStatistics, StatisticsError> {
     // 1. Validate state graph not empty
     if state_graph.node_count() == 0 {
         return Err(StatisticsError::EmptyStateGraph);
@@ -306,12 +336,13 @@ pub fn compute_statistics(
 
     // Get edges from the underlying petgraph
     let observable_g = observable_graph.g();
-    let observable_edges: Vec<(NodeIndex, NodeIndex, f64)> = observable_g
-        .edge_references()
-        .map(|e| {
-            (e.source(), e.target(), *e.weight().payload() as f64)
-        })
-        .collect();
+    let observable_edges: Vec<(NodeIndex, NodeIndex, f64)> =
+        observable_g
+            .edge_references()
+            .map(|e| {
+                (e.source(), e.target(), *e.weight().payload() as f64)
+            })
+            .collect();
 
     let observable_markov = Markov::from_assoc(
         state_graph.node_count(),
@@ -319,20 +350,100 @@ pub fn compute_statistics(
         observable_edges,
     )?;
 
-    Ok(Statistics {
+    Ok(InputStatistics {
         state_prob,
         state_markov,
         observable_markov,
     })
 }
 
-pub fn compute_observed_weights(
-    statistics: &Statistics,
-    observable_graph: &ObservableGraphDisplay,
-) -> HashMap<NodeIndex, f64> {
-    let observed_prob: Prob<NodeIndex, f64> = statistics.state_prob.dot(&statistics.observable_markov);
+#[derive(Clone)]
+pub struct OutputStatistics {
+    pub observed_prob: Prob<NodeIndex, f64>,
+    pub observed_markov: Markov<NodeIndex, NodeIndex, f64>,
+}
 
-    observed_prob
-        .enumerate()
-        .collect()
+pub fn compute_output_statistics(
+    input_statistics: &InputStatistics,
+) -> Result<OutputStatistics, StatisticsError> {
+    // Compute observed probability: p · F
+    let observed_prob: Prob<NodeIndex, f64> = input_statistics
+        .state_prob
+        .dot(&input_statistics.observable_markov);
+
+    // Compute observed Markov transitions: Φ^f
+    let observed_markov =
+        compute_observable_markov(input_statistics)?;
+
+    Ok(OutputStatistics {
+        observed_prob,
+        observed_markov,
+    })
+}
+
+pub fn compute_observable_markov(
+    statistics: &InputStatistics,
+) -> Result<Markov<NodeIndex, NodeIndex, f64>, StatisticsError> {
+    // Extract destination observable node indices (columns of observable_markov)
+    let dest_nodes: Vec<NodeIndex> =
+        (0..statistics.observable_markov.cols.len())
+            .filter_map(|i| {
+                statistics.observable_markov.cols.value_of(i).cloned()
+            })
+            .collect();
+
+    if dest_nodes.is_empty() {
+        return Err(StatisticsError::EmptyStateGraph); // reuse error for now
+    }
+
+    // Convert state_prob to Vector for element-wise operations
+    let p_vec = statistics.state_prob.to_vec();
+
+    // Collect all (y', y, value) triplets for the observable transition matrix
+    let mut triplets: Vec<(NodeIndex, NodeIndex, f64)> = Vec::new();
+
+    for &y in &dest_nodes {
+        // Get column F_y from observable_markov
+        let f_y = statistics
+            .observable_markov
+            .get_column(&y)
+            .ok_or(StatisticsError::EmptyStateGraph)?; // Column should exist
+
+        // Compute pF_y = p ⊙ F_y (element-wise multiplication)
+        let pf_y = p_vec.mul_elementwise(&f_y);
+
+        // Compute denominator: p · F_y
+        let denominator = p_vec.dot(&f_y);
+
+        // Skip if denominator is zero (undefined transition)
+        if denominator.abs() < 1e-10 {
+            continue;
+        }
+
+        for &y_prime in &dest_nodes {
+            // Get column F_{y'}
+            let f_y_prime = statistics
+                .observable_markov
+                .get_column(&y_prime)
+                .ok_or(StatisticsError::EmptyStateGraph)?;
+
+            // Compute numerator: (pF_y) · Φ · F_{y'}
+            // First: pF_y · Φ (left multiply matrix by vector)
+            let temp_vec = pf_y.dot(&statistics.state_markov);
+
+            // Then: temp_vec · F_{y'} (dot product)
+            let numerator = temp_vec.dot(&f_y_prime);
+
+            // Compute the entry: Φ^f_{y' y}
+            let value = numerator / denominator;
+
+            triplets.push((y_prime, y, value));
+        }
+    }
+
+    // Build the observable Markov matrix from triplets
+    let n = dest_nodes.len();
+    let observable_transition = Markov::from_assoc(n, n, triplets)?;
+
+    Ok(observable_transition)
 }

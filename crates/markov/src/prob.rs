@@ -10,8 +10,8 @@ pub enum BuildError {
         "requested size {0} does not match number of distinct labels {1}"
     )]
     SizeMismatch(usize, usize),
-    #[error("non-positive value encountered")]
-    NonPositive,
+    #[error("negative value encountered")]
+    Negative,
     #[error(
         "row '{0:?}' has zero total weight and cannot be normalized"
     )]
@@ -49,11 +49,11 @@ where
         // Check positivity and aggregate duplicates
         let mut aggregated: Vec<(X, N)> = Vec::new();
         for (x, w) in pairs {
-            if !matches!(
+            if matches!(
                 w.partial_cmp(&N::zero()),
-                Some(Ordering::Greater)
+                Some(Ordering::Less)
             ) {
-                return Err(BuildError::NonPositive);
+                return Err(BuildError::Negative);
             }
             if let Some(last) = aggregated.last_mut() {
                 if last.0 == x {
@@ -88,7 +88,7 @@ where
             total.partial_cmp(&N::zero()),
             Some(Ordering::Greater)
         ) {
-            return Err(BuildError::NonPositive);
+            return Err(BuildError::Negative);
         }
 
         // Normalize

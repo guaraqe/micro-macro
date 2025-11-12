@@ -42,11 +42,11 @@ where
         // Check positivity and aggregate duplicates
         let mut aggregated: Vec<(A, B, N)> = Vec::new();
         for (a, b, w) in triplets {
-            if !matches!(
+            if matches!(
                 w.partial_cmp(&N::zero()),
-                Some(Ordering::Greater)
+                Some(Ordering::Less)
             ) {
-                return Err(BuildError::NonPositive);
+                return Err(BuildError::Negative);
             }
             if let Some(last) = aggregated.last_mut() {
                 if last.0 == a && last.1 == b {
@@ -181,7 +181,10 @@ where
 
     /// Get a column as a Vector<A, N>.
     /// Can be implemented efficiently by multiplying with a basis vector.
-    pub fn get_column(&self, b: &B) -> Option<crate::vector::Vector<A, N>>
+    pub fn get_column(
+        &self,
+        b: &B,
+    ) -> Option<crate::vector::Vector<A, N>>
     where
         N: ndarray::ScalarOperand + 'static + std::ops::AddAssign,
         for<'r> &'r N: std::ops::Mul<&'r N, Output = N>,
@@ -242,11 +245,13 @@ where
         N: Copy,
     {
         // Use CSC format to iterate through all non-zero entries
-        self.csc.iter().filter_map(move |(val, (row_idx, col_idx))| {
-            let row_label = self.rows.value_of(row_idx)?;
-            let col_label = self.cols.value_of(col_idx)?;
-            Some((row_label.clone(), col_label.clone(), *val))
-        })
+        self.csc.iter().filter_map(
+            move |(val, (row_idx, col_idx))| {
+                let row_label = self.rows.value_of(row_idx)?;
+                let col_label = self.cols.value_of(col_idx)?;
+                Some((row_label.clone(), col_label.clone(), *val))
+            },
+        )
     }
 }
 

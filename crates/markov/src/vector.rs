@@ -78,7 +78,10 @@ where
 
     /// Element-wise multiplication with another vector.
     /// Returns a new vector with the same labels.
-    pub fn mul_elementwise(&self, other: &Vector<X, N>) -> Vector<X, N> {
+    pub fn mul_elementwise(
+        &self,
+        other: &Vector<X, N>,
+    ) -> Vector<X, N> {
         let values = &self.values * &other.values;
         Vector {
             values,
