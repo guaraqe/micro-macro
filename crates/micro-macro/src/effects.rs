@@ -54,7 +54,7 @@ pub fn run(store: &mut Store, effect: Effect) {
                     .set(setup_graph_display(&observable_graph_raw));
 
                 store.recompute_observed_graph();
-                store.mark_all_layouts_dirty();
+                // Layout resets now automatic via version tracking
                 Ok(())
             })();
             if let Err(e) = result {

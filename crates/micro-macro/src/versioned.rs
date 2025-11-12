@@ -89,4 +89,10 @@ where
         }
         self.last_value.as_mut().unwrap()
     }
+
+    /// Get the version of the cached value.
+    /// This increments each time the value is recomputed.
+    pub fn version(&self) -> u64 {
+        self.version
+    }
 }

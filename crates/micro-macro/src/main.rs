@@ -861,10 +861,14 @@ impl State {
                     ui.heading("Graph");
                     ui.separator();
 
-                    // Reset layout if needed
-                    self.store.state_layout_reset.run_if_needed(|| {
-                        reset_layout::<LayoutStateCircular>(ui, None);
-                    });
+                    // Reset layout if state graph version changed
+                    let state_version = self.store.state_graph.version();
+                    self.store.state_layout_reset.run_if_version_changed(
+                        state_version,
+                        || {
+                            reset_layout::<LayoutStateCircular>(ui, None);
+                        },
+                    );
 
                     // Clear edge selections when not in EdgeEditor mode,
                     // before creating GraphView
@@ -1241,10 +1245,14 @@ impl State {
                     ui.heading("Observable Mapping");
                     ui.separator();
 
-                    // Reset layout if needed
-                    self.store.observable_layout_reset.run_if_needed(|| {
-                        reset_layout::<LayoutStateBipartite>(ui, None);
-                    });
+                    // Reset layout if observable graph version changed
+                    let observable_version = self.store.observable_graph.version();
+                    self.store.observable_layout_reset.run_if_version_changed(
+                        observable_version,
+                        || {
+                            reset_layout::<LayoutStateBipartite>(ui, None);
+                        },
+                    );
 
                     // Clear edge selections when not in EdgeEditor mode
                     if mode == EditMode::NodeEditor {
@@ -1383,10 +1391,9 @@ impl State {
                         .max_height(available_height)
                         .show(ui, |ui| {
                             // Get nodes data first
-                            let nodes: Vec<_> = self
-                                .cache
-                                .observed_graph
-                                .get(&self.store)
+                            let observed_data = self.cache.observed_data.get(&self.store);
+                            let nodes: Vec<_> = observed_data
+                                .graph
                                 .nodes_iter()
                                 .map(|(idx, node)| {
                                     (idx, node.payload().name.clone(), node.selected())
@@ -1418,10 +1425,9 @@ impl State {
                                 // Display weight (read-only)
                                 ui.horizontal(|ui| {
                                     ui.label("Weight:");
-                                    let weight = self
-                                        .cache
-                                        .observed_graph
-                                        .get(&self.store)
+                                    let observed_data = self.cache.observed_data.get(&self.store);
+                                    let weight = observed_data
+                                        .graph
                                         .node(node_idx)
                                         .map(|n| n.payload().weight)
                                         .unwrap_or(0.0);
@@ -1430,9 +1436,10 @@ impl State {
 
                                 // Show connections when selected
                                 if is_selected {
+                                    let observed_data = self.cache.observed_data.get(&self.store);
                                     let (incoming, outgoing) =
                                         Self::get_connections(
-                                            self.cache.observed_graph.get(&self.store),
+                                            &observed_data.graph,
                                             node_idx,
                                         );
                                     Self::connections_widget(ui, incoming, outgoing);
@@ -1442,7 +1449,8 @@ impl State {
 
                     // Apply any pending observed node selection
                     if let Some((node_idx, selected)) = self.store.observed_node_selection.take() {
-                        if let Some(node) = self.cache.observed_graph.get_mut(&self.store).node_mut(node_idx) {
+                        let observed_data = self.cache.observed_data.get_mut(&self.store);
+                        if let Some(node) = observed_data.graph.node_mut(node_idx) {
                             node.set_selected(selected);
                         }
                     }
@@ -1490,7 +1498,8 @@ impl State {
                     ui.with_layout(
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
-                            ui.label(format!("Values: {}", self.cache.observed_graph.get(&self.store).node_count()));
+                            let observed_data = self.cache.observed_data.get(&self.store);
+                            ui.label(format!("Values: {}", observed_data.graph.node_count()));
                             ui.separator();
                         },
                     );
@@ -1518,13 +1527,14 @@ impl State {
                         ),
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
+                            let observed_data = self.cache.observed_data.get(&self.store);
                             let (
                                 x_labels,
                                 y_labels,
                                 matrix,
                                 x_node_indices,
                                 y_node_indices,
-                            ) = self.cache.observed_heatmap.get(&self.store).clone();
+                            ) = observed_data.heatmap.clone();
 
                             // Display heatmap without editing
                             let editing_state =
@@ -1559,9 +1569,10 @@ impl State {
                     ui.with_layout(
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
+                            let observed_data = self.cache.observed_data.get(&self.store);
                             ui.label(format!(
                                 "Edges: {}",
-                                self.cache.observed_graph.get(&self.store).edge_count()
+                                observed_data.graph.edge_count()
                             ));
                             ui.separator();
                         },
@@ -1580,15 +1591,6 @@ impl State {
                     ui.heading("Observed Graph");
                     ui.separator();
 
-                    // Reset layout if needed
-                    self.store.observed_layout_reset.run_if_needed(
-                        || {
-                            reset_layout::<LayoutStateCircular>(
-                                ui, None,
-                            );
-                        },
-                    );
-
                     // Get settings first to avoid borrowing issues
                     let settings_interaction =
                         SettingsInteraction::new()
@@ -1597,21 +1599,29 @@ impl State {
                             .with_node_selection_enabled(true);
                     let settings_style = self.get_settings_style();
 
-                    // Update edge thicknesses based on global weight distribution
-                    let sorted_weights = self
-                        .cache
-                        .observed_sorted_weights
-                        .get(&self.store)
-                        .clone();
+                    // Get observed version before mutable borrow
+                    let observed_version =
+                        self.cache.observed_data.version();
 
-                    // Get mutable reference to cached graph to preserve layout positions
-                    let observed_graph = self
-                        .cache
-                        .observed_graph
-                        .get_mut(&self.store);
+                    // Get observed data (graph + weights) from unified cache
+                    let observed_data =
+                        self.cache.observed_data.get_mut(&self.store);
+
+                    // Reset layout if the observed graph was recalculated (version changed)
+                    self.store
+                        .observed_layout_reset
+                        .run_if_version_changed(
+                            observed_version,
+                            || {
+                                reset_layout::<LayoutStateCircular>(
+                                    ui, None,
+                                );
+                            },
+                        );
+
                     graph_view::update_edge_thicknesses(
-                        observed_graph,
-                        sorted_weights,
+                        &mut observed_data.graph,
+                        observed_data.sorted_weights.clone(),
                     );
 
                     let available_height =
@@ -1625,7 +1635,7 @@ impl State {
                         |ui| {
                             ui.add(
                                 &mut ObservedGraphView::new(
-                                    observed_graph,
+                                    &mut observed_data.graph,
                                 )
                                 .with_interactions(
                                     &settings_interaction,

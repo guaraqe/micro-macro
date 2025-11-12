@@ -135,18 +135,14 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             {
                 node.set_label(name);
             }
-            store.state_layout_reset.bump();
-            store.observable_layout_reset.bump();
-            store.observed_layout_reset.bump();
+            // Layout resets now automatic via version tracking
             store.sync_source_nodes();
             store.mark_observed_graph_dirty();
             vec![]
         }
         Action::RemoveStateNode { node_idx } => {
             store.state_graph.get_mut().remove_node(node_idx);
-            store.state_layout_reset.bump();
-            store.observable_layout_reset.bump();
-            store.observed_layout_reset.bump();
+            // Layout resets now automatic via version tracking
             store.sync_source_nodes();
             store.mark_observed_graph_dirty();
             vec![]
@@ -158,9 +154,7 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                 node.payload_mut().name = new_name.clone();
                 node.set_label(new_name);
             }
-            store.state_layout_reset.bump();
-            store.observable_layout_reset.bump();
-            store.observed_layout_reset.bump();
+            // Layout resets now automatic via version tracking
             store.sync_source_nodes();
             store.mark_observed_graph_dirty();
             vec![]
@@ -264,15 +258,13 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             {
                 node.set_label(name);
             }
-            store.observable_layout_reset.bump();
-            store.observed_layout_reset.bump();
+            // Layout resets now automatic via version tracking
             store.mark_observed_graph_dirty();
             vec![]
         }
         Action::RemoveObservableDestinationNode { node_idx } => {
             store.observable_graph.get_mut().remove_node(node_idx);
-            store.observable_layout_reset.bump();
-            store.observed_layout_reset.bump();
+            // Layout resets now automatic via version tracking
             store.mark_observed_graph_dirty();
             vec![]
         }

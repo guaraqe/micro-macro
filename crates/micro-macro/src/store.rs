@@ -33,30 +33,29 @@ pub enum ActiveTab {
 }
 
 #[derive(Clone)]
+/// Tracks when to reset layout based on external version changes
+/// (from Versioned or Memoized objects)
 pub struct LayoutReset {
-    version: u64,
     last_acked: u64,
 }
 
 impl LayoutReset {
     pub fn new() -> Self {
-        Self {
-            version: 1,
-            last_acked: 0,
-        }
+        Self { last_acked: 0 }
     }
 
-    pub fn bump(&mut self) {
-        self.version = self.version.saturating_add(1);
-    }
-
-    pub fn run_if_needed<F>(&mut self, mut f: F)
-    where
+    /// Run the provided function if the external version has changed
+    /// Tracks version from Versioned or Memoized objects
+    pub fn run_if_version_changed<F>(
+        &mut self,
+        current_version: u64,
+        mut f: F,
+    ) where
         F: FnMut(),
     {
-        if self.version > self.last_acked {
+        if current_version != self.last_acked {
             f();
-            self.last_acked = self.version;
+            self.last_acked = current_version;
         }
     }
 }
@@ -182,7 +181,7 @@ impl Store {
             self.observable_graph.get(),
         );
         self.observable_graph.set(synced);
-        self.observable_layout_reset.bump();
+        // observable_layout_reset will auto-reset via version tracking
         self.mark_observed_graph_dirty();
     }
 
@@ -201,11 +200,7 @@ impl Store {
         }
     }
 
-    pub fn mark_all_layouts_dirty(&mut self) {
-        self.state_layout_reset.bump();
-        self.observable_layout_reset.bump();
-        self.observed_layout_reset.bump();
-    }
+    // mark_all_layouts_dirty() removed - layout resets now automatic via version tracking
 
     // Uncached versions (used internally by cache)
     pub fn state_heatmap_uncached(&self) -> HeatmapData {
@@ -224,6 +219,13 @@ impl Store {
         compute_generic_heatmap_data(&observed)
     }
 
+    pub fn observed_heatmap_from_graph(
+        &self,
+        observed: &graph_view::ObservedGraphDisplay,
+    ) -> HeatmapData {
+        compute_generic_heatmap_data(observed)
+    }
+
     pub fn state_sorted_weights_uncached(&self) -> Vec<f32> {
         collect_sorted_weights_from_display(self.state_graph.get())
     }
@@ -234,13 +236,8 @@ impl Store {
         )
     }
 
-    pub fn observed_sorted_weights_uncached(&self) -> Vec<f32> {
-        let observed = calculate_observed_graph(
-            self.state_graph.get(),
-            self.observable_graph.get(),
-        );
-        collect_sorted_weights_from_display(&observed)
-    }
+    // observed_sorted_weights_uncached removed - now collected directly from cached observed_graph
+    // This eliminates redundant recalculation of the entire observed graph
 
     pub fn state_selection(&self) -> Vec<usize> {
         self.state_graph
