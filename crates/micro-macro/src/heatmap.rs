@@ -249,7 +249,7 @@ pub fn show_heatmap(
     }
 
     // Collect all non-zero weights for color interpolation
-    // Zero weights are treated the same as missing edges (empty cells)
+    // Missing edges (None values) are rendered as empty cells
     let mut sorted_weights: Vec<f32> = matrix
         .iter()
         .flat_map(|row| row.iter())
@@ -340,18 +340,15 @@ pub fn show_heatmap(
                     let is_editing = new_editing_cell == Some((x_idx, y_idx));
 
                     if is_editing {
-                        // Determine background color based on whether cell has non-zero weight
-                        let cell_color = if let Some(weight) = weight_opt {
-                            if *weight > 0.0 {
-                                // Find position in sorted list and map to Viridis color
-                                let t = calculate_color_position(*weight, &sorted_weights);
-                                viridis(t)
-                            } else {
-                                // Weight is 0, treat as empty
-                                ui.style().visuals.extreme_bg_color
-                            }
-                        } else {
-                            ui.style().visuals.extreme_bg_color
+                        // Determine background color based on weight value;
+                        // treat None as zero weight drawn via Viridis.
+                        let cell_color = {
+                            let weight = weight_opt.unwrap_or(0.0);
+                            let t = calculate_color_position(
+                                weight,
+                                &sorted_weights,
+                            );
+                            viridis(t)
                         };
 
                         // Render text edit widget
@@ -450,18 +447,14 @@ pub fn show_heatmap(
                             }
                         }
                     } else {
-                        // Normal cell rendering
-                        let cell_color = if let Some(weight) = weight_opt {
-                            if *weight > 0.0 {
-                                // Find position in sorted list and map to Viridis color
-                                let t = calculate_color_position(*weight, &sorted_weights);
-                                viridis(t)
-                            } else {
-                                // Weight is 0, treat as empty
-                                ui.style().visuals.extreme_bg_color
-                            }
-                        } else {
-                            ui.style().visuals.extreme_bg_color
+                        // Normal cell rendering; None draws as zero weight.
+                        let cell_color = {
+                            let weight = weight_opt.unwrap_or(0.0);
+                            let t = calculate_color_position(
+                                weight,
+                                &sorted_weights,
+                            );
+                            viridis(t)
                         };
 
                         let (rect, response) = ui.allocate_exact_size(
@@ -483,24 +476,15 @@ pub fn show_heatmap(
 
                         let is_hovered = response.hovered();
                         let final_color = if is_hovered {
-                            if let Some(weight) = weight_opt {
-                                if *weight > 0.0 {
-                                    // Brighten the Viridis color for hover
-                                    let t = calculate_color_position(*weight, &sorted_weights);
-                                    let base = viridis(t);
-                                    // Lighten by adding to each channel
-                                    egui::Color32::from_rgb(
-                                        base.r().saturating_add(40),
-                                        base.g().saturating_add(40),
-                                        base.b().saturating_add(40),
-                                    )
-                                } else {
-                                    // Weight is 0, hover with gray
-                                    egui::Color32::from_rgb(60, 60, 60)
-                                }
-                            } else {
-                                egui::Color32::from_rgb(60, 60, 60)
-                            }
+                            egui::Color32::from_rgb(
+                                cell_color.r().saturating_add(40),
+                                cell_color
+                                    .g()
+                                    .saturating_add(40),
+                                cell_color
+                                    .b()
+                                    .saturating_add(40),
+                            )
                         } else {
                             cell_color
                         };

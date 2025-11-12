@@ -33,23 +33,25 @@ pub type StateGraph = StableGraph<StateNode, f32>;
 
 pub fn default_state_graph() -> StateGraph {
     let mut g = StateGraph::new();
+    let make_name = |n: u32| format!("State {}", n);
 
-    let a = g.add_node(StateNode {
-        name: format!("Node {}", 0),
+    let s_1 = g.add_node(StateNode {
+        name: make_name(1),
         weight: 1.0,
     });
-    let b = g.add_node(StateNode {
-        name: format!("Node {}", 1),
-        weight: 1.0,
+    let s_2 = g.add_node(StateNode {
+        name: make_name(2),
+        weight: 3.0,
     });
-    let c = g.add_node(StateNode {
-        name: format!("Node {}", 2),
-        weight: 1.0,
+    let s_3 = g.add_node(StateNode {
+        name: make_name(3),
+        weight: 2.0,
     });
 
-    g.add_edge(a, b, 1.0);
-    g.add_edge(b, c, 1.0);
-    g.add_edge(c, a, 1.0);
+    g.add_edge(s_1, s_2, 1.0);
+    g.add_edge(s_2, s_1, 2.0);
+    g.add_edge(s_2, s_3, 1.0);
+    g.add_edge(s_3, s_1, 1.0);
 
     g
 }
@@ -84,29 +86,37 @@ pub fn default_observable_graph(
     source_graph: &StateGraph,
 ) -> ObservableGraph {
     let mut g = ObservableGraph::new();
+    let mut state_nodes = Vec::new();
 
     // Add Source nodes mirroring the dynamical system
     for (state_idx, node) in
         source_graph.node_indices().zip(source_graph.node_weights())
     {
-        g.add_node(ObservableNode {
+        let s = g.add_node(ObservableNode {
             name: node.name.clone(),
             node_type: ObservableNodeType::Source,
             state_node_idx: Some(state_idx),
         });
+
+        state_nodes.push(s);
     }
 
     // Add two default Destination nodes
-    g.add_node(ObservableNode {
+    let t_1 = g.add_node(ObservableNode {
         name: String::from("Value 0"),
         node_type: ObservableNodeType::Destination,
         state_node_idx: None,
     });
-    g.add_node(ObservableNode {
+    let t_2 = g.add_node(ObservableNode {
         name: String::from("Value 1"),
         node_type: ObservableNodeType::Destination,
         state_node_idx: None,
     });
+
+    g.add_edge(state_nodes[0], t_1, 1.0);
+    g.add_edge(state_nodes[1], t_1, 2.0);
+    g.add_edge(state_nodes[1], t_2, 1.0);
+    g.add_edge(state_nodes[2], t_2, 1.0);
 
     g
 }
