@@ -366,7 +366,6 @@ impl State {
                 // Drag completed - create edge if hovering different node
                 if let Some(target_node) =
                     self.store.state_graph.get().hovered_node()
-                    && source_node != target_node
                 {
                     self.dispatch(actions::Action::AddStateEdge {
                         source_idx: source_node,
