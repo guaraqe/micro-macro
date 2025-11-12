@@ -697,12 +697,13 @@ impl State {
         ctx: &egui::Context,
         mode: EditMode,
     ) {
-        // Left panel takes the space it needs (min/max width)
+        // Left panel fixed at 25% of the screen width
+        let screen_width = ctx.screen_rect().width().max(1.0);
+        let left_panel_width = screen_width * 0.25;
+
         egui::SidePanel::left("left_panel")
-            .min_width(250.0)
-            .max_width(400.0)
-            .default_width(320.0)
-            .resizable(true)
+            .exact_width(left_panel_width)
+            .resizable(false)
             .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
             .show(ctx, |panel_ui| {
                 egui::TopBottomPanel::bottom("state_left_footer")
@@ -785,15 +786,27 @@ impl State {
                                 all_nodes,
                             );
 
-                            self.label_editor(
-                                ui,
-                                node_idx,
-                                node_name,
-                                |idx, value| actions::Action::UpdateStateNodeLabelEditor { node_idx: idx, value },
-                                |idx, new_name| actions::Action::RenameStateNode { node_idx: idx, new_name },
-                            );
+                            ui.add_space(ui.spacing().item_spacing.x);
 
-                            if ui.button("🗑").clicked() {
+                            let delete_clicked = ui
+                                .with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        let clicked = ui.button("🗑").clicked();
+                                        ui.add_space(ui.spacing().item_spacing.x);
+                                        self.label_editor(
+                                            ui,
+                                            node_idx,
+                                            node_name,
+                                            |idx, value| actions::Action::UpdateStateNodeLabelEditor { node_idx: idx, value },
+                                            |idx, new_name| actions::Action::RenameStateNode { node_idx: idx, new_name },
+                                        );
+                                        clicked
+                                    },
+                                )
+                                .inner;
+
+                            if delete_clicked {
                                 self.dispatch(actions::Action::RemoveStateNode { node_idx });
                             }
                         });
@@ -1149,15 +1162,31 @@ impl State {
                                         all_nodes,
                                     );
 
-                                    self.label_editor(
-                                        ui,
-                                        node_idx,
-                                        node_name,
-                                        |idx, value| actions::Action::UpdateObservableDestinationNodeLabelEditor { node_idx: idx, value },
-                                        |idx, new_name| actions::Action::RenameObservableDestinationNode { node_idx: idx, new_name },
-                                    );
+                                    ui.add_space(ui.spacing().item_spacing.x);
 
-                                    if ui.button("🗑").clicked() {
+                                    let delete_clicked = ui
+                                        .with_layout(
+                                            egui::Layout::right_to_left(
+                                                egui::Align::Center,
+                                            ),
+                                            |ui| {
+                                                let clicked = ui.button("🗑").clicked();
+                                                ui.add_space(
+                                                    ui.spacing().item_spacing.x,
+                                                );
+                                                self.label_editor(
+                                                    ui,
+                                                    node_idx,
+                                                    node_name,
+                                                    |idx, value| actions::Action::UpdateObservableDestinationNodeLabelEditor { node_idx: idx, value },
+                                                    |idx, new_name| actions::Action::RenameObservableDestinationNode { node_idx: idx, new_name },
+                                                );
+                                                clicked
+                                            },
+                                        )
+                                        .inner;
+
+                                    if delete_clicked {
                                         self.dispatch(
                                             actions::Action::RemoveObservableDestinationNode {
                                                 node_idx,
@@ -1801,7 +1830,20 @@ impl State {
             } else {
                 current_weight.to_string()
             };
-            let response = ui.text_edit_singleline(&mut weight_str);
+
+            let response = ui
+                .with_layout(
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        ui.add_space(ui.spacing().item_spacing.x);
+                        let text_width = ui.available_width().max(80.0);
+                        ui.add(
+                            egui::TextEdit::singleline(&mut weight_str)
+                                .desired_width(text_width),
+                        )
+                    },
+                )
+                .inner;
             if response.gained_focus() || response.changed() {
                 self.dispatch(
                     actions::Action::UpdateStateNodeWeightEditor {
@@ -1839,7 +1881,11 @@ impl State {
         } else {
             current_label
         };
-        let response = ui.text_edit_singleline(&mut name_str);
+        let text_width = ui.available_width().max(80.0);
+        let response = ui.add(
+            egui::TextEdit::singleline(&mut name_str)
+                .desired_width(text_width),
+        );
         if response.gained_focus() || response.changed() {
             self.dispatch(on_update(node_idx, name_str.clone()));
         }
