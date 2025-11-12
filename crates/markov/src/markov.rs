@@ -234,6 +234,20 @@ where
             map: self.cols.clone(),
         })
     }
+
+    /// Enumerate all (row_label, col_label, value) triplets.
+    /// Returns an iterator over (A, B, N) tuples for non-zero entries.
+    pub fn enumerate(&self) -> impl Iterator<Item = (A, B, N)> + '_
+    where
+        N: Copy,
+    {
+        // Use CSC format to iterate through all non-zero entries
+        self.csc.iter().filter_map(move |(val, (row_idx, col_idx))| {
+            let row_label = self.rows.value_of(row_idx)?;
+            let col_label = self.cols.value_of(col_idx)?;
+            Some((row_label.clone(), col_label.clone(), *val))
+        })
+    }
 }
 
 // Implement Dot<Prob> for Markov: matrix · vector -> vector

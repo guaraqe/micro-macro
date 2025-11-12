@@ -1,14 +1,17 @@
 // Graph state module - centralized graph type definitions and operations
 
 use crate::graph_view::{
-    ObservableGraphDisplay, ObservedGraphDisplay, StateGraphDisplay,
-    setup_graph_display,
+    GraphDisplay, ObservableGraphDisplay, ObservedGraphDisplay,
+    StateGraphDisplay, setup_graph_display,
 };
 use petgraph::stable_graph::NodeIndex;
 use petgraph::stable_graph::StableGraph;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use markov::{Markov, Prob, Vector};
+use ndarray::linalg::Dot;
+
 
 // Trait for types that have a name
 pub trait HasName {
@@ -128,6 +131,25 @@ impl HasName for ObservedNode {
 
 pub type ObservedGraph = StableGraph<ObservedNode, f32>;
 
+pub fn calculate_observed_graph_new(
+    state_graph: &StateGraphDisplay,
+    observable_graph: &ObservableGraphDisplay,
+) {
+    let mut nodes = Vec::new();
+
+    // Create nodes from Destination nodes in the observable graph
+    for (idx, node) in observable_graph.nodes_iter() {
+        let obs_node = node.payload();
+        if obs_node.node_type == ObservableNodeType::Destination {
+            nodes.push(ObservedNode {
+                name: obs_node.name.clone(),
+                observable_node_idx: idx,
+                weight: 0.0,
+            });
+        }
+    }
+}
+
 pub fn calculate_observed_graph(
     state_graph: &StateGraphDisplay,
     observable_graph: &ObservableGraphDisplay,
@@ -140,8 +162,10 @@ pub fn calculate_observed_graph(
     let mut observed_graph =
         setup_graph_display(&observed_stable_graph);
 
-    match compute_observed_weights(state_graph, observable_graph) {
-        Ok(weights) => {
+    match compute_statistics(state_graph, observable_graph) {
+        Ok(statistics) => {
+            let weights = compute_observed_weights(&statistics, observable_graph);
+
             let node_updates: Vec<(NodeIndex, NodeIndex, f64)> =
                 observed_graph
                     .nodes_iter()
@@ -163,7 +187,7 @@ pub fn calculate_observed_graph(
             }
         }
         Err(e) => {
-            eprintln!("Weight computation error: {}", e);
+            eprintln!("Statistics computation error: {}", e);
         }
     }
 
@@ -223,65 +247,27 @@ where
 // ------------------------------------------------------------------
 
 #[derive(thiserror::Error, Debug)]
-pub enum WeightComputationError {
+pub enum StatisticsError {
     #[error("state graph is empty")]
     EmptyStateGraph,
     #[error("probability construction failed: {0}")]
     ProbError(#[from] markov::prob::BuildError),
 }
 
-pub fn compute_observed_weights<Dn1, De1, Dn2, De2>(
-    state_graph: &egui_graphs::Graph<
-        StateNode,
-        f32,
-        petgraph::Directed,
-        petgraph::graph::DefaultIx,
-        Dn1,
-        De1,
-    >,
-    observable_graph: &egui_graphs::Graph<
-        ObservableNode,
-        f32,
-        petgraph::Directed,
-        petgraph::graph::DefaultIx,
-        Dn2,
-        De2,
-    >,
-) -> Result<HashMap<NodeIndex, f64>, WeightComputationError>
-where
-    Dn1: egui_graphs::DisplayNode<
-            StateNode,
-            f32,
-            petgraph::Directed,
-            petgraph::graph::DefaultIx,
-        >,
-    De1: egui_graphs::DisplayEdge<
-            StateNode,
-            f32,
-            petgraph::Directed,
-            petgraph::graph::DefaultIx,
-            Dn1,
-        >,
-    Dn2: egui_graphs::DisplayNode<
-            ObservableNode,
-            f32,
-            petgraph::Directed,
-            petgraph::graph::DefaultIx,
-        >,
-    De2: egui_graphs::DisplayEdge<
-            ObservableNode,
-            f32,
-            petgraph::Directed,
-            petgraph::graph::DefaultIx,
-            Dn2,
-        >,
-{
-    use markov::{Markov, Prob};
-    use ndarray::linalg::Dot;
+#[derive(Clone)]
+pub struct Statistics {
+    pub state_prob: Prob<NodeIndex,f64>,
+    pub state_markov: Markov<NodeIndex,NodeIndex,f64>,
+    pub observable_markov: Markov<NodeIndex,NodeIndex,f64>,
+}
 
+pub fn compute_statistics(
+    state_graph: &StateGraphDisplay,
+    observable_graph: &ObservableGraphDisplay,
+) -> Result<Statistics, StatisticsError> {
     // 1. Validate state graph not empty
     if state_graph.node_count() == 0 {
-        return Err(WeightComputationError::EmptyStateGraph);
+        return Err(StatisticsError::EmptyStateGraph);
     }
 
     // 2. Build Prob from state node weights
@@ -289,10 +275,26 @@ where
         .nodes_iter()
         .map(|(idx, node)| (idx, node.payload().weight as f64))
         .collect();
-    let prob =
+
+    let state_prob =
         Prob::from_assoc(state_graph.node_count(), state_weights)?;
 
-    // 3. Build Markov from observable edges (source -> destination)
+    // 3. Build state_markov from state graph edges (all nodes)
+    let state_g = state_graph.g();
+    let state_edges: Vec<(NodeIndex, NodeIndex, f64)> = state_g
+        .edge_references()
+        .map(|e| {
+            (e.source(), e.target(), *e.weight().payload() as f64)
+        })
+        .collect();
+
+    let state_markov = Markov::from_assoc(
+        state_graph.node_count(),
+        state_graph.node_count(),
+        state_edges,
+    )?;
+
+    // 4. Build observable_markov from observable edges (source -> destination)
     let dest_nodes: Vec<NodeIndex> = observable_graph
         .nodes_iter()
         .filter(|(_, node)| {
@@ -302,35 +304,35 @@ where
         .map(|(idx, _)| idx)
         .collect();
 
-    if dest_nodes.is_empty() {
-        return Ok(HashMap::new());
-    }
-
     // Get edges from the underlying petgraph
-    let stable_g = observable_graph.g();
-    let edges: Vec<(NodeIndex, NodeIndex, f64)> = stable_g
+    let observable_g = observable_graph.g();
+    let observable_edges: Vec<(NodeIndex, NodeIndex, f64)> = observable_g
         .edge_references()
         .map(|e| {
             (e.source(), e.target(), *e.weight().payload() as f64)
         })
         .collect();
 
-    let markov = Markov::from_assoc(
+    let observable_markov = Markov::from_assoc(
         state_graph.node_count(),
         dest_nodes.len(),
-        edges,
+        observable_edges,
     )?;
 
-    // 4. Compute prob.dot(markov)
-    let observed_prob: Prob<NodeIndex, f64> = prob.dot(&markov);
+    Ok(Statistics {
+        state_prob,
+        state_markov,
+        observable_markov,
+    })
+}
 
-    // 5. Extract weights for destination nodes
-    let mut result = HashMap::new();
-    for &dest_idx in &dest_nodes {
-        if let Some(weight) = observed_prob.prob(&dest_idx) {
-            result.insert(dest_idx, weight);
-        }
-    }
+pub fn compute_observed_weights(
+    statistics: &Statistics,
+    observable_graph: &ObservableGraphDisplay,
+) -> HashMap<NodeIndex, f64> {
+    let observed_prob: Prob<NodeIndex, f64> = statistics.state_prob.dot(&statistics.observable_markov);
 
-    Ok(result)
+    observed_prob
+        .enumerate()
+        .collect()
 }

@@ -64,15 +64,9 @@ pub enum Action {
         new_name: String,
     },
     /// Set the selection state of an observable graph node
-    SelectObservableNode {
-        node_idx: NodeIndex,
-        selected: bool,
-    },
+    SelectObservableNode { node_idx: NodeIndex, selected: bool },
     /// Set the selection state of an observed graph node (cached)
-    SelectObservedNode {
-        node_idx: NodeIndex,
-        selected: bool,
-    },
+    SelectObservedNode { node_idx: NodeIndex, selected: bool },
 
     // Observable Edge Actions
     /// Add a observable edge from Source to Destination
@@ -313,7 +307,8 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
         Action::SelectObservedNode { node_idx, selected } => {
             // Store the selection request to be applied to cached graph
             // The cache will handle this through its own mechanism
-            store.observed_node_selection = Some((node_idx, selected));
+            store.observed_node_selection =
+                Some((node_idx, selected));
             vec![]
         }
 

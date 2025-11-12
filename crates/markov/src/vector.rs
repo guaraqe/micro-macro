@@ -85,6 +85,17 @@ where
             map: self.map.clone(),
         }
     }
+
+    /// Enumerate all (label, value) pairs.
+    /// Returns an iterator over (X, N) tuples.
+    pub fn enumerate(&self) -> impl Iterator<Item = (X, N)> + '_
+    where
+        N: Copy,
+    {
+        (0..self.values.len()).filter_map(move |i| {
+            self.map.value_of(i).map(|x| (x.clone(), self.values[i]))
+        })
+    }
 }
 
 // Import Markov for the cross-type dot method
