@@ -27,9 +27,7 @@ use graph_view::{
     setup_observed_graph_display,
 };
 use layout_bipartite::LayoutStateBipartite;
-use layout_circular::{
-    LayoutCircular, LayoutStateCircular, SortOrder, SpacingConfig,
-};
+use layout_circular::LayoutStateCircular;
 use petgraph::{
     Directed, graph::DefaultIx, stable_graph::NodeIndex,
     visit::EdgeRef,
@@ -43,56 +41,17 @@ const EDGE_PREVIEW_STROKE_WIDTH: f32 = 2.0;
 const EDGE_PREVIEW_COLOR: egui::Color32 =
     egui::Color32::from_rgb(100, 100, 255);
 const GRAPH_FIT_PADDING: f32 = 0.75;
+const STATE_CIRCULAR_BASE_RADIUS: f32 = 120.0;
+const STATE_CIRCULAR_RADIUS_PER_NODE: f32 = 12.0;
+const OBSERVED_CIRCULAR_BASE_RADIUS: f32 = 120.0;
+const OBSERVED_CIRCULAR_RADIUS_PER_NODE: f32 = 12.0;
 
-// ------------------------------------------------------------------
-// Layout Configuration - Customize circular layout behavior here
-// ------------------------------------------------------------------
-
-/// Example: Default configuration (alphabetical sorting, auto-scaling radius)
-#[allow(dead_code)]
-fn default_layout_config() -> LayoutCircular {
-    LayoutCircular::default()
-}
-
-/// Example: Reverse alphabetical sorting
-#[allow(dead_code)]
-fn reverse_alphabetical_config() -> LayoutCircular {
-    LayoutCircular::default()
-        .with_sort_order(SortOrder::ReverseAlphabetical)
-}
-
-/// Example: No sorting (preserve insertion order)
-#[allow(dead_code)]
-fn no_sort_config() -> LayoutCircular {
-    LayoutCircular::default().without_sorting()
-}
-
-/// Example: Custom spacing - larger circle
-#[allow(dead_code)]
-fn large_circle_config() -> LayoutCircular {
-    LayoutCircular::default().with_spacing(
-        SpacingConfig::default().with_fixed_radius(300.0),
-    )
-}
-
-/// Example: Custom spacing - tighter packing
-#[allow(dead_code)]
-fn tight_packing_config() -> LayoutCircular {
-    LayoutCircular::default().with_spacing(
-        SpacingConfig::default()
-            .with_base_radius(30.0)
-            .with_radius_per_node(3.0),
-    )
-}
-
-/// Example: Combined configuration - reverse sort with large circle
-#[allow(dead_code)]
-fn combined_config() -> LayoutCircular {
-    LayoutCircular::default()
-        .with_sort_order(SortOrder::ReverseAlphabetical)
-        .with_spacing(
-            SpacingConfig::default().with_fixed_radius(250.0),
-        )
+fn desired_circular_radius(
+    base: f32,
+    per_node: f32,
+    node_count: usize,
+) -> f32 {
+    base + (node_count as f32) * per_node
 }
 
 // ------------------------------------------------------------------
@@ -950,6 +909,15 @@ impl State {
                             self.store.state_graph.get_mut(),
                             sorted_weights,
                         );
+                        let desired_radius = desired_circular_radius(
+                            STATE_CIRCULAR_BASE_RADIUS,
+                            STATE_CIRCULAR_RADIUS_PER_NODE,
+                            self.store.state_graph.get().node_count(),
+                        );
+                        graph_view::enforce_circular_radius(
+                            self.store.state_graph.get_mut(),
+                            desired_radius,
+                        );
 
                         let settings_interaction = self.get_settings_interaction(mode);
                         let settings_style = self.get_settings_style();
@@ -1718,6 +1686,15 @@ impl State {
                     graph_view::update_edge_thicknesses(
                         &mut observed_data.graph,
                         observed_data.sorted_weights.clone(),
+                    );
+                    let desired_radius = desired_circular_radius(
+                        OBSERVED_CIRCULAR_BASE_RADIUS,
+                        OBSERVED_CIRCULAR_RADIUS_PER_NODE,
+                        observed_data.graph.node_count(),
+                    );
+                    graph_view::enforce_circular_radius(
+                        &mut observed_data.graph,
+                        desired_radius,
                     );
 
                     let available_height =

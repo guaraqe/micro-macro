@@ -35,6 +35,7 @@ impl Default for SpacingConfig {
     }
 }
 
+#[allow(dead_code)]
 impl SpacingConfig {
     pub fn with_base_radius(mut self, base: f32) -> Self {
         self.base_radius = base;
@@ -53,6 +54,7 @@ impl SpacingConfig {
 }
 
 /// Sort order for circular layout nodes
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub enum SortOrder {
     /// Alphabetical by label (ascending)
@@ -72,6 +74,7 @@ pub struct LayoutCircular {
     spacing: SpacingConfig,
 }
 
+#[allow(dead_code)]
 impl LayoutCircular {
     #[allow(dead_code)]
     pub fn new() -> Self {

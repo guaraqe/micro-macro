@@ -15,6 +15,11 @@ use petgraph::graph::DefaultIx;
 use petgraph::stable_graph::{IndexType, StableGraph};
 use petgraph::{Directed, EdgeType};
 
+const EDGE_THICKNESS_MIN: f32 = 1.0;
+const EDGE_THICKNESS_MAX: f32 = 3.0;
+const EDGE_THICKNESS_DEFAULT: f32 =
+    (EDGE_THICKNESS_MIN + EDGE_THICKNESS_MAX) / 2.0;
+
 // ------------------------------------------------------------------
 // Type aliases for graph types
 // ------------------------------------------------------------------
@@ -136,11 +141,11 @@ fn calculate_edge_thickness(
     sorted_weights: &[f32],
 ) -> f32 {
     if sorted_weights.is_empty() {
-        return 3.0; // Middle thickness when no weights available
+        return EDGE_THICKNESS_DEFAULT;
     }
 
     if sorted_weights.len() == 1 {
-        return 3.0; // Middle thickness when only one edge
+        return EDGE_THICKNESS_DEFAULT;
     }
 
     // Find first and last index of the weight in sorted list
@@ -166,11 +171,11 @@ fn calculate_edge_thickness(
     // Calculate middle index
     let middle_idx = (first + last) / 2;
 
-    // Interpolate between 1.0 and 5.0
+    // Interpolate between configured min/max
     let n = sorted_weights.len();
     let ratio = middle_idx as f32 / (n - 1) as f32;
-
-    1.0 + 4.0 * ratio
+    EDGE_THICKNESS_MIN
+        + (EDGE_THICKNESS_MAX - EDGE_THICKNESS_MIN) * ratio
 }
 
 /// Custom edge shape that calculates width from edge weight
@@ -187,7 +192,7 @@ impl From<EdgeProps<f32>> for WeightedEdgeShape {
         let weight = props.payload;
         let mut default_impl = DefaultEdgeShape::from(props);
         // Initialize with middle thickness - will be updated with global weights later
-        default_impl.width = 3.0;
+        default_impl.width = EDGE_THICKNESS_DEFAULT;
         Self {
             default_impl,
             weight,
@@ -270,6 +275,45 @@ pub fn update_edge_thicknesses<N, D>(
             let weight = edge.display().weight;
             edge.display_mut().default_impl.width =
                 calculate_edge_thickness(weight, &sorted_weights);
+        }
+    }
+}
+
+pub fn enforce_circular_radius<N, D>(
+    graph: &mut GraphDisplay<N, D>,
+    radius: f32,
+) where
+    N: Clone,
+    D: DisplayNode<N, f32, Directed, DefaultIx>,
+{
+    if radius <= 0.0 || graph.node_count() == 0 {
+        return;
+    }
+
+    let node_indices: Vec<_> = graph.g().node_indices().collect();
+    if node_indices.is_empty() {
+        return;
+    }
+
+    let mut sum = egui::Vec2::ZERO;
+    for idx in &node_indices {
+        if let Some(node) = graph.node(*idx) {
+            sum += node.location().to_vec2();
+        }
+    }
+    let center_vec = sum / node_indices.len() as f32;
+    let center = center_vec.to_pos2();
+
+    for idx in node_indices {
+        if let Some(node) = graph.node_mut(idx) {
+            let mut dir = node.location() - center;
+            if dir.length_sq() < f32::EPSILON {
+                dir = egui::Vec2::new(0.0, -1.0);
+            } else {
+                dir = dir.normalized();
+            }
+            let new_pos = (center.to_vec2() + dir * radius).to_pos2();
+            node.set_location(new_pos);
         }
     }
 }
