@@ -1077,13 +1077,18 @@ impl State {
         ctx: &egui::Context,
         mode: EditMode,
     ) {
-        // Calculate exact 1/3 split for all three panels
+        // Left panel fixed at 25% of the screen width to match the dynamical tab
+        let screen_width = ctx.screen_rect().width().max(1.0);
+        let left_panel_width = screen_width * 0.25;
+
+        // Remaining panels still use a 3-way split for the rest of the layout
         let available_width = ctx.available_rect().width();
-        let panel_width = available_width / 3.0;
+        let right_panel_width = available_width / 3.0;
 
         // Left panel: Destination node management
         egui::SidePanel::left("observable_left_panel")
-            .exact_width(panel_width)
+            .exact_width(left_panel_width)
+            .resizable(false)
             .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
             .show(ctx, |panel_ui| {
                 egui::TopBottomPanel::bottom("observable_left_footer")
@@ -1212,7 +1217,7 @@ impl State {
 
         // Right panel: Heatmap
         egui::SidePanel::right("observable_right_panel")
-            .exact_width(panel_width)
+            .exact_width(right_panel_width)
             .frame(
                 egui::Frame::side_top_panel(&ctx.style())
                     .inner_margin(8.0),
@@ -1448,13 +1453,18 @@ impl State {
 
     fn render_observed_dynamics_tab(&mut self, ctx: &egui::Context) {
         self.store.ensure_observed_graph_fresh();
-        // Calculate exact 1/3 split for all three panels
+        // Left panel fixed at 25% of the screen width to match other tabs
+        let screen_width = ctx.screen_rect().width().max(1.0);
+        let left_panel_width = screen_width * 0.25;
+
+        // Right panel keeps using the previous 1/3 split
         let available_width = ctx.available_rect().width();
-        let panel_width = available_width / 3.0;
+        let right_panel_width = available_width / 3.0;
 
         // Left panel - read-only node list
         egui::SidePanel::left("observed_left_panel")
-            .exact_width(panel_width)
+            .exact_width(left_panel_width)
+            .resizable(false)
             .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
             .show(ctx, |panel_ui| {
                 egui::TopBottomPanel::bottom("observed_left_footer")
@@ -1599,7 +1609,7 @@ impl State {
 
         // Right panel - read-only heatmap
         egui::SidePanel::right("observed_right_panel")
-            .exact_width(panel_width)
+            .exact_width(right_panel_width)
             .frame(
                 egui::Frame::side_top_panel(&ctx.style())
                     .inner_margin(8.0),
