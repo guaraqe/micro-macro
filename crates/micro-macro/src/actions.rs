@@ -29,7 +29,7 @@ pub enum Action {
     },
     /// Update the label editor for a state graph node
     UpdateStateNodeLabelEditor { node_idx: NodeIndex, value: String },
-    /// Set the selection state of a node
+    /// Set the selection state of a state graph node
     SelectStateNode { node_idx: NodeIndex, selected: bool },
 
     // State Graph Edge Actions
@@ -62,6 +62,16 @@ pub enum Action {
     RenameObservableDestinationNode {
         node_idx: NodeIndex,
         new_name: String,
+    },
+    /// Set the selection state of an observable graph node
+    SelectObservableNode {
+        node_idx: NodeIndex,
+        selected: bool,
+    },
+    /// Set the selection state of an observed graph node (cached)
+    SelectObservedNode {
+        node_idx: NodeIndex,
+        selected: bool,
     },
 
     // Observable Edge Actions
@@ -290,6 +300,20 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                 node.set_label(new_name);
             }
             store.mark_observed_graph_dirty();
+            vec![]
+        }
+        Action::SelectObservableNode { node_idx, selected } => {
+            if let Some(node) =
+                store.observable_graph.get_mut().node_mut(node_idx)
+            {
+                node.set_selected(selected);
+            }
+            vec![]
+        }
+        Action::SelectObservedNode { node_idx, selected } => {
+            // Store the selection request to be applied to cached graph
+            // The cache will handle this through its own mechanism
+            store.observed_node_selection = Some((node_idx, selected));
             vec![]
         }
 

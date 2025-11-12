@@ -634,26 +634,28 @@ impl State {
                             .node(node_idx)
                             .map(|n| n.selected())
                             .unwrap_or(false);
+                        let all_nodes: Vec<_> = self
+                            .store
+                            .state_graph
+                            .get()
+                            .nodes_iter()
+                            .map(|(idx, _)| idx)
+                            .collect();
 
                         ui.horizontal(|ui| {
                             // Collapsible arrow button
-                            let arrow = if is_selected { "▼" } else { "▶" };
-                            if ui.small_button(arrow).clicked() {
-                                // Toggle selection
-                                if is_selected {
-                                    self.dispatch(actions::Action::SelectStateNode { node_idx, selected: false });
-                                } else {
-                                    // Deselect all other nodes first
-                                    let all_nodes: Vec<_> = self.store.state_graph.get().nodes_iter().map(|(idx, _)| idx).collect();
-                                    for idx in all_nodes {
-                                        if idx != node_idx {
-                                            self.dispatch(actions::Action::SelectStateNode { node_idx: idx, selected: false });
-                                        }
+                            self.selection_widget(
+                                ui,
+                                node_idx,
+                                is_selected,
+                                |idx, selected| {
+                                    actions::Action::SelectStateNode {
+                                        node_idx: idx,
+                                        selected,
                                     }
-                                    // Select this node
-                                    self.dispatch(actions::Action::SelectStateNode { node_idx, selected: true });
-                                }
-                            }
+                                },
+                                all_nodes,
+                            );
 
                             self.label_editor(
                                 ui,
@@ -1044,30 +1046,28 @@ impl State {
                                     .node(node_idx)
                                     .map(|n| n.selected())
                                     .unwrap_or(false);
+                                let all_nodes: Vec<_> = self
+                                    .store
+                                    .observable_graph
+                                    .get()
+                                    .nodes_iter()
+                                    .map(|(idx, _)| idx)
+                                    .collect();
 
                                 ui.horizontal(|ui| {
                                     // Collapsible arrow button
-                                    let arrow = if is_selected { "▼" } else { "▶" };
-                                    if ui.small_button(arrow).clicked() {
-                                        // Toggle selection
-                                        if is_selected {
-                                            if let Some(node) = self.store.observable_graph.get_mut().node_mut(node_idx) {
-                                                node.set_selected(false);
+                                    self.selection_widget(
+                                        ui,
+                                        node_idx,
+                                        is_selected,
+                                        |idx, selected| {
+                                            actions::Action::SelectObservableNode {
+                                                node_idx: idx,
+                                                selected,
                                             }
-                                        } else {
-                                            // Deselect all other nodes first
-                                            let all_nodes: Vec<_> = self.store.observable_graph.get().nodes_iter().map(|(idx, _)| idx).collect();
-                                            for idx in all_nodes {
-                                                if let Some(node) = self.store.observable_graph.get_mut().node_mut(idx) {
-                                                    node.set_selected(false);
-                                                }
-                                            }
-                                            // Select this node
-                                            if let Some(node) = self.store.observable_graph.get_mut().node_mut(node_idx) {
-                                                node.set_selected(true);
-                                            }
-                                        }
-                                    }
+                                        },
+                                        all_nodes,
+                                    );
 
                                     self.label_editor(
                                         ui,
@@ -1379,35 +1379,37 @@ impl State {
 
                     // Contents - node list (read-only, no add button)
                     let available_height = ui.available_height() - 40.0;
-                    // Store observed graph reference to avoid multiple mutable borrows
-                    let observed_graph = self.cache.observed_graph.get(&self.store);
                     egui::ScrollArea::vertical()
                         .max_height(available_height)
                         .show(ui, |ui| {
-                            let nodes: Vec<_> = observed_graph
+                            // Get nodes data first
+                            let nodes: Vec<_> = self
+                                .cache
+                                .observed_graph
+                                .get(&self.store)
                                 .nodes_iter()
                                 .map(|(idx, node)| {
-                                    (idx, node.payload().name.clone())
+                                    (idx, node.payload().name.clone(), node.selected())
                                 })
                                 .collect();
 
-                            for (node_idx, node_name) in nodes {
-                                let is_selected = observed_graph
-                                    .node(node_idx)
-                                    .map(|n| n.selected())
-                                    .unwrap_or(false);
+                            let all_nodes: Vec<_> = nodes.iter().map(|(idx, _, _)| *idx).collect();
 
+                            for (node_idx, node_name, is_selected) in nodes {
                                 ui.horizontal(|ui| {
-                                    // Collapsible arrow
-                                    let arrow = if is_selected { "▼" } else { "▶" };
-                                    if ui.small_button(arrow).clicked() {
-                                        if is_selected {
-                                            // Note: observed_graph is read-only, so we can't mutate selection
-                                            // This is a limitation - selection state is not persisted
-                                        } else {
-                                            // Note: observed_graph is read-only
-                                        }
-                                    }
+                                    // Collapsible arrow - now functional!
+                                    self.selection_widget(
+                                        ui,
+                                        node_idx,
+                                        is_selected,
+                                        |idx, selected| {
+                                            actions::Action::SelectObservedNode {
+                                                node_idx: idx,
+                                                selected,
+                                            }
+                                        },
+                                        all_nodes.clone(),
+                                    );
 
                                     // Display name as label (read-only)
                                     ui.label(&node_name);
@@ -1416,7 +1418,11 @@ impl State {
                                 // Display weight (read-only)
                                 ui.horizontal(|ui| {
                                     ui.label("Weight:");
-                                    let weight = observed_graph.node(node_idx)
+                                    let weight = self
+                                        .cache
+                                        .observed_graph
+                                        .get(&self.store)
+                                        .node(node_idx)
                                         .map(|n| n.payload().weight)
                                         .unwrap_or(0.0);
                                     ui.label(format!("{:.4}", weight));
@@ -1426,13 +1432,20 @@ impl State {
                                 if is_selected {
                                     let (incoming, outgoing) =
                                         Self::get_connections(
-                                            observed_graph,
+                                            self.cache.observed_graph.get(&self.store),
                                             node_idx,
                                         );
                                     Self::connections_widget(ui, incoming, outgoing);
                                 }
                             }
                         });
+
+                    // Apply any pending observed node selection
+                    if let Some((node_idx, selected)) = self.store.observed_node_selection.take() {
+                        if let Some(node) = self.cache.observed_graph.get_mut(&self.store).node_mut(node_idx) {
+                            node.set_selected(selected);
+                        }
+                    }
 
                     // Weight histogram at bottom
                     ui.separator();
@@ -1747,6 +1760,31 @@ impl State {
             ui.label(format!("Outgoing ({}):", outgoing.len()));
             for name in outgoing {
                 ui.label(format!("  → {}", name));
+            }
+        }
+    }
+
+    fn selection_widget(
+        &mut self,
+        ui: &mut egui::Ui,
+        node_idx: NodeIndex,
+        is_selected: bool,
+        on_select: impl Fn(NodeIndex, bool) -> actions::Action,
+        all_node_indices: Vec<NodeIndex>,
+    ) {
+        let arrow = if is_selected { "▼" } else { "▶" };
+        if ui.small_button(arrow).clicked() {
+            if is_selected {
+                self.dispatch(on_select(node_idx, false));
+            } else {
+                // Deselect all other nodes first
+                for idx in all_node_indices {
+                    if idx != node_idx {
+                        self.dispatch(on_select(idx, false));
+                    }
+                }
+                // Select this node
+                self.dispatch(on_select(node_idx, true));
             }
         }
     }

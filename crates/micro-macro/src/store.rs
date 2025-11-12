@@ -142,6 +142,7 @@ pub struct Store {
     pub heatmap_edit_buffer: String,
     pub weight_editor: NumberEditor,
     pub label_editor: StringEditor,
+    pub observed_node_selection: Option<(NodeIndex, bool)>,
     pub error_message: Option<String>,
 }
 
@@ -170,6 +171,7 @@ impl Store {
             heatmap_edit_buffer: String::new(),
             weight_editor: NumberEditor::new(),
             label_editor: StringEditor::new(),
+            observed_node_selection: None,
             error_message: None,
         }
     }
