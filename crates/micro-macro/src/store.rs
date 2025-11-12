@@ -149,6 +149,9 @@ pub struct Store {
     pub label_editor: StringEditor,
     pub observed_node_selection: Option<(NodeIndex, bool)>,
     pub error_message: Option<String>,
+    pub state_validation_events: Vec<String>,
+    pub observable_validation_events: Vec<String>,
+    validation_events_version: u64,
 }
 
 impl Store {
@@ -179,6 +182,9 @@ impl Store {
             label_editor: StringEditor::new(),
             observed_node_selection: None,
             error_message: None,
+            state_validation_events: Vec::new(),
+            observable_validation_events: Vec::new(),
+            validation_events_version: 0,
         }
     }
 
@@ -248,6 +254,46 @@ impl Store {
             self.observable_graph.get(),
         );
         collect_observed_node_weights(&observed)
+    }
+
+    pub fn state_node_name(&self, node_idx: NodeIndex) -> String {
+        self.state_graph
+            .get()
+            .g()
+            .node_weight(node_idx)
+            .map(|node| node.payload().name.clone())
+            .unwrap_or_else(|| format!("Node {}", node_idx.index()))
+    }
+
+    pub fn validation_event_messages_state(&self) -> &[String] {
+        &self.state_validation_events
+    }
+
+    pub fn validation_event_messages_observable(&self) -> &[String] {
+        &self.observable_validation_events
+    }
+
+    pub fn validation_error_key(&self) -> (u64, u64, u64) {
+        (
+            self.state_graph.version(),
+            self.observable_graph.version(),
+            self.validation_events_version,
+        )
+    }
+
+    pub fn push_state_validation_error(
+        &mut self,
+        message: impl Into<String>,
+    ) {
+        const MAX_ERRORS: usize = 50;
+        self.state_validation_events.push(message.into());
+        if self.state_validation_events.len() > MAX_ERRORS {
+            self.state_validation_events.drain(
+                ..self.state_validation_events.len() - MAX_ERRORS,
+            );
+        }
+        self.validation_events_version =
+            self.validation_events_version.wrapping_add(1);
     }
 }
 

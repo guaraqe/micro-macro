@@ -13,6 +13,12 @@ mod state;
 mod store;
 mod versioned;
 
+#[derive(Clone, Copy)]
+enum ValidationScope {
+    State,
+    Observable,
+}
+
 use crate::layout_settings::{
     BIPARTITE_LAYER_GAP_RANGE, BIPARTITE_NODE_GAP_RANGE,
     CIRCULAR_BASE_RADIUS_RANGE, EDGE_THICKNESS_MAX_RANGE,
@@ -208,6 +214,41 @@ fn render_probability_chart(
 }
 
 impl State {
+    fn render_validation_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        scope: ValidationScope,
+    ) {
+        let cached = self.cache.validation_errors.get(&self.store);
+        let messages = match scope {
+            ValidationScope::State => cached.state.clone(),
+            ValidationScope::Observable => cached.observable.clone(),
+        };
+        if messages.is_empty() {
+            return;
+        }
+
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgb(255, 230, 230))
+            .stroke(egui::Stroke::new(
+                1.0,
+                egui::Color32::from_rgb(200, 60, 60),
+            ))
+            .inner_margin(egui::Margin::symmetric(8, 8))
+            .show(ui, |ui| {
+                ui.vertical(|ui| {
+                    ui.strong("Validation Issues");
+                    ui.add_space(4.0);
+                    for msg in &messages {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(170, 30, 30),
+                            format!("• {msg}"),
+                        );
+                    }
+                });
+            });
+    }
+
     // Returns (incoming_connections, outgoing_connections) for a given node in any graph
     // Each connection is (node_name, edge_weight)
     fn get_connections<N, D>(
@@ -668,6 +709,11 @@ impl State {
                     .resizable(false)
                     .frame(egui::Frame::NONE)
                     .show_inside(panel_ui, |ui| {
+                        self.render_validation_panel(
+                            ui,
+                            ValidationScope::State,
+                        );
+                        ui.add_space(6.0);
                         self.layout_settings_panel(
                             ui,
                             ActiveTab::DynamicalSystem,
@@ -1031,6 +1077,11 @@ impl State {
                     .resizable(false)
                     .frame(egui::Frame::NONE)
                     .show_inside(panel_ui, |ui| {
+                        self.render_validation_panel(
+                            ui,
+                            ValidationScope::Observable,
+                        );
+                        ui.add_space(6.0);
                         self.layout_settings_panel(
                             ui,
                             ActiveTab::ObservableEditor,

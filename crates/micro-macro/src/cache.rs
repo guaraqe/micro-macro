@@ -1,6 +1,6 @@
 use crate::graph_state::{
-    calculate_observed_graph, compute_input_statistics,
-    compute_output_statistics,
+    ObservableNodeType, calculate_observed_graph,
+    compute_input_statistics, compute_output_statistics,
 };
 use crate::graph_view::ObservedGraphDisplay;
 use crate::heatmap::HeatmapData;
@@ -8,8 +8,12 @@ use crate::store::Store;
 use crate::versioned::Memoized;
 use markov::Prob;
 use ndarray::linalg::Dot;
-use petgraph::stable_graph::NodeIndex;
-use std::collections::HashMap;
+use petgraph::{
+    Direction,
+    stable_graph::NodeIndex,
+    visit::{EdgeRef, IntoEdgeReferences},
+};
+use std::collections::{HashMap, HashSet};
 
 pub struct ProbabilityChart {
     pub labels: HashMap<NodeIndex, String>,
@@ -73,10 +77,17 @@ pub struct ObservedData {
     pub detailed_balance_deviation: f64,
 }
 
+pub struct ValidationErrors {
+    pub state: Vec<String>,
+    pub observable: Vec<String>,
+}
+
 pub struct Cache {
     pub state_data: Memoized<Store, u64, StateData>,
     pub observable_data: Memoized<Store, u64, ObservableData>,
     pub observed_data: Memoized<Store, (u64, u64), ObservedData>,
+    pub validation_errors:
+        Memoized<Store, (u64, u64, u64), ValidationErrors>,
 }
 
 impl Cache {
@@ -385,11 +396,92 @@ impl Cache {
                 }
             },
         );
+        let validation_errors = Memoized::new(
+            |s: &Store| s.validation_error_key(),
+            |s: &Store| {
+                let mut state_messages =
+                    s.validation_event_messages_state().to_vec();
+                let mut observable_messages =
+                    s.validation_event_messages_observable().to_vec();
+                let state_graph = s.state_graph.get();
+                let stable = state_graph.g();
+                let mut seen_pairs = HashSet::new();
+
+                for edge_ref in stable.edge_references() {
+                    let key = (edge_ref.source(), edge_ref.target());
+                    if !seen_pairs.insert(key) {
+                        state_messages.push(format!(
+                            "Duplicate edge detected: {} -> {}",
+                            s.state_node_name(edge_ref.source()),
+                            s.state_node_name(edge_ref.target()),
+                        ));
+                    }
+                }
+
+                for node_idx in stable.node_indices() {
+                    let mut outgoing = stable.edges(node_idx);
+                    if outgoing.next().is_none() {
+                        state_messages.push(format!(
+                            "{} has no outgoing edges",
+                            s.state_node_name(node_idx),
+                        ));
+                    }
+                    let mut incoming = stable.neighbors_directed(
+                        node_idx,
+                        Direction::Incoming,
+                    );
+                    if incoming.next().is_none() {
+                        state_messages.push(format!(
+                            "{} has no incoming edges",
+                            s.state_node_name(node_idx),
+                        ));
+                    }
+                }
+
+                let observable_display = s.observable_graph.get();
+                let observable_stable = observable_display.g();
+                for (node_idx, node) in
+                    observable_display.nodes_iter()
+                {
+                    match node.payload().node_type {
+                        ObservableNodeType::Source => {
+                            let mut outgoing =
+                                observable_stable.edges(node_idx);
+                            if outgoing.next().is_none() {
+                                observable_messages.push(format!(
+                                    "{} has no outgoing edges",
+                                    node.payload().name
+                                ));
+                            }
+                        }
+                        ObservableNodeType::Destination => {
+                            let mut incoming = observable_stable
+                                .neighbors_directed(
+                                    node_idx,
+                                    Direction::Incoming,
+                                );
+                            if incoming.next().is_none() {
+                                observable_messages.push(format!(
+                                    "{} has no incoming edges",
+                                    node.payload().name
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                ValidationErrors {
+                    state: state_messages,
+                    observable: observable_messages,
+                }
+            },
+        );
 
         Self {
             state_data,
             observable_data,
             observed_data,
+            validation_errors,
         }
     }
 }

@@ -216,6 +216,21 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             target_idx,
             weight,
         } => {
+            if store
+                .state_graph
+                .get()
+                .g()
+                .find_edge(source_idx, target_idx)
+                .is_some()
+            {
+                let message = format!(
+                    "Edge from {} to {} already exists",
+                    store.state_node_name(source_idx),
+                    store.state_node_name(target_idx)
+                );
+                store.push_state_validation_error(message);
+                return vec![];
+            }
             store.state_graph.get_mut().add_edge_with_label(
                 source_idx,
                 target_idx,

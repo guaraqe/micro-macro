@@ -69,7 +69,6 @@ pub struct ObservableNode {
     pub node_type: ObservableNodeType,
     /// Reference to the corresponding StateGraph node for Source nodes
     /// None for Destination nodes
-    #[allow(dead_code)]
     // Will be used for edge computation logic
     pub state_node_idx: Option<NodeIndex>,
 }
@@ -126,7 +125,6 @@ pub fn default_observable_graph(
 #[derive(Clone)]
 pub struct ObservedNode {
     pub name: String,
-    #[allow(dead_code)] // Will be used for edge computation logic
     pub observable_node_idx: NodeIndex,
     pub weight: f32,
 }
