@@ -106,8 +106,6 @@ pub enum Action {
     SetEditMode { mode: EditMode },
     /// Switch between DynamicalSystem, ObservableEditor, and ObservedDynamics tabs
     SetActiveTab { tab: ActiveTab },
-    /// Toggle weight display
-    SetShowWeights { show: bool },
     /// Update a layout setting for a tab
     UpdateLayoutSetting {
         tab: ActiveTab,
@@ -441,10 +439,6 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
         }
         Action::SetActiveTab { tab } => {
             store.active_tab = tab;
-            vec![]
-        }
-        Action::SetShowWeights { show } => {
-            store.show_weights = show;
             vec![]
         }
         Action::UpdateLayoutSetting { tab, change } => {

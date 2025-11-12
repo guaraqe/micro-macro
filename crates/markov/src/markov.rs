@@ -330,7 +330,7 @@ where
             if let Some(row) = csr.outer_view(i) {
                 for &val in row.data().iter() {
                     if val > N::zero() {
-                        total = total + pi * val * val.ln();
+                        total += pi * val * val.ln();
                     }
                 }
             }
@@ -378,7 +378,7 @@ where
 
                     // Add |π_i P_ij - π_j P_ji|
                     let diff = (pi * p_ij - pj * p_ji).abs();
-                    total = total + diff;
+                    total += diff;
                 }
             }
         }

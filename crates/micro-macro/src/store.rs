@@ -1,7 +1,6 @@
 use crate::graph_state::{
     HasName, ObservableNode, ObservableNodeType,
-    calculate_observed_graph, default_observable_graph,
-    default_state_graph,
+    default_observable_graph, default_state_graph,
 };
 use crate::graph_view;
 use crate::graph_view::{
@@ -136,7 +135,6 @@ pub struct Store {
     pub active_tab: ActiveTab,
     pub dragging_from: Option<(NodeIndex, egui::Pos2)>,
     pub drag_started: bool,
-    pub show_weights: bool,
     pub layout_settings: LayoutSettings,
     pub state_layout_reset: LayoutReset,
     pub observable_layout_reset: LayoutReset,
@@ -169,7 +167,6 @@ impl Store {
             active_tab: ActiveTab::DynamicalSystem,
             dragging_from: None,
             drag_started: false,
-            show_weights: false,
             layout_settings,
             state_layout_reset: LayoutReset::new(),
             observable_layout_reset: LayoutReset::new(),
@@ -246,14 +243,6 @@ impl Store {
 
     pub fn state_node_weight_stats(&self) -> Vec<(String, f32)> {
         collect_state_node_weights(self.state_graph.get())
-    }
-
-    pub fn observed_node_weight_stats(&self) -> Vec<(String, f32)> {
-        let observed = calculate_observed_graph(
-            self.state_graph.get(),
-            self.observable_graph.get(),
-        );
-        collect_observed_node_weights(&observed)
     }
 
     pub fn state_node_name(&self, node_idx: NodeIndex) -> String {
@@ -490,29 +479,6 @@ where
 
 fn collect_state_node_weights(
     graph: &StateGraphDisplay,
-) -> Vec<(String, f32)> {
-    let mut pairs: Vec<(String, f32)> = graph
-        .nodes_iter()
-        .map(|(_, node)| {
-            let payload = node.payload();
-            (payload.name.clone(), payload.weight)
-        })
-        .collect();
-
-    // Normalize weights to probabilities
-    let total: f32 = pairs.iter().map(|(_, w)| w).sum();
-    if total > 0.0 {
-        for (_, weight) in &mut pairs {
-            *weight /= total;
-        }
-    }
-
-    pairs.sort_by(|a, b| a.0.cmp(&b.0));
-    pairs
-}
-
-fn collect_observed_node_weights(
-    graph: &ObservedGraphDisplay,
 ) -> Vec<(String, f32)> {
     let mut pairs: Vec<(String, f32)> = graph
         .nodes_iter()

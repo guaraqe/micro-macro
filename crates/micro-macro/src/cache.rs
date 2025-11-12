@@ -71,6 +71,7 @@ pub struct ObservedData {
     pub graph: ObservedGraphDisplay,
     pub heatmap: HeatmapData,
     pub sorted_weights: Vec<f32>,
+    pub weight_distribution: ProbabilityChart,
     pub equilibrium_from_state: ProbabilityChart,
     pub equilibrium_calculated: ProbabilityChart,
     pub entropy_rate: f64,
@@ -272,6 +273,47 @@ impl Cache {
                 });
                 weights.insert(0, 0.0);
 
+                let prob_fallback = || {
+                    Prob::from_assoc(
+                        1,
+                        vec![(NodeIndex::new(0), 1.0)],
+                    )
+                    .unwrap()
+                };
+
+                let node_count = graph.node_count().max(1);
+                let observed_weight_assoc: Vec<(NodeIndex, f64)> = graph
+                    .nodes_iter()
+                    .map(|(_, node)| {
+                        (
+                            node.payload().observable_node_idx,
+                            node.payload().weight as f64,
+                        )
+                    })
+                    .collect();
+
+                let total_weight: f64 = observed_weight_assoc
+                    .iter()
+                    .map(|(_, weight)| *weight)
+                    .sum();
+
+                let weight_distribution = if total_weight > 0.0 {
+                    let prob = Prob::from_assoc(
+                        node_count,
+                        observed_weight_assoc,
+                    )
+                    .unwrap_or_else(|_| prob_fallback());
+                    ProbabilityChart::new(
+                        prob,
+                        observed_labels.clone(),
+                    )
+                } else {
+                    ProbabilityChart::new(
+                        prob_fallback(),
+                        observed_labels.clone(),
+                    )
+                };
+
                 // Compute equilibrium distributions and statistics
                 let (
                     equilibrium_from_state,
@@ -389,6 +431,7 @@ impl Cache {
                     graph,
                     heatmap,
                     sorted_weights: weights,
+                    weight_distribution,
                     equilibrium_from_state,
                     equilibrium_calculated,
                     entropy_rate,

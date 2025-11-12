@@ -96,33 +96,6 @@ fn main() -> eframe::Result<()> {
 
 /// Collect all edge weights from a graph and return them sorted (including duplicates)
 /// Always prepends 0.0 to ensure the smallest actual weight doesn't map to minimum thickness
-// Helper function to create histogram data from node weights
-fn create_weight_histogram(
-    data: &[(String, f32)],
-) -> (Vec<egui_plot::Bar>, Vec<String>) {
-    if data.is_empty() {
-        return (Vec::new(), Vec::new());
-    }
-
-    let mut nodes: Vec<(String, f32)> = data.to_vec();
-    nodes.sort_by(|a, b| a.0.cmp(&b.0));
-
-    let names: Vec<String> =
-        nodes.iter().map(|(name, _)| name.clone()).collect();
-
-    let bars = nodes
-        .into_iter()
-        .enumerate()
-        .map(|(i, (name, weight))| {
-            egui_plot::Bar::new(i as f64, weight as f64)
-                .name(name)
-                .width(0.8)
-        })
-        .collect();
-
-    (bars, names)
-}
-
 /// Create probability bars from raw data, normalizing by total weight
 /// Render a probability distribution histogram with statistics
 /// Takes a Prob distribution and displays it as a bar chart with entropy and effective states
@@ -698,7 +671,7 @@ impl State {
         mode: EditMode,
     ) {
         // Left panel fixed at 25% of the screen width
-        let screen_width = ctx.screen_rect().width().max(1.0);
+        let screen_width = ctx.viewport_rect().width().max(1.0);
         let left_panel_width = screen_width * 0.25;
 
         egui::SidePanel::left("left_panel")
@@ -1010,13 +983,6 @@ impl State {
                             self.dispatch(actions::Action::ClearEdgeSelections);
                         }
 
-                        ui.horizontal(|ui| {
-                            let mut show_weights = self.store.show_weights;
-                            ui.checkbox(&mut show_weights, "Show Weights");
-                            if show_weights != self.store.show_weights {
-                                self.dispatch(actions::Action::SetShowWeights { show: show_weights });
-                            }
-                        });
                         });
 
                         // Right: Heatmap
@@ -1078,7 +1044,7 @@ impl State {
         mode: EditMode,
     ) {
         // Left panel fixed at 25% of the screen width to match the dynamical tab
-        let screen_width = ctx.screen_rect().width().max(1.0);
+        let screen_width = ctx.viewport_rect().width().max(1.0);
         let left_panel_width = screen_width * 0.25;
 
         // Remaining panels still use a 3-way split for the rest of the layout
@@ -1453,15 +1419,14 @@ impl State {
 
     fn render_observed_dynamics_tab(&mut self, ctx: &egui::Context) {
         self.store.ensure_observed_graph_fresh();
-        // Left panel fixed at 25% of the screen width to match other tabs
-        let screen_width = ctx.screen_rect().width().max(1.0);
+
+        let screen_width = ctx.viewport_rect().width().max(1.0);
         let left_panel_width = screen_width * 0.25;
 
-        // Right panel keeps using the previous 1/3 split
-        let available_width = ctx.available_rect().width();
-        let right_panel_width = available_width / 3.0;
+        let total_height = ctx.available_rect().height();
+        let histogram_height = (total_height * 0.25).max(180.0);
+        let observed_color = egui::Color32::from_rgb(250, 150, 100);
 
-        // Left panel - read-only node list
         egui::SidePanel::left("observed_left_panel")
             .exact_width(left_panel_width)
             .resizable(false)
@@ -1476,179 +1441,283 @@ impl State {
                             ActiveTab::ObservedDynamics,
                         );
                     });
+
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show_inside(panel_ui, |ui| {
-                        ui.vertical(|ui| {
-                    ui.heading("Observed Values");
-                    ui.separator();
+                        ui.heading("Observed Values");
+                        ui.separator();
 
-                    // Contents - node list (read-only, no add button)
-                    let available_height = ui.available_height() - 40.0;
-                    egui::ScrollArea::vertical()
-                        .max_height(available_height)
-                        .show(ui, |ui| {
-                            // Get nodes data first
-                            let observed_data = self.cache.observed_data.get(&self.store);
-                            let nodes: Vec<_> = observed_data
-                                .graph
-                                .nodes_iter()
-                                .map(|(idx, node)| {
-                                    (idx, node.payload().name.clone(), node.selected())
-                                })
-                                .collect();
-
-                            let all_nodes: Vec<_> = nodes.iter().map(|(idx, _, _)| *idx).collect();
-
-                            for (node_idx, node_name, is_selected) in nodes {
-                                ui.horizontal(|ui| {
-                                    // Collapsible arrow - now functional!
-                                    self.selection_widget(
-                                        ui,
-                                        node_idx,
-                                        is_selected,
-                                        |idx, selected| {
-                                            actions::Action::SelectObservedNode {
-                                                node_idx: idx,
-                                                selected,
-                                            }
-                                        },
-                                        all_nodes.clone(),
-                                    );
-
-                                    // Display name as label (read-only)
-                                    ui.label(&node_name);
-                                });
-
-                                // Display weight (read-only)
-                                ui.horizontal(|ui| {
-                                    ui.label("Weight:");
-                                    let observed_data = self.cache.observed_data.get(&self.store);
-                                    let weight = observed_data
+                        let list_height = ui.available_height() - 40.0;
+                        egui::ScrollArea::vertical()
+                            .max_height(list_height)
+                            .show(ui, |ui| {
+                                let nodes: Vec<_> = {
+                                    let observed_data =
+                                        self.cache.observed_data.get(&self.store);
+                                    observed_data
                                         .graph
-                                        .node(node_idx)
-                                        .map(|n| n.payload().weight)
-                                        .unwrap_or(0.0);
-                                    ui.label(format!("{:.4}", weight));
-                                });
+                                        .nodes_iter()
+                                        .map(|(idx, node)| {
+                                            (
+                                                idx,
+                                                node.payload().name.clone(),
+                                                node.payload().weight,
+                                                node.selected(),
+                                            )
+                                        })
+                                        .collect()
+                                };
 
-                                // Show connections when selected
-                                if is_selected {
-                                    let observed_data = self.cache.observed_data.get(&self.store);
-                                    let (incoming, outgoing) =
-                                        Self::get_connections(
+                                let all_nodes: Vec<_> =
+                                    nodes.iter().map(|(idx, _, _, _)| *idx).collect();
+
+                                for (node_idx, node_name, weight, is_selected) in nodes {
+                                    let connection_data = if is_selected {
+                                        let observed_data =
+                                            self.cache.observed_data.get(&self.store);
+                                        Some(Self::get_connections(
                                             &observed_data.graph,
                                             node_idx,
+                                        ))
+                                    } else {
+                                        None
+                                    };
+
+                                    ui.horizontal(|ui| {
+                                        self.selection_widget(
+                                            ui,
+                                            node_idx,
+                                            is_selected,
+                                            |idx, selected| {
+                                                actions::Action::SelectObservedNode {
+                                                    node_idx: idx,
+                                                    selected,
+                                                }
+                                            },
+                                            all_nodes.clone(),
                                         );
-                                    Self::connections_widget(ui, incoming, outgoing);
+                                        ui.label(&node_name);
+                                    });
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("Weight:");
+                                        ui.label(format!("{:.4}", weight));
+                                    });
+
+                                    if let Some((incoming, outgoing)) = connection_data {
+                                        Self::connections_widget(
+                                            ui,
+                                            incoming,
+                                            outgoing,
+                                        );
+                                    }
                                 }
+                            });
+
+                        if let Some((node_idx, selected)) =
+                            self.store.observed_node_selection.take()
+                        {
+                            let observed_data =
+                                self.cache.observed_data.get_mut(&self.store);
+                            if let Some(node) =
+                                observed_data.graph.node_mut(node_idx)
+                            {
+                                node.set_selected(selected);
                             }
-                        });
-
-                    // Apply any pending observed node selection
-                    if let Some((node_idx, selected)) = self.store.observed_node_selection.take() {
-                        let observed_data = self.cache.observed_data.get_mut(&self.store);
-                        if let Some(node) = observed_data.graph.node_mut(node_idx) {
-                            node.set_selected(selected);
                         }
-                    }
-
-                    // Weight histogram at bottom
-                    ui.separator();
-                    ui.label("Weight Distribution");
-                    let observed_stats = self.store.observed_node_weight_stats();
-                    let (bars, names) =
-                        create_weight_histogram(&observed_stats);
-
-                    // Calculate max weight for proper y-axis range with padding
-                    let max_weight = bars.iter()
-                        .map(|bar| bar.value)
-                        .fold(0.0f64, f64::max);
-                    let y_max = (max_weight * 1.15).ceil(); // Add 15% padding at top and ceiling
-
-                    let chart = egui_plot::BarChart::new("weights", bars)
-                        .color(egui::Color32::from_rgb(250, 150, 100))
-                        .highlight(true)
-                        .element_formatter(Box::new(|bar, _chart| {
-                            format!("{:.3}", bar.value)
-                        }));
-
-                    egui_plot::Plot::new("observed_weight_histogram")
-                        .height(150.0)
-                        .show_axes([true, true])
-                        .allow_zoom(false)
-                        .allow_drag(false)
-                        .allow_scroll(false)
-                        .show_background(false)
-                        .show_grid(false)
-                        .include_y(0.0)
-                        .include_y(y_max)
-                        .x_axis_formatter(move |val, _range| {
-                            let idx = val.value as usize;
-                            names.get(idx).cloned().unwrap_or_default()
-                        })
-                        .y_axis_label("Probability")
-                        .show(ui, |plot_ui| {
-                            plot_ui.bar_chart(chart);
-                        });
-
-                    // Observed Equilibrium (from state) with statistics
-                    let observed_data = self.cache.observed_data.get(&self.store);
-
-                    render_probability_chart(
-                        ui,
-                        "observed_equilibrium_from_state",
-                        "Observed Equilibrium (State × Observable)",
-                        &observed_data.equilibrium_from_state,
-                        egui::Color32::from_rgb(250, 150, 100),
-                        150.0,
-                    );
-                });
-            });
+                    });
             });
 
-        // Right panel - read-only heatmap
-        egui::SidePanel::right("observed_right_panel")
-            .exact_width(right_panel_width)
+        egui::TopBottomPanel::bottom("observed_histogram_panel")
+            .exact_height(histogram_height)
             .frame(
                 egui::Frame::side_top_panel(&ctx.style())
                     .inner_margin(8.0),
             )
             .show(ctx, |ui| {
-                ui.vertical(|ui| {
-                    ui.heading("Observed Dynamics Heatmap");
-                    ui.separator();
+                let observed_data = self.cache.observed_data.get(&self.store);
+                StripBuilder::new(ui)
+                    .size(Size::remainder().at_least(200.0))
+                    .size(Size::remainder().at_least(200.0))
+                    .size(Size::remainder().at_least(200.0))
+                    .size(Size::remainder().at_least(150.0))
+                    .horizontal(|mut strip| {
+                        strip.cell(|ui| {
+                            ui.vertical(|ui| {
+                                let plot_height = ui.available_height() - 30.0;
+                                render_probability_chart(
+                                    ui,
+                                    "observed_weight_distribution",
+                                    "Observed Weight Distribution",
+                                    &observed_data.weight_distribution,
+                                    observed_color,
+                                    plot_height,
+                                );
+                            });
+                        });
 
-                    let available_height =
-                        ui.available_height() - 40.0;
-                    ui.allocate_ui_with_layout(
-                        egui::Vec2::new(
-                            ui.available_width(),
-                            available_height,
-                        ),
-                        egui::Layout::top_down(egui::Align::Center),
-                        |ui| {
-                            let observed_data = self.cache.observed_data.get(&self.store);
+                        strip.cell(|ui| {
+                            ui.vertical(|ui| {
+                                let plot_height = ui.available_height() - 30.0;
+                                render_probability_chart(
+                                    ui,
+                                    "observed_equilibrium_from_state",
+                                    "Observed Equilibrium",
+                                    &observed_data.equilibrium_from_state,
+                                    observed_color,
+                                    plot_height,
+                                );
+                            });
+                        });
+
+                        strip.cell(|ui| {
+                            ui.vertical(|ui| {
+                                let plot_height = ui.available_height() - 30.0;
+                                render_probability_chart(
+                                    ui,
+                                    "observed_equilibrium_calculated",
+                                    "Calculated Equilibrium",
+                                    &observed_data.equilibrium_calculated,
+                                    observed_color,
+                                    plot_height,
+                                );
+                            });
+                        });
+                        strip.cell(|ui| {
+                            ui.vertical(|ui| {
+                                ui.label(format!(
+                                    "Entropy rate: {:.4}",
+                                    observed_data.entropy_rate
+                                ));
+                                ui.label(format!(
+                                    "Detailed balance deviation: {:.4}",
+                                    observed_data.detailed_balance_deviation
+                                ));
+                            });
+                        });
+                    });
+            });
+
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::central_panel(&ctx.style())
+                    .inner_margin(8.0),
+            )
+            .show(ctx, |ui| {
+                StripBuilder::new(ui)
+                    .size(Size::remainder())
+                    .size(Size::remainder())
+                    .horizontal(|mut strip| {
+                        strip.cell(|ui| {
+                            ui.heading("Observed Graph");
+                            ui.separator();
+
+                            let tab_settings = self
+                                .store
+                                .layout_settings
+                                .observed_dynamics
+                                .clone();
+                            node_shapes::set_circular_visual_params(
+                                tab_settings.visuals.node_radius,
+                                tab_settings.visuals.label_gap,
+                                tab_settings.visuals.label_font_size,
+                            );
+                            node_shapes::set_label_visibility(
+                                tab_settings.visuals.show_labels,
+                            );
+                            layout_circular::set_active_spacing(
+                                SpacingConfig::default().with_fixed_radius(
+                                    tab_settings.layout.base_radius,
+                                ),
+                            );
+                            graph_view::set_edge_thickness_bounds(
+                                tab_settings.edges.min_width,
+                                tab_settings.edges.max_width,
+                            );
+                            set_loop_radius(tab_settings.layout.loop_radius);
+
+                            let settings_interaction =
+                                SettingsInteraction::new()
+                                    .with_dragging_enabled(false)
+                                    .with_node_clicking_enabled(true)
+                                    .with_node_selection_enabled(true);
+                            let settings_style = self.get_settings_style(
+                                tab_settings.visuals.show_labels,
+                            );
+                            let settings_navigation =
+                                self.get_settings_navigation();
+
+                            let observed_version =
+                                self.cache.observed_data.version();
+                            let observed_data =
+                                self.cache.observed_data.get_mut(&self.store);
+
+                            self.store
+                                .observed_layout_reset
+                                .run_if_version_changed(
+                                    observed_version,
+                                    || {
+                                        reset_layout::<LayoutStateCircular>(
+                                            ui, None,
+                                        );
+                                    },
+                                );
+
+                            graph_view::update_edge_thicknesses(
+                                &mut observed_data.graph,
+                                observed_data.sorted_weights.clone(),
+                            );
+
+                            let available_height =
+                                ui.available_height() - 60.0;
+                            ui.allocate_ui_with_layout(
+                                egui::Vec2::new(
+                                    ui.available_width(),
+                                    available_height,
+                                ),
+                                egui::Layout::top_down(egui::Align::Center),
+                                |ui| {
+                                    ui.add(
+                                        &mut ObservedGraphView::new(
+                                            &mut observed_data.graph,
+                                        )
+                                        .with_interactions(
+                                            &settings_interaction,
+                                        )
+                                        .with_navigations(
+                                            &settings_navigation,
+                                        )
+                                        .with_styles(&settings_style),
+                                    );
+                                },
+                            );
+
+                        });
+
+                        strip.cell(|ui| {
+                            ui.heading("Observed Heatmap");
+                            ui.separator();
+
                             let (
                                 x_labels,
                                 y_labels,
                                 matrix,
                                 x_node_indices,
                                 y_node_indices,
-                            ) = observed_data.heatmap.clone();
+                            ) = self
+                                .cache
+                                .observed_data
+                                .get(&self.store)
+                                .heatmap
+                                .clone();
 
-                            // Display heatmap without editing
-                            let editing_state =
-                                heatmap::EditingState {
-                                    editing_cell: None, // Always None for read-only
-                                    edit_buffer: String::new(),
-                                };
+                            let editing_state = heatmap::EditingState {
+                                editing_cell: None,
+                                edit_buffer: String::new(),
+                            };
 
-                            let (
-                                new_hover,
-                                _new_editing,
-                                _weight_change,
-                            ) = heatmap::show_heatmap(
+                            let (new_hover, _, _) = heatmap::show_heatmap(
                                 ui,
                                 &x_labels,
                                 &y_labels,
@@ -1660,161 +1729,14 @@ impl State {
                             );
 
                             if new_hover != self.store.heatmap_hovered_cell {
-                                self.dispatch(actions::Action::SetHeatmapHoveredCell { cell: new_hover });
-                            }
-                            // Ignore editing and weight changes (read-only)
-                        },
-                    );
-
-                    // Calculated Observed Equilibrium with statistics
-                    let observed_data = self.cache.observed_data.get(&self.store);
-
-                    render_probability_chart(
-                        ui,
-                        "observed_equilibrium_calculated",
-                        "Calculated Observed Equilibrium",
-                        &observed_data.equilibrium_calculated,
-                        egui::Color32::from_rgb(250, 150, 100),
-                        150.0,
-                    );
-
-                    // Metadata and statistics at bottom
-                    ui.with_layout(
-                        egui::Layout::bottom_up(egui::Align::LEFT),
-                        |ui| {
-                            let observed_data = self.cache.observed_data.get(&self.store);
-                            ui.label(format!(
-                                "Entropy rate: {:.4}",
-                                observed_data.entropy_rate
-                            ));
-                            ui.label(format!(
-                                "Detailed balance deviation: {:.4}",
-                                observed_data.detailed_balance_deviation
-                            ));
-                        },
-                    );
-                });
-            });
-
-        // Center panel - read-only graph visualization
-        egui::CentralPanel::default()
-            .frame(
-                egui::Frame::central_panel(&ctx.style())
-                    .inner_margin(8.0),
-            )
-            .show(ctx, |ui| {
-                ui.vertical(|ui| {
-                    ui.heading("Observed Graph");
-                    ui.separator();
-
-                    let tab_settings = self
-                        .store
-                        .layout_settings
-                        .observed_dynamics
-                        .clone();
-                    node_shapes::set_circular_visual_params(
-                        tab_settings.visuals.node_radius,
-                        tab_settings.visuals.label_gap,
-                        tab_settings.visuals.label_font_size,
-                    );
-                    node_shapes::set_label_visibility(
-                        tab_settings.visuals.show_labels,
-                    );
-                    layout_circular::set_active_spacing(
-                        SpacingConfig::default().with_fixed_radius(
-                            tab_settings.layout.base_radius,
-                        ),
-                    );
-                    graph_view::set_edge_thickness_bounds(
-                        tab_settings.edges.min_width,
-                        tab_settings.edges.max_width,
-                    );
-                    set_loop_radius(tab_settings.layout.loop_radius);
-
-                    // Get settings first to avoid borrowing issues
-                    let settings_interaction =
-                        SettingsInteraction::new()
-                            .with_dragging_enabled(false)
-                            .with_node_clicking_enabled(true)
-                            .with_node_selection_enabled(true);
-                    let settings_style = self.get_settings_style(
-                        tab_settings.visuals.show_labels,
-                    );
-                    let settings_navigation =
-                        self.get_settings_navigation();
-
-                    // Get observed version before mutable borrow
-                    let observed_version =
-                        self.cache.observed_data.version();
-
-                    // Get observed data (graph + weights) from unified cache
-                    let observed_data =
-                        self.cache.observed_data.get_mut(&self.store);
-
-                    // Reset layout if the observed graph was recalculated (version changed)
-                    self.store
-                        .observed_layout_reset
-                        .run_if_version_changed(
-                            observed_version,
-                            || {
-                                reset_layout::<LayoutStateCircular>(
-                                    ui, None,
-                                );
-                            },
-                        );
-
-                    graph_view::update_edge_thicknesses(
-                        &mut observed_data.graph,
-                        observed_data.sorted_weights.clone(),
-                    );
-
-                    let available_height =
-                        ui.available_height() - 60.0;
-                    ui.allocate_ui_with_layout(
-                        egui::Vec2::new(
-                            ui.available_width(),
-                            available_height,
-                        ),
-                        egui::Layout::top_down(egui::Align::Center),
-                        |ui| {
-                            ui.add(
-                                &mut ObservedGraphView::new(
-                                    &mut observed_data.graph,
-                                )
-                                .with_interactions(
-                                    &settings_interaction,
-                                )
-                                .with_navigations(
-                                    &settings_navigation,
-                                )
-                                .with_styles(&settings_style),
-                            );
-                        },
-                    );
-
-                    // Controls at bottom (read-only, no mode switching)
-                    ui.with_layout(
-                        egui::Layout::bottom_up(egui::Align::LEFT),
-                        |ui| {
-                            ui.label("Read-only view");
-                            let mut show_weights =
-                                self.store.show_weights;
-                            ui.checkbox(
-                                &mut show_weights,
-                                "Show Weights",
-                            );
-                            if show_weights != self.store.show_weights
-                            {
                                 self.dispatch(
-                                    actions::Action::SetShowWeights {
-                                        show: show_weights,
+                                    actions::Action::SetHeatmapHoveredCell {
+                                        cell: new_hover,
                                     },
                                 );
                             }
-                            ui.separator();
-                        },
-                    );
-                });
+                        });
+                    });
             });
     }
 
