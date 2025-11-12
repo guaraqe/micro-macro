@@ -1768,10 +1768,13 @@ impl State {
                     egui::Layout::right_to_left(egui::Align::Center),
                     |ui| {
                         ui.add_space(ui.spacing().item_spacing.x);
-                        let text_width = ui.available_width().max(80.0);
+                        let text_width =
+                            ui.available_width().max(80.0);
                         ui.add(
-                            egui::TextEdit::singleline(&mut weight_str)
-                                .desired_width(text_width),
+                            egui::TextEdit::singleline(
+                                &mut weight_str,
+                            )
+                            .desired_width(text_width),
                         )
                     },
                 )

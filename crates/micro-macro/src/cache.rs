@@ -282,15 +282,16 @@ impl Cache {
                 };
 
                 let node_count = graph.node_count().max(1);
-                let observed_weight_assoc: Vec<(NodeIndex, f64)> = graph
-                    .nodes_iter()
-                    .map(|(_, node)| {
-                        (
-                            node.payload().observable_node_idx,
-                            node.payload().weight as f64,
-                        )
-                    })
-                    .collect();
+                let observed_weight_assoc: Vec<(NodeIndex, f64)> =
+                    graph
+                        .nodes_iter()
+                        .map(|(_, node)| {
+                            (
+                                node.payload().observable_node_idx,
+                                node.payload().weight as f64,
+                            )
+                        })
+                        .collect();
 
                 let total_weight: f64 = observed_weight_assoc
                     .iter()
