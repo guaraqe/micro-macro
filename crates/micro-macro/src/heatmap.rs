@@ -26,10 +26,10 @@ pub struct EditingState {
     pub edit_buffer: String,
 }
 
-/// Convert a normalized value [0.0, 1.0] to an Inferno color
-fn inferno(t: f32) -> egui::Color32 {
+/// Convert a normalized value [0.0, 1.0] to a Viridis color
+fn viridis(t: f32) -> egui::Color32 {
     let c =
-        colorous::INFERNO.eval_continuous(t.clamp(0.0, 1.0) as f64);
+        colorous::VIRIDIS.eval_continuous(t.clamp(0.0, 1.0) as f64);
     egui::Color32::from_rgb(c.r, c.g, c.b)
 }
 
@@ -170,7 +170,7 @@ fn render_color_scale(
             // Get color for this weight value by looking up position in sorted list
             let color_t =
                 calculate_color_position(weight, sorted_weights);
-            let color = inferno(color_t);
+            let color = viridis(color_t);
 
             // Top vertex
             mesh.colored_vertex(egui::pos2(x, rect_pos.y), color);
@@ -212,7 +212,7 @@ fn render_color_scale(
             let tick_bottom = tick_top + 5.0;
             ui.painter().line_segment(
                 [egui::pos2(x, tick_top), egui::pos2(x, tick_bottom)],
-                egui::Stroke::new(1.0, egui::Color32::WHITE),
+                egui::Stroke::new(1.0, egui::Color32::DARK_GRAY),
             );
 
             // Draw label
@@ -224,7 +224,7 @@ fn render_color_scale(
                 egui::Align2::CENTER_TOP,
                 text,
                 font_id,
-                egui::Color32::WHITE,
+                egui::Color32::DARK_GRAY,
             );
         }
     });
@@ -248,19 +248,20 @@ pub fn show_heatmap(
         return (None, editing_state, None);
     }
 
-    // Collect all weights and create sorted list for color interpolation
-    // Prepend 0.0 so smallest actual weight doesn't map to black (Inferno low end)
+    // Collect all non-zero weights for color interpolation
+    // Zero weights are treated the same as missing edges (empty cells)
     let mut sorted_weights: Vec<f32> = matrix
         .iter()
         .flat_map(|row| row.iter())
         .filter_map(|&w| w)
+        .filter(|&w| w > 0.0)
         .collect();
 
     sorted_weights.sort_by(|a, b| {
         a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    // Always prepend 0.0 to the sorted list
+    // Prepend 0.0 to the sorted list for color scaling
     sorted_weights.insert(0, 0.0);
 
     let available_rect = ui.available_rect_before_wrap();
@@ -339,11 +340,16 @@ pub fn show_heatmap(
                     let is_editing = new_editing_cell == Some((x_idx, y_idx));
 
                     if is_editing {
-                        // Determine background color based on whether cell has weight
+                        // Determine background color based on whether cell has non-zero weight
                         let cell_color = if let Some(weight) = weight_opt {
-                            // Find position in sorted list and map to Inferno color
-                            let t = calculate_color_position(*weight, &sorted_weights);
-                            inferno(t)
+                            if *weight > 0.0 {
+                                // Find position in sorted list and map to Viridis color
+                                let t = calculate_color_position(*weight, &sorted_weights);
+                                viridis(t)
+                            } else {
+                                // Weight is 0, treat as empty
+                                ui.style().visuals.extreme_bg_color
+                            }
                         } else {
                             ui.style().visuals.extreme_bg_color
                         };
@@ -446,9 +452,14 @@ pub fn show_heatmap(
                     } else {
                         // Normal cell rendering
                         let cell_color = if let Some(weight) = weight_opt {
-                            // Find position in sorted list and map to Inferno color
-                            let t = calculate_color_position(*weight, &sorted_weights);
-                            inferno(t)
+                            if *weight > 0.0 {
+                                // Find position in sorted list and map to Viridis color
+                                let t = calculate_color_position(*weight, &sorted_weights);
+                                viridis(t)
+                            } else {
+                                // Weight is 0, treat as empty
+                                ui.style().visuals.extreme_bg_color
+                            }
                         } else {
                             ui.style().visuals.extreme_bg_color
                         };
@@ -473,15 +484,20 @@ pub fn show_heatmap(
                         let is_hovered = response.hovered();
                         let final_color = if is_hovered {
                             if let Some(weight) = weight_opt {
-                                // Brighten the Inferno color for hover
-                                let t = calculate_color_position(*weight, &sorted_weights);
-                                let base = inferno(t);
-                                // Lighten by adding to each channel
-                                egui::Color32::from_rgb(
-                                    base.r().saturating_add(40),
-                                    base.g().saturating_add(40),
-                                    base.b().saturating_add(40),
-                                )
+                                if *weight > 0.0 {
+                                    // Brighten the Viridis color for hover
+                                    let t = calculate_color_position(*weight, &sorted_weights);
+                                    let base = viridis(t);
+                                    // Lighten by adding to each channel
+                                    egui::Color32::from_rgb(
+                                        base.r().saturating_add(40),
+                                        base.g().saturating_add(40),
+                                        base.b().saturating_add(40),
+                                    )
+                                } else {
+                                    // Weight is 0, hover with gray
+                                    egui::Color32::from_rgb(60, 60, 60)
+                                }
                             } else {
                                 egui::Color32::from_rgb(60, 60, 60)
                             }
@@ -498,17 +514,19 @@ pub fn show_heatmap(
                         );
 
                         if let Some(weight) = weight_opt {
-                            let text = format!("{:.1}", weight);
-                            let font_id = egui::FontId::proportional(9.0);
-                            // Use contrasting text color based on background
-                            let text_color = contrasting_text_color(cell_color);
-                            ui.painter().text(
-                                rect.center(),
-                                egui::Align2::CENTER_CENTER,
-                                text,
-                                font_id,
-                                text_color,
-                            );
+                            if *weight > 0.0 {
+                                let text = format!("{:.1}", weight);
+                                let font_id = egui::FontId::proportional(9.0);
+                                // Use contrasting text color based on background
+                                let text_color = contrasting_text_color(cell_color);
+                                ui.painter().text(
+                                    rect.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    text,
+                                    font_id,
+                                    text_color,
+                                );
+                            }
                         }
                     }
                 }

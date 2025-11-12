@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 colorous = "1.0.16"
 eframe = "0.33.0"
+egui_extras = "0.33.0"
 egui_graphs = "0.29.0"
 egui_plot = "0.34.0"
 egui_tabs = "0.2.1"

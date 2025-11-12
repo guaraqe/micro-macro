@@ -13,6 +13,7 @@ mod versioned;
 
 use eframe::egui;
 use egui_graphs::{SettingsInteraction, SettingsStyle, reset_layout};
+use egui_extras::{StripBuilder, Size};
 use graph_state::{
     ObservableNodeType,
     calculate_observed_graph_from_observable_display,
@@ -98,7 +99,10 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Graph Editor",
         options,
-        Box::new(|_cc| {
+        Box::new(|cc| {
+            // Set light theme
+            cc.egui_ctx.set_visuals(egui::Visuals::light());
+
             let (graph, observable_graph) =
                 store::load_or_create_default_state();
 
@@ -152,29 +156,39 @@ fn create_weight_histogram(
 }
 
 /// Create probability bars from raw data, normalizing by total weight
-fn create_probability_bars(
-    data: &[(String, f64)],
+/// Render a probability distribution histogram with statistics
+/// Takes a Prob distribution and displays it as a bar chart with entropy and effective states
+fn render_probability_chart(
+    ui: &mut egui::Ui,
+    plot_id: &str,
+    title: &str,
+    chart_data: &cache::ProbabilityChart,
     color: egui::Color32,
-) -> (Vec<egui_plot::Bar>, Vec<String>) {
-    if data.is_empty() {
-        return (Vec::new(), Vec::new());
-    }
+    height: f32,
+) {
+    ui.label(title);
 
-    let mut nodes: Vec<(String, f64)> = data.to_vec();
-    nodes.sort_by(|a, b| a.0.cmp(&b.0));
+    // Extract data from ProbabilityChart for plotting
+    let data: Vec<(String, f64)> = chart_data
+        .distribution
+        .enumerate()
+        .map(|(node_idx, value)| {
+            let label = chart_data
+                .labels
+                .get(&node_idx)
+                .cloned()
+                .unwrap_or_else(|| format!("Node {:?}", node_idx));
+            (label, value)
+        })
+        .collect();
 
-    // Normalize: divide by total weight to get probabilities
-    let total: f64 = nodes.iter().map(|(_, w)| w).sum();
-    let normalized: Vec<(String, f64)> = if total > 0.0 {
-        nodes.iter().map(|(name, w)| (name.clone(), w / total)).collect()
-    } else {
-        nodes
-    };
+    // Sort by label for consistent display
+    let mut sorted_data = data.clone();
+    sorted_data.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let names: Vec<String> =
-        normalized.iter().map(|(name, _)| name.clone()).collect();
+    let names: Vec<String> = sorted_data.iter().map(|(name, _)| name.clone()).collect();
 
-    let bars = normalized
+    let bars: Vec<egui_plot::Bar> = sorted_data
         .into_iter()
         .enumerate()
         .map(|(i, (name, prob))| {
@@ -185,32 +199,13 @@ fn create_probability_bars(
         })
         .collect();
 
-    (bars, names)
-}
-
-/// Render a distribution bar chart with entropy and effective states statistics below
-fn render_distribution_with_stats(
-    ui: &mut egui::Ui,
-    plot_id: &str,
-    label: &str,
-    data: &[(String, f64)],
-    entropy: f64,
-    effective_states: f64,
-    color: egui::Color32,
-) {
-    ui.separator();
-    ui.label(label);
-
-    let (bars, names) = create_probability_bars(data, color);
-
     let chart = egui_plot::BarChart::new(plot_id, bars)
+        .color(color)
         .highlight(true)
-        .element_formatter(Box::new(|bar, _chart| {
-            format!("{:.4}", bar.value)
-        }));
+        .element_formatter(Box::new(|bar, _chart| format!("{:.4}", bar.value)));
 
     egui_plot::Plot::new(plot_id)
-        .height(150.0)
+        .height(height)
         .show_axes([true, true])
         .allow_zoom(false)
         .allow_drag(false)
@@ -230,10 +225,17 @@ fn render_distribution_with_stats(
         });
 
     // Display statistics below the plot
+    let num_states = data.len() as f64;
+    let percentage = if num_states > 0.0 {
+        (chart_data.effective_states / num_states) * 100.0
+    } else {
+        0.0
+    };
+
     ui.horizontal(|ui| {
-        ui.label(format!("Entropy: {:.4} nats", entropy));
+        ui.label(format!("Entropy: {:.4}", chart_data.entropy));
         ui.separator();
-        ui.label(format!("Effective states: {:.2}", effective_states));
+        ui.label(format!("Eff: {:.2} ({:.0}%)", chart_data.effective_states, percentage));
     });
 }
 
@@ -307,15 +309,15 @@ impl State {
                  _current_stroke,
                  _style| {
                     if selected {
-                        // Elegant blood red for selected nodes
+                        // Red for selected nodes (light theme)
                         egui::Stroke::new(
                             4.0,
-                            egui::Color32::from_rgb(180, 50, 60),
+                            egui::Color32::from_rgb(200, 60, 70),
                         )
                     } else {
                         egui::Stroke::new(
                             2.0,
-                            egui::Color32::from_rgb(180, 180, 180),
+                            egui::Color32::from_rgb(80, 80, 80),
                         )
                     }
                 },
@@ -323,16 +325,16 @@ impl State {
             .with_edge_stroke_hook(
                 |selected, _order, current_stroke, _style| {
                     // Use the width from current_stroke (which comes from WeightedEdgeShape)
-                    // but change color based on selection
+                    // but change color based on selection (light theme colors)
                     if selected {
                         egui::Stroke::new(
                             current_stroke.width,
-                            egui::Color32::from_rgb(120, 120, 120),
+                            egui::Color32::from_rgb(100, 100, 100),
                         )
                     } else {
                         egui::Stroke::new(
                             current_stroke.width,
-                            egui::Color32::from_rgb(80, 80, 80),
+                            egui::Color32::from_rgb(140, 140, 140),
                         )
                     }
                 },
@@ -677,12 +679,12 @@ impl State {
         ctx: &egui::Context,
         mode: EditMode,
     ) {
-        // Calculate exact 1/3 split for all three panels
-        let available_width = ctx.available_rect().width();
-        let panel_width = available_width / 3.0;
-
+        // Left panel takes the space it needs (min/max width)
         egui::SidePanel::left("left_panel")
-            .exact_width(panel_width)
+            .min_width(250.0)
+            .max_width(400.0)
+            .default_width(320.0)
+            .resizable(true)
             .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
             .show(ctx, |ui| {
             ui.vertical(|ui| {
@@ -776,68 +778,6 @@ impl State {
                     }
                 });
 
-                // Weight histogram at bottom
-                ui.separator();
-                ui.label("Weight Distribution");
-                let node_stats = self.store.state_node_weight_stats();
-                let (bars, names) =
-                    create_weight_histogram(node_stats.as_ref());
-
-                // Calculate max weight for proper y-axis range with padding
-                let max_weight = bars.iter()
-                    .map(|bar| bar.value)
-                    .fold(0.0f64, f64::max);
-                let y_max = (max_weight * 1.15).ceil(); // Add 15% padding at top and ceiling
-
-                let chart = egui_plot::BarChart::new("weights", bars)
-                    .color(egui::Color32::from_rgb(100, 150, 250))
-                    .highlight(true)
-                    .element_formatter(Box::new(|bar, _chart| {
-                        format!("{:.3}", bar.value)
-                    }));
-
-                egui_plot::Plot::new("state_weight_histogram")
-                    .height(150.0)
-                    .show_axes([true, true])
-                    .allow_zoom(false)
-                    .allow_drag(false)
-                    .allow_scroll(false)
-                    .show_background(false)
-                    .show_grid(false)
-                    .include_y(0.0)
-                    .include_y(y_max)
-                    .x_axis_formatter(move |val, _range| {
-                        let idx = val.value as usize;
-                        names.get(idx).cloned().unwrap_or_default()
-                    })
-                    .y_axis_label("Probability")
-                    .show(ui, |plot_ui| {
-                        plot_ui.bar_chart(chart);
-                    });
-
-                // Equilibrium distribution with statistics
-                let state_data = self.cache.state_data.get(&self.store);
-                let equilibrium_data: Vec<(String, f64)> = state_data.equilibrium.enumerate()
-                    .map(|(node_idx, prob)| {
-                        let node_name = self.store.state_graph.get()
-                            .nodes_iter()
-                            .find(|(idx, _)| *idx == node_idx)
-                            .map(|(_, node)| node.payload().name.clone())
-                            .unwrap_or_else(|| format!("Node {:?}", node_idx));
-                        (node_name, prob)
-                    })
-                    .collect();
-
-                render_distribution_with_stats(
-                    ui,
-                    "state_equilibrium_histogram",
-                    "State Equilibrium Distribution",
-                    &equilibrium_data,
-                    state_data.entropy,
-                    state_data.effective_states,
-                    egui::Color32::from_rgb(100, 150, 250),
-                );
-
                 // Metadata at bottom
                 ui.with_layout(
                     egui::Layout::bottom_up(egui::Align::LEFT),
@@ -849,278 +789,210 @@ impl State {
             });
         });
 
-        // Right panel for heatmap (1/3 width)
-        egui::SidePanel::right("right_panel")
-            .exact_width(panel_width)
-            .frame(
-                egui::Frame::side_top_panel(&ctx.style())
-                    .inner_margin(8.0),
-            )
+        // Calculate middle Viridis color for histograms
+        let viridis_mid = {
+            let c = colorous::VIRIDIS.eval_continuous(0.5);
+            egui::Color32::from_rgb(c.r, c.g, c.b)
+        };
+
+        // Bottom panel for histograms - takes ~25% of screen height
+        let total_height = ctx.input(|i| i.screen_rect().height());
+        let histogram_height = (total_height * 0.25).max(180.0);
+
+        egui::TopBottomPanel::bottom("histogram_panel")
+            .exact_height(histogram_height)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
             .show(ctx, |ui| {
-                ui.vertical(|ui| {
-                    // Panel name
-                    ui.heading("Heatmap");
-                    ui.separator();
+                // Use StripBuilder for proper proportional layout in histogram strip
+                StripBuilder::new(ui)
+                    .size(Size::remainder().at_least(200.0)) // Weight histogram
+                    .size(Size::remainder().at_least(200.0)) // Equilibrium histogram
+                    .size(Size::remainder().at_least(150.0)) // Stats
+                    .horizontal(|mut strip| {
+                        // Weight histogram
+                        strip.cell(|ui| {
+                            ui.vertical(|ui| {
+                                let state_data = self.cache.state_data.get(&self.store);
+                                let plot_height = ui.available_height() - 30.0;
 
-                    // Contents - heatmap
-                    let available_height =
-                        ui.available_height() - 40.0; // Reserve space for bottom metadata
-                    ui.allocate_ui_with_layout(
-                        egui::Vec2::new(
-                            ui.available_width(),
-                            available_height,
-                        ),
-                        egui::Layout::top_down(egui::Align::Center),
-                        |ui| {
-                            // Build heatmap data
-                            let (
-                                x_labels,
-                                y_labels,
-                                matrix,
-                                x_node_indices,
-                                y_node_indices,
-                            ) = self.cache.state_data.get(&self.store).heatmap.clone();
-
-                            // Display heatmap with editing support
-                            let editing_state =
-                                heatmap::EditingState {
-                                    editing_cell: self
-                                        .store.heatmap_editing_cell,
-                                    edit_buffer: self
-                                        .store.heatmap_edit_buffer
-                                        .clone(),
-                                };
-
-                            let (
-                                new_hover,
-                                new_editing,
-                                weight_change,
-                            ) = heatmap::show_heatmap(
-                                ui,
-                                &x_labels,
-                                &y_labels,
-                                &matrix,
-                                &x_node_indices,
-                                &y_node_indices,
-                                self.store.heatmap_hovered_cell,
-                                editing_state,
-                            );
-
-                            if new_hover != self.store.heatmap_hovered_cell {
-                                self.dispatch(
-                                    actions::Action::SetHeatmapHoveredCell {
-                                        cell: new_hover,
-                                    },
+                                render_probability_chart(
+                                    ui,
+                                    "state_weight_histogram",
+                                    "Weight Distribution",
+                                    &state_data.weight_distribution,
+                                    viridis_mid,
+                                    plot_height,
                                 );
-                            }
+                            });
+                        });
 
-                            let editing_cell = new_editing.editing_cell;
-                            if editing_cell != self.store.heatmap_editing_cell {
-                                self.dispatch(
-                                    actions::Action::SetHeatmapEditingCell {
-                                        cell: editing_cell,
-                                    },
+                        // Equilibrium histogram
+                        strip.cell(|ui| {
+                            ui.vertical(|ui| {
+                                let state_data = self.cache.state_data.get(&self.store);
+                                let plot_height = ui.available_height() - 30.0;
+
+                                render_probability_chart(
+                                    ui,
+                                    "state_equilibrium_histogram",
+                                    "State Equilibrium Distribution",
+                                    &state_data.equilibrium_distribution,
+                                    viridis_mid,
+                                    plot_height,
                                 );
-                            }
+                            });
+                        });
 
-                            let edit_buffer = new_editing.edit_buffer;
-                            if edit_buffer != self.store.heatmap_edit_buffer {
-                                self.dispatch(
-                                    actions::Action::SetHeatmapEditBuffer {
-                                        buffer: edit_buffer,
-                                    },
-                                );
-                            }
-
-                            // Handle weight changes
-                            if let Some(change) = weight_change {
-                                self.dispatch(
-                                    actions::Action::UpdateStateEdgeWeightFromHeatmap {
-                                        source_idx: change.source_idx,
-                                        target_idx: change.target_idx,
-                                        new_weight: change.new_weight,
-                                    },
-                                );
-                            }
-                        },
-                    );
-
-                    // Metadata and statistics at bottom
-                    ui.with_layout(
-                        egui::Layout::bottom_up(egui::Align::LEFT),
-                        |ui| {
-                            let state_data = self.cache.state_data.get(&self.store);
-                            ui.label(format!(
-                                "Entropy rate: {:.4} nats",
-                                state_data.entropy_rate
-                            ));
-                            ui.label(format!(
-                                "Detailed balance deviation: {:.4}",
-                                state_data.detailed_balance_deviation
-                            ));
-                            ui.separator();
-                            let selected = self.store.state_selection();
-                            ui.label(format!(
-                                "Selected: {}",
-                                selected.len()
-                            ));
-                            ui.label(format!(
-                                "Edges: {}",
-                                self.store.state_graph.get().edge_count()
-                            ));
-                            ui.separator();
-                        },
-                    );
-                });
+                        // Stats section
+                        strip.cell(|ui| {
+                        ui.label("Statistics");
+                        let state_data = self.cache.state_data.get(&self.store);
+                        ui.label(format!("Entropy rate: {:.4}", state_data.entropy_rate));
+                        ui.label(format!("Balance dev: {:.4}", state_data.detailed_balance_deviation));
+                        ui.separator();
+                        let selected = self.store.state_selection();
+                        ui.label(format!("Selected: {}", selected.len()));
+                        ui.label(format!("Edges: {}", self.store.state_graph.get().edge_count()));
+                        ui.label(format!("Nodes: {}", self.store.state_graph.get().node_count()));
+                        });
+                    });
             });
 
+        // Central panel split horizontally: graph on left, heatmap on right
         egui::CentralPanel::default()
-            .frame(
-                egui::Frame::central_panel(&ctx.style())
-                    .inner_margin(8.0),
-            )
+            .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(8.0))
             .show(ctx, |ui| {
-                ui.vertical(|ui| {
-                    // Heading at the top
-                    ui.heading("Graph");
-                    ui.separator();
+                // Use StripBuilder for proper 50/50 split
+                StripBuilder::new(ui)
+                    .size(Size::remainder()) // Graph - 50%
+                    .size(Size::remainder()) // Heatmap - 50%
+                    .horizontal(|mut strip| {
+                        // Left: Graph
+                        strip.cell(|ui| {
+                        ui.heading("Graph");
+                        ui.separator();
 
-                    // Reset layout if state graph version changed
-                    let state_version = self.store.state_graph.version();
-                    self.store.state_layout_reset.run_if_version_changed(
-                        state_version,
-                        || {
-                            reset_layout::<LayoutStateCircular>(ui, None);
-                        },
-                    );
-
-                    // Clear edge selections when not in EdgeEditor mode,
-                    // before creating GraphView
-                    if mode == EditMode::NodeEditor {
-                        self.dispatch(
-                            actions::Action::ClearEdgeSelections,
+                        // Reset layout if state graph version changed
+                        let state_version = self.store.state_graph.version();
+                        self.store.state_layout_reset.run_if_version_changed(
+                            state_version,
+                            || {
+                                reset_layout::<LayoutStateCircular>(ui, None);
+                            },
                         );
-                    }
 
-                    // Update edge thicknesses based on global weight distribution
-                    let sorted_weights = self.cache.state_data.get(&self.store).sorted_weights.clone();
-                    graph_view::update_edge_thicknesses(
-                        self.store.state_graph.get_mut(),
-                        sorted_weights,
-                    );
+                        // Clear edge selections when not in EdgeEditor mode
+                        if mode == EditMode::NodeEditor {
+                            self.dispatch(actions::Action::ClearEdgeSelections);
+                        }
 
-                    let settings_interaction =
-                        self.get_settings_interaction(mode);
-                    let settings_style = self.get_settings_style();
+                        // Update edge thicknesses
+                        let sorted_weights = self.cache.state_data.get(&self.store).sorted_weights.clone();
+                        graph_view::update_edge_thicknesses(
+                            self.store.state_graph.get_mut(),
+                            sorted_weights,
+                        );
 
-                    // Allocate remaining space for the graph
-                    let available_height =
-                        ui.available_height() - 60.0; // Reserve space for bottom instructions
+                        let settings_interaction = self.get_settings_interaction(mode);
+                        let settings_style = self.get_settings_style();
 
-                    ui.allocate_ui_with_layout(
-                        egui::Vec2::new(
-                            ui.available_width(),
-                            available_height,
-                        ),
-                        egui::Layout::top_down(egui::Align::Center),
-                        |ui| {
-                            ui.add(
-                                &mut StateGraphView::new(
-                                    self.store.state_graph.get_mut(),
-                                )
-                                .with_interactions(
-                                    &settings_interaction,
-                                )
+                        // Graph takes most of available space, leaving room for controls
+                        ui.add(
+                            &mut StateGraphView::new(self.store.state_graph.get_mut())
+                                .with_interactions(&settings_interaction)
                                 .with_styles(&settings_style),
-                            );
+                        );
 
-                            // Edge editing functionality (only in Edge Editor mode)
-                            if mode == EditMode::EdgeEditor {
-                                let pointer =
-                                    ui.input(|i| i.pointer.clone());
-
-                                // Handle edge creation and draw preview line if needed
-                                if let Some((from_pos, to_pos)) = self
-                                    .handle_edge_creation(&pointer)
-                                {
-                                    ui.painter().line_segment(
-                                        [from_pos, to_pos],
-                                        egui::Stroke::new(
-                                            EDGE_PREVIEW_STROKE_WIDTH,
-                                            EDGE_PREVIEW_COLOR,
-                                        ),
-                                    );
-                                }
-
-                                self.handle_edge_deletion(&pointer);
-                            } else {
-                                // Reset dragging state and clear selections when not in Edge Editor mode
-                                self.dispatch(
-                                    actions::Action::SetDraggingFrom {
-                                        node_idx: None,
-                                        position: None,
-                                    },
-                                );
-                                self.dispatch(
-                                    actions::Action::SetDragStarted {
-                                        started: false,
-                                    },
-                                );
-                                self.dispatch(
-                                    actions::Action::ClearEdgeSelections,
+                        // Edge editing functionality
+                        if mode == EditMode::EdgeEditor {
+                            let pointer = ui.input(|i| i.pointer.clone());
+                            if let Some((from_pos, to_pos)) = self.handle_edge_creation(&pointer) {
+                                ui.painter().line_segment(
+                                    [from_pos, to_pos],
+                                    egui::Stroke::new(EDGE_PREVIEW_STROKE_WIDTH, EDGE_PREVIEW_COLOR),
                                 );
                             }
-                        },
-                    );
+                            self.handle_edge_deletion(&pointer);
+                        } else {
+                            self.dispatch(actions::Action::SetDraggingFrom {
+                                node_idx: None,
+                                position: None,
+                            });
+                            self.dispatch(actions::Action::SetDragStarted { started: false });
+                            self.dispatch(actions::Action::ClearEdgeSelections);
+                        }
 
-                    // Controls and metadata at the bottom
-                    ui.with_layout(
-                        egui::Layout::bottom_up(egui::Align::LEFT),
-                        |ui| {
-                            let (mode_text, hint_text) =
-                                match mode
-                            {
-                                EditMode::NodeEditor => (
-                                    "Mode: Node Editor",
-                                    "Hold Ctrl for Edge Editor",
-                                ),
-                                EditMode::EdgeEditor
-                                => (
-                                    "Mode: Edge Editor",
-                                    "Release Ctrl for Node Editor",
-                                ),
-                            };
-                            ui.label(hint_text);
-                            ui.label(mode_text);
+                        // Controls at bottom
+                        let (mode_text, hint_text) = match mode {
+                            EditMode::NodeEditor => ("Mode: Node Editor", "Hold Ctrl for Edge Editor"),
+                            EditMode::EdgeEditor => ("Mode: Edge Editor", "Release Ctrl for Node Editor"),
+                        };
+                        ui.label(hint_text);
+                        ui.label(mode_text);
+                        ui.horizontal(|ui| {
                             let mut show_labels = self.store.show_labels;
-                            ui.checkbox(
-                                &mut show_labels,
-                                "Show Labels",
-                            );
+                            ui.checkbox(&mut show_labels, "Show Labels");
                             if show_labels != self.store.show_labels {
-                                self.dispatch(
-                                    actions::Action::SetShowLabels {
-                                        show: show_labels,
-                                    },
-                                );
+                                self.dispatch(actions::Action::SetShowLabels { show: show_labels });
                             }
-
                             let mut show_weights = self.store.show_weights;
-                            ui.checkbox(
-                                &mut show_weights,
-                                "Show Weights",
-                            );
+                            ui.checkbox(&mut show_weights, "Show Weights");
                             if show_weights != self.store.show_weights {
-                                self.dispatch(
-                                    actions::Action::SetShowWeights {
-                                        show: show_weights,
-                                    },
-                                );
+                                self.dispatch(actions::Action::SetShowWeights { show: show_weights });
                             }
-                            ui.separator();
-                        },
-                    );
-                });
+                        });
+                        });
+
+                        // Right: Heatmap
+                        strip.cell(|ui| {
+                        ui.heading("Heatmap");
+                        ui.separator();
+
+                        // Build heatmap data
+                        let (x_labels, y_labels, matrix, x_node_indices, y_node_indices) =
+                            self.cache.state_data.get(&self.store).heatmap.clone();
+
+                        let editing_state = heatmap::EditingState {
+                            editing_cell: self.store.heatmap_editing_cell,
+                            edit_buffer: self.store.heatmap_edit_buffer.clone(),
+                        };
+
+                        let (new_hover, new_editing, weight_change) = heatmap::show_heatmap(
+                            ui,
+                            &x_labels,
+                            &y_labels,
+                            &matrix,
+                            &x_node_indices,
+                            &y_node_indices,
+                            self.store.heatmap_hovered_cell,
+                            editing_state,
+                        );
+
+                        if new_hover != self.store.heatmap_hovered_cell {
+                            self.dispatch(actions::Action::SetHeatmapHoveredCell { cell: new_hover });
+                        }
+
+                        if new_editing.editing_cell != self.store.heatmap_editing_cell {
+                            self.dispatch(actions::Action::SetHeatmapEditingCell {
+                                cell: new_editing.editing_cell,
+                            });
+                        }
+
+                        if new_editing.edit_buffer != self.store.heatmap_edit_buffer {
+                            self.dispatch(actions::Action::SetHeatmapEditBuffer {
+                                buffer: new_editing.edit_buffer,
+                            });
+                        }
+
+                        if let Some(change) = weight_change {
+                            self.dispatch(actions::Action::UpdateStateEdgeWeightFromHeatmap {
+                                source_idx: change.source_idx,
+                                target_idx: change.target_idx,
+                                new_weight: change.new_weight,
+                            });
+                        }
+                        });
+                    });
             });
     }
 
@@ -1620,27 +1492,14 @@ impl State {
 
                     // Observed Equilibrium (from state) with statistics
                     let observed_data = self.cache.observed_data.get(&self.store);
-                    let eq_from_state_data: Vec<(String, f64)> = observed_data.equilibrium_from_state.enumerate()
-                        .map(|(observable_node_idx, prob)| {
-                            // observable_node_idx refers to observable destination nodes
-                            // Find the corresponding observed graph node
-                            let node_name = observed_data.graph
-                                .nodes_iter()
-                                .find(|(_, node)| node.payload().observable_node_idx == observable_node_idx)
-                                .map(|(_, node)| node.payload().name.clone())
-                                .unwrap_or_else(|| format!("Node {:?}", observable_node_idx));
-                            (node_name, prob)
-                        })
-                        .collect();
 
-                    render_distribution_with_stats(
+                    render_probability_chart(
                         ui,
                         "observed_equilibrium_from_state",
                         "Observed Equilibrium (State × Observable)",
-                        &eq_from_state_data,
-                        observed_data.entropy_from_state,
-                        observed_data.effective_states_from_state,
+                        &observed_data.equilibrium_from_state,
                         egui::Color32::from_rgb(250, 150, 100),
+                        150.0,
                     );
 
                     // Metadata at bottom
@@ -1716,27 +1575,14 @@ impl State {
 
                     // Calculated Observed Equilibrium with statistics
                     let observed_data = self.cache.observed_data.get(&self.store);
-                    let eq_calculated_data: Vec<(String, f64)> = observed_data.equilibrium_calculated.enumerate()
-                        .map(|(observable_node_idx, prob)| {
-                            // observable_node_idx refers to observable destination nodes
-                            // Find the corresponding observed graph node
-                            let node_name = observed_data.graph
-                                .nodes_iter()
-                                .find(|(_, node)| node.payload().observable_node_idx == observable_node_idx)
-                                .map(|(_, node)| node.payload().name.clone())
-                                .unwrap_or_else(|| format!("Node {:?}", observable_node_idx));
-                            (node_name, prob)
-                        })
-                        .collect();
 
-                    render_distribution_with_stats(
+                    render_probability_chart(
                         ui,
                         "observed_equilibrium_calculated",
                         "Calculated Observed Equilibrium",
-                        &eq_calculated_data,
-                        observed_data.entropy_calculated,
-                        observed_data.effective_states_calculated,
+                        &observed_data.equilibrium_calculated,
                         egui::Color32::from_rgb(250, 150, 100),
+                        150.0,
                     );
 
                     // Metadata and statistics at bottom
@@ -1745,7 +1591,7 @@ impl State {
                         |ui| {
                             let observed_data = self.cache.observed_data.get(&self.store);
                             ui.label(format!(
-                                "Entropy rate: {:.4} nats",
+                                "Entropy rate: {:.4}",
                                 observed_data.entropy_rate
                             ));
                             ui.label(format!(
