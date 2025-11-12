@@ -437,7 +437,7 @@ pub fn compute_observable_markov(
             // Compute the entry: Φ^f_{y' y}
             let value = numerator / denominator;
 
-            triplets.push((y_prime, y, value));
+            triplets.push((y, y_prime, value));
         }
     }
 
