@@ -151,6 +151,43 @@ fn create_weight_histogram(
     (bars, names)
 }
 
+/// Create probability bars from raw data, normalizing by total weight
+fn create_probability_bars(
+    data: &[(String, f64)],
+    color: egui::Color32,
+) -> (Vec<egui_plot::Bar>, Vec<String>) {
+    if data.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+
+    let mut nodes: Vec<(String, f64)> = data.to_vec();
+    nodes.sort_by(|a, b| a.0.cmp(&b.0));
+
+    // Normalize: divide by total weight to get probabilities
+    let total: f64 = nodes.iter().map(|(_, w)| w).sum();
+    let normalized: Vec<(String, f64)> = if total > 0.0 {
+        nodes.iter().map(|(name, w)| (name.clone(), w / total)).collect()
+    } else {
+        nodes
+    };
+
+    let names: Vec<String> =
+        normalized.iter().map(|(name, _)| name.clone()).collect();
+
+    let bars = normalized
+        .into_iter()
+        .enumerate()
+        .map(|(i, (name, prob))| {
+            egui_plot::Bar::new(i as f64, prob)
+                .name(name)
+                .width(0.8)
+                .fill(color)
+        })
+        .collect();
+
+    (bars, names)
+}
+
 impl State {
     // Returns (incoming_connections, outgoing_connections) for a given node in any graph
     // Each connection is (node_name, edge_weight)
@@ -724,9 +761,54 @@ impl State {
                         let idx = val.value as usize;
                         names.get(idx).cloned().unwrap_or_default()
                     })
-                    .y_axis_label("Weight")
+                    .y_axis_label("Probability")
                     .show(ui, |plot_ui| {
                         plot_ui.bar_chart(chart);
+                    });
+
+                // Equilibrium distribution
+                ui.separator();
+                ui.label("State Equilibrium Distribution");
+                let state_data = self.cache.state_data.get(&self.store);
+                let equilibrium_data: Vec<(String, f64)> = state_data.equilibrium.enumerate()
+                    .map(|(node_idx, prob)| {
+                        let node_name = self.store.state_graph.get()
+                            .nodes_iter()
+                            .find(|(idx, _)| *idx == node_idx)
+                            .map(|(_, node)| node.payload().name.clone())
+                            .unwrap_or_else(|| format!("Node {:?}", node_idx));
+                        (node_name, prob)
+                    })
+                    .collect();
+
+                let (eq_bars, eq_names) = create_probability_bars(
+                    &equilibrium_data,
+                    egui::Color32::from_rgb(100, 150, 250)
+                );
+
+                let eq_chart = egui_plot::BarChart::new("eq_weights", eq_bars)
+                    .highlight(true)
+                    .element_formatter(Box::new(|bar, _chart| {
+                        format!("{:.4}", bar.value)
+                    }));
+
+                egui_plot::Plot::new("state_equilibrium_histogram")
+                    .height(150.0)
+                    .show_axes([true, true])
+                    .allow_zoom(false)
+                    .allow_drag(false)
+                    .allow_scroll(false)
+                    .show_background(false)
+                    .show_grid(false)
+                    .include_y(0.0)
+                    .include_y(1.0)
+                    .x_axis_formatter(move |val, _range| {
+                        let idx = val.value as usize;
+                        eq_names.get(idx).cloned().unwrap_or_default()
+                    })
+                    .y_axis_label("Probability")
+                    .show(ui, |plot_ui| {
+                        plot_ui.bar_chart(eq_chart);
                     });
 
                 // Metadata at bottom
@@ -770,7 +852,7 @@ impl State {
                                 matrix,
                                 x_node_indices,
                                 y_node_indices,
-                            ) = self.cache.state_heatmap.get(&self.store).clone();
+                            ) = self.cache.state_data.get(&self.store).heatmap.clone();
 
                             // Display heatmap with editing support
                             let editing_state =
@@ -884,7 +966,7 @@ impl State {
                     }
 
                     // Update edge thicknesses based on global weight distribution
-                    let sorted_weights = self.cache.state_sorted_weights.get(&self.store).clone();
+                    let sorted_weights = self.cache.state_data.get(&self.store).sorted_weights.clone();
                     graph_view::update_edge_thicknesses(
                         self.store.state_graph.get_mut(),
                         sorted_weights,
@@ -1154,7 +1236,7 @@ impl State {
                                 matrix,
                                 x_node_indices,
                                 y_node_indices,
-                            ) = self.cache.observable_heatmap.get(&self.store).clone();
+                            ) = self.cache.observable_data.get(&self.store).heatmap.clone();
 
                             // Display heatmap with editing support
                             let editing_state =
@@ -1266,7 +1348,7 @@ impl State {
 
                     // Update edge thicknesses based on global weight distribution
                     let sorted_weights =
-                        self.cache.observable_sorted_weights.get(&self.store).clone();
+                        self.cache.observable_data.get(&self.store).sorted_weights.clone();
                     graph_view::update_edge_thicknesses(
                         self.store.observable_graph.get_mut(),
                         sorted_weights,
@@ -1494,9 +1576,56 @@ impl State {
                             let idx = val.value as usize;
                             names.get(idx).cloned().unwrap_or_default()
                         })
-                        .y_axis_label("Weight")
+                        .y_axis_label("Probability")
                         .show(ui, |plot_ui| {
                             plot_ui.bar_chart(chart);
+                        });
+
+                    // Observed Equilibrium (from state)
+                    ui.separator();
+                    ui.label("Observed Equilibrium (State × Observable)");
+                    let observed_data = self.cache.observed_data.get(&self.store);
+                    let eq_from_state_data: Vec<(String, f64)> = observed_data.equilibrium_from_state.enumerate()
+                        .map(|(observable_node_idx, prob)| {
+                            // observable_node_idx refers to observable destination nodes
+                            // Find the corresponding observed graph node
+                            let node_name = observed_data.graph
+                                .nodes_iter()
+                                .find(|(_, node)| node.payload().observable_node_idx == observable_node_idx)
+                                .map(|(_, node)| node.payload().name.clone())
+                                .unwrap_or_else(|| format!("Node {:?}", observable_node_idx));
+                            (node_name, prob)
+                        })
+                        .collect();
+
+                    let (eq_from_state_bars, eq_from_state_names) = create_probability_bars(
+                        &eq_from_state_data,
+                        egui::Color32::from_rgb(250, 150, 100)
+                    );
+
+                    let eq_from_state_chart = egui_plot::BarChart::new("eq_from_state", eq_from_state_bars)
+                        .highlight(true)
+                        .element_formatter(Box::new(|bar, _chart| {
+                            format!("{:.4}", bar.value)
+                        }));
+
+                    egui_plot::Plot::new("observed_equilibrium_from_state")
+                        .height(150.0)
+                        .show_axes([true, true])
+                        .allow_zoom(false)
+                        .allow_drag(false)
+                        .allow_scroll(false)
+                        .show_background(false)
+                        .show_grid(false)
+                        .include_y(0.0)
+                        .include_y(1.0)
+                        .x_axis_formatter(move |val, _range| {
+                            let idx = val.value as usize;
+                            eq_from_state_names.get(idx).cloned().unwrap_or_default()
+                        })
+                        .y_axis_label("Probability")
+                        .show(ui, |plot_ui| {
+                            plot_ui.bar_chart(eq_from_state_chart);
                         });
 
                     // Metadata at bottom
@@ -1569,6 +1698,53 @@ impl State {
                             // Ignore editing and weight changes (read-only)
                         },
                     );
+
+                    // Calculated Observed Equilibrium
+                    ui.separator();
+                    ui.label("Calculated Observed Equilibrium");
+                    let observed_data = self.cache.observed_data.get(&self.store);
+                    let eq_calculated_data: Vec<(String, f64)> = observed_data.equilibrium_calculated.enumerate()
+                        .map(|(observable_node_idx, prob)| {
+                            // observable_node_idx refers to observable destination nodes
+                            // Find the corresponding observed graph node
+                            let node_name = observed_data.graph
+                                .nodes_iter()
+                                .find(|(_, node)| node.payload().observable_node_idx == observable_node_idx)
+                                .map(|(_, node)| node.payload().name.clone())
+                                .unwrap_or_else(|| format!("Node {:?}", observable_node_idx));
+                            (node_name, prob)
+                        })
+                        .collect();
+
+                    let (eq_calc_bars, eq_calc_names) = create_probability_bars(
+                        &eq_calculated_data,
+                        egui::Color32::from_rgb(250, 150, 100)
+                    );
+
+                    let eq_calc_chart = egui_plot::BarChart::new("eq_calculated", eq_calc_bars)
+                        .highlight(true)
+                        .element_formatter(Box::new(|bar, _chart| {
+                            format!("{:.4}", bar.value)
+                        }));
+
+                    egui_plot::Plot::new("observed_equilibrium_calculated")
+                        .height(150.0)
+                        .show_axes([true, true])
+                        .allow_zoom(false)
+                        .allow_drag(false)
+                        .allow_scroll(false)
+                        .show_background(false)
+                        .show_grid(false)
+                        .include_y(0.0)
+                        .include_y(1.0)
+                        .x_axis_formatter(move |val, _range| {
+                            let idx = val.value as usize;
+                            eq_calc_names.get(idx).cloned().unwrap_or_default()
+                        })
+                        .y_axis_label("Probability")
+                        .show(ui, |plot_ui| {
+                            plot_ui.bar_chart(eq_calc_chart);
+                        });
 
                     // Metadata at bottom
                     ui.with_layout(

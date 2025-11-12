@@ -471,6 +471,15 @@ fn collect_state_node_weights(
             (payload.name.clone(), payload.weight)
         })
         .collect();
+
+    // Normalize weights to probabilities
+    let total: f32 = pairs.iter().map(|(_, w)| w).sum();
+    if total > 0.0 {
+        for (_, weight) in &mut pairs {
+            *weight /= total;
+        }
+    }
+
     pairs.sort_by(|a, b| a.0.cmp(&b.0));
     pairs
 }
@@ -485,6 +494,15 @@ fn collect_observed_node_weights(
             (payload.name.clone(), payload.weight)
         })
         .collect();
+
+    // Normalize weights to probabilities
+    let total: f32 = pairs.iter().map(|(_, w)| w).sum();
+    if total > 0.0 {
+        for (_, weight) in &mut pairs {
+            *weight /= total;
+        }
+    }
+
     pairs.sort_by(|a, b| a.0.cmp(&b.0));
     pairs
 }

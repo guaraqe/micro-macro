@@ -138,6 +138,22 @@ where
             self.map.value_of(i).map(|x| (x.clone(), self.probs[i]))
         })
     }
+
+    /// Compute the maximum absolute difference between two probability vectors.
+    /// Used for convergence checks in power iteration.
+    pub fn max_difference(&self, other: &Prob<X, N>) -> N {
+        self.probs
+            .iter()
+            .zip(other.probs.iter())
+            .map(|(a, b)| (*a - *b).abs())
+            .fold(N::zero(), |max, diff| {
+                if diff > max {
+                    diff
+                } else {
+                    max
+                }
+            })
+    }
 }
 
 // Import Markov for the cross-type dot method

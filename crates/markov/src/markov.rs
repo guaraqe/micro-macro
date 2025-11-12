@@ -253,6 +253,54 @@ where
             },
         )
     }
+
+}
+
+// Implement equilibrium computation for square matrices (A = B)
+impl<A, N> Markov<A, A, N>
+where
+    A: Ord + Clone + std::fmt::Debug,
+    N: Float + Default + ndarray::ScalarOperand + 'static + std::ops::AddAssign,
+    for<'r> &'r N: std::ops::Mul<&'r N, Output = N>,
+{
+    /// Compute equilibrium distribution using power iteration.
+    ///
+    /// Repeatedly applies: p_new = p · M until convergence.
+    /// Convergence is reached when max|p_new - p| < tolerance.
+    ///
+    /// This method is only available for square matrices (where row and column labels are the same type).
+    ///
+    /// # Arguments
+    /// * `initial` - Starting probability distribution
+    /// * `tolerance` - Maximum absolute difference for convergence (e.g., 1e-4)
+    /// * `max_iterations` - Maximum number of iterations (e.g., 100)
+    ///
+    /// # Returns
+    /// The equilibrium distribution (or best approximation after max_iterations)
+    pub fn compute_equilibrium(
+        &self,
+        initial: &crate::prob::Prob<A, N>,
+        tolerance: N,
+        max_iterations: usize,
+    ) -> crate::prob::Prob<A, N> {
+        let mut current = initial.clone();
+
+        for _ in 0..max_iterations {
+            // p_new = p · M (left multiplication)
+            let next = current.dot(self);
+
+            // Check convergence
+            let diff = current.max_difference(&next);
+            if diff < tolerance {
+                return next;
+            }
+
+            current = next;
+        }
+
+        // Return best approximation after max iterations
+        current
+    }
 }
 
 // Implement Dot<Prob> for Markov: matrix · vector -> vector
