@@ -119,6 +119,14 @@ where
     pub fn index_of(&self, x: &X) -> Option<usize> {
         self.map.index_of(x)
     }
+
+    /// Convert to a Vector (without normalization constraint).
+    pub fn to_vec(&self) -> crate::vector::Vector<X, N> {
+        crate::vector::Vector {
+            values: self.probs.clone(),
+            map: self.map.clone(),
+        }
+    }
 }
 
 // Import Markov for the cross-type dot method

@@ -178,6 +178,62 @@ where
                 .collect(),
         )
     }
+
+    /// Get a column as a Vector<A, N>.
+    /// Can be implemented efficiently by multiplying with a basis vector.
+    pub fn get_column(&self, b: &B) -> Option<crate::vector::Vector<A, N>>
+    where
+        N: ndarray::ScalarOperand + 'static + std::ops::AddAssign,
+        for<'r> &'r N: std::ops::Mul<&'r N, Output = N>,
+    {
+        let j = self.cols.index_of(b)?;
+        let m = self.rows.len();
+        let mut result_vec = vec![N::zero(); m];
+
+        // Extract column j from CSC matrix
+        if let Some(col) = self.csc.outer_view(j) {
+            for (row_idx, &val) in
+                col.indices().iter().zip(col.data().iter())
+            {
+                result_vec[*row_idx] = val;
+            }
+        }
+
+        let result_values = ndarray::Array1::from(result_vec);
+
+        Some(crate::vector::Vector {
+            values: result_values,
+            map: self.rows.clone(),
+        })
+    }
+
+    /// Get a row as a Prob<B, N>.
+    /// Returns the probability distribution for a given row label.
+    pub fn get_row(&self, a: &A) -> Option<crate::prob::Prob<B, N>>
+    where
+        N: ndarray::ScalarOperand,
+    {
+        let i = self.rows.index_of(a)?;
+        let n = self.cols.len();
+        let mut result_vec = vec![N::zero(); n];
+
+        // Convert to CSR to efficiently access row i
+        let csr = self.csc.to_csr();
+        if let Some(row) = csr.outer_view(i) {
+            for (col_idx, &val) in
+                row.indices().iter().zip(row.data().iter())
+            {
+                result_vec[*col_idx] = val;
+            }
+        }
+
+        let result_probs = ndarray::Array1::from(result_vec);
+
+        Some(crate::prob::Prob {
+            probs: result_probs,
+            map: self.cols.clone(),
+        })
+    }
 }
 
 // Implement Dot<Prob> for Markov: matrix · vector -> vector
@@ -216,6 +272,47 @@ where
 
         crate::prob::Prob {
             probs: result_probs,
+            map: self.rows.clone(),
+        }
+    }
+}
+
+// Implement Dot<Vector> for Markov: matrix · vector -> vector
+impl<A, B, N> Dot<crate::vector::Vector<B, N>> for Markov<A, B, N>
+where
+    A: Ord + Clone + std::fmt::Debug,
+    B: Ord + Clone + std::fmt::Debug,
+    N: Float
+        + Default
+        + ndarray::ScalarOperand
+        + 'static
+        + std::ops::AddAssign,
+    for<'r> &'r N: std::ops::Mul<&'r N, Output = N>,
+{
+    type Output = crate::vector::Vector<A, N>;
+
+    /// Matrix-vector dot product: self · rhs (right multiplication)
+    /// Treats rhs as a column vector with B labels.
+    /// Returns Vector<A, N> with row labels.
+    ///
+    /// Computes: result[a] = sum_b matrix[a, b] * rhs[b]
+    /// Uses sprs optimized CSC matrix-vector product via prod module
+    fn dot(
+        &self,
+        rhs: &crate::vector::Vector<B, N>,
+    ) -> crate::vector::Vector<A, N> {
+        // Use sprs optimized CSC matrix · vector multiplication
+        let m = self.rows.len();
+        let mut result_vec = vec![N::zero(); m];
+        prod::mul_acc_mat_vec_csc(
+            self.csc.view(),
+            rhs.values.as_slice().unwrap(),
+            &mut result_vec,
+        );
+        let result_values = ndarray::Array1::from(result_vec);
+
+        crate::vector::Vector {
+            values: result_values,
             map: self.rows.clone(),
         }
     }
