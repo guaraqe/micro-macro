@@ -152,39 +152,32 @@ fn create_weight_histogram(
 }
 
 impl State {
-    // Returns (incoming_nodes, outgoing_nodes) for a given node
-    fn get_node_connections(
-        &self,
+    // Returns (incoming_nodes, outgoing_nodes) for a given node in any graph
+    fn get_connections<N>(
+        graph: &graph_view::GraphDisplay<N>,
         node_idx: NodeIndex,
-    ) -> (Vec<String>, Vec<String>) {
-        let incoming: Vec<String> = self
-            .store
-            .state_graph
-            .get()
+    ) -> (Vec<String>, Vec<String>)
+    where
+        N: Clone + graph_state::HasName,
+    {
+        let incoming: Vec<String> = graph
             .edges_directed(node_idx, petgraph::Direction::Incoming)
             .map(|edge_ref| {
                 let other_idx = edge_ref.source();
-                self.store
-                    .state_graph
-                    .get()
+                graph
                     .node(other_idx)
-                    .map(|n| n.payload().name.clone())
+                    .map(|n| n.payload().name())
                     .unwrap_or_else(|| String::from("???"))
             })
             .collect();
 
-        let outgoing: Vec<String> = self
-            .store
-            .state_graph
-            .get()
+        let outgoing: Vec<String> = graph
             .edges_directed(node_idx, petgraph::Direction::Outgoing)
             .map(|edge_ref| {
                 let other_idx = edge_ref.target();
-                self.store
-                    .state_graph
-                    .get()
+                graph
                     .node(other_idx)
-                    .map(|n| n.payload().name.clone())
+                    .map(|n| n.payload().name())
                     .unwrap_or_else(|| String::from("???"))
             })
             .collect();
@@ -680,33 +673,12 @@ impl State {
 
                         // Only show connection info if this node is selected
                         if is_selected {
-
                             let (incoming, outgoing) =
-                                self.get_node_connections(node_idx);
-
-                            ui.label(format!(
-                                "Incoming ({}):",
-                                incoming.len()
-                            ));
-                            if incoming.is_empty() {
-                                ui.label("  None");
-                            } else {
-                                for name in incoming {
-                                    ui.label(format!("  ← {}", name));
-                                }
-                            }
-
-                            ui.label(format!(
-                                "Outgoing ({}):",
-                                outgoing.len()
-                            ));
-                            if outgoing.is_empty() {
-                                ui.label("  None");
-                            } else {
-                                for name in outgoing {
-                                    ui.label(format!("  → {}", name));
-                                }
-                            }
+                                Self::get_connections(
+                                    self.store.state_graph.get(),
+                                    node_idx,
+                                );
+                            Self::connections_widget(ui, incoming, outgoing);
                         }
                     }
                 });
@@ -1116,28 +1088,12 @@ impl State {
 
                                 // Show incoming Source nodes when selected
                                 if is_selected {
-                                    let incoming_sources: Vec<String> = self
-                                        .store.observable_graph
-                                        .get()
-                                        .edges_directed(node_idx, petgraph::Direction::Incoming)
-                                        .map(|edge_ref| {
-                                            let source_idx = edge_ref.source();
-                                            self.store.observable_graph
-                                                .get()
-                                                .node(source_idx)
-                                                .map(|n| n.payload().name.clone())
-                                                .unwrap_or_else(|| String::from("???"))
-                                        })
-                                        .collect();
-
-                                    ui.label(format!("Incoming ({}):", incoming_sources.len()));
-                                    if incoming_sources.is_empty() {
-                                        ui.label("  None");
-                                    } else {
-                                        for name in incoming_sources {
-                                            ui.label(format!("  ← {}", name));
-                                        }
-                                    }
+                                    let (incoming, _outgoing) =
+                                        Self::get_connections(
+                                            self.store.observable_graph.get(),
+                                            node_idx,
+                                        );
+                                    Self::connections_widget(ui, incoming, vec![]);
                                 }
                             }
                         });
@@ -1468,45 +1424,12 @@ impl State {
 
                                 // Show connections when selected
                                 if is_selected {
-                                    let incoming: Vec<String> = observed_graph
-                                        .edges_directed(node_idx, petgraph::Direction::Incoming)
-                                        .map(|edge_ref| {
-                                            let other_idx = edge_ref.source();
-                                            observed_graph
-                                                .node(other_idx)
-                                                .map(|n| n.payload().name.clone())
-                                                .unwrap_or_else(|| String::from("???"))
-                                        })
-                                        .collect();
-
-                                    let outgoing: Vec<String> = observed_graph
-                                        .edges_directed(node_idx, petgraph::Direction::Outgoing)
-                                        .map(|edge_ref| {
-                                            let other_idx = edge_ref.target();
-                                            observed_graph
-                                                .node(other_idx)
-                                                .map(|n| n.payload().name.clone())
-                                                .unwrap_or_else(|| String::from("???"))
-                                        })
-                                        .collect();
-
-                                    ui.label(format!("Incoming ({}):", incoming.len()));
-                                    if incoming.is_empty() {
-                                        ui.label("  None");
-                                    } else {
-                                        for name in incoming {
-                                            ui.label(format!("  ← {}", name));
-                                        }
-                                    }
-
-                                    ui.label(format!("Outgoing ({}):", outgoing.len()));
-                                    if outgoing.is_empty() {
-                                        ui.label("  None");
-                                    } else {
-                                        for name in outgoing {
-                                            ui.label(format!("  → {}", name));
-                                        }
-                                    }
+                                    let (incoming, outgoing) =
+                                        Self::get_connections(
+                                            observed_graph,
+                                            node_idx,
+                                        );
+                                    Self::connections_widget(ui, incoming, outgoing);
                                 }
                             }
                         });
@@ -1805,6 +1728,26 @@ impl State {
         if response.lost_focus() {
             let new_name = self.store.label_editor.value();
             self.dispatch(on_commit(node_idx, new_name));
+        }
+    }
+
+    fn connections_widget(
+        ui: &mut egui::Ui,
+        incoming: Vec<String>,
+        outgoing: Vec<String>,
+    ) {
+        if !incoming.is_empty() {
+            ui.label(format!("Incoming ({}):", incoming.len()));
+            for name in incoming {
+                ui.label(format!("  ← {}", name));
+            }
+        }
+
+        if !outgoing.is_empty() {
+            ui.label(format!("Outgoing ({}):", outgoing.len()));
+            for name in outgoing {
+                ui.label(format!("  → {}", name));
+            }
         }
     }
 }
