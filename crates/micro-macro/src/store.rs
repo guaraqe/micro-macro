@@ -9,6 +9,7 @@ use crate::graph_view::{
     setup_observable_graph_display, setup_state_graph_display,
 };
 use crate::heatmap::HeatmapData;
+use crate::layout_settings::LayoutSettings;
 use crate::serialization;
 use crate::versioned::Versioned;
 use eframe::egui;
@@ -135,8 +136,8 @@ pub struct Store {
     pub active_tab: ActiveTab,
     pub dragging_from: Option<(NodeIndex, egui::Pos2)>,
     pub drag_started: bool,
-    pub show_labels: bool,
     pub show_weights: bool,
+    pub layout_settings: LayoutSettings,
     pub state_layout_reset: LayoutReset,
     pub observable_layout_reset: LayoutReset,
     pub observed_layout_reset: LayoutReset,
@@ -155,6 +156,7 @@ impl Store {
         state_graph: StateGraphDisplay,
         observable_graph: ObservableGraphDisplay,
         _observed_graph: ObservedGraphDisplay,
+        layout_settings: LayoutSettings,
     ) -> Self {
         Self {
             state_graph: Versioned::new(state_graph),
@@ -164,8 +166,8 @@ impl Store {
             active_tab: ActiveTab::DynamicalSystem,
             dragging_from: None,
             drag_started: false,
-            show_labels: true,
             show_weights: false,
+            layout_settings,
             state_layout_reset: LayoutReset::new(),
             observable_layout_reset: LayoutReset::new(),
             observed_layout_reset: LayoutReset::new(),
@@ -235,34 +237,6 @@ impl Store {
 
     // observed_sorted_weights_uncached removed - now collected directly from cached observed_graph
     // This eliminates redundant recalculation of the entire observed graph
-
-    pub fn state_selection(&self) -> Vec<usize> {
-        self.state_graph
-            .get()
-            .nodes_iter()
-            .filter_map(|(idx, node)| {
-                if node.selected() {
-                    Some(idx.index())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
-    pub fn observable_selection(&self) -> Vec<usize> {
-        self.observable_graph
-            .get()
-            .nodes_iter()
-            .filter_map(|(idx, node)| {
-                if node.selected() {
-                    Some(idx.index())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
 
     pub fn state_node_weight_stats(&self) -> Vec<(String, f32)> {
         collect_state_node_weights(self.state_graph.get())
@@ -516,7 +490,10 @@ fn collect_observed_node_weights(
 
 pub fn load_graphs_from_path(
     path: &Path,
-) -> Result<(StateGraphDisplay, ObservableGraphDisplay), String> {
+) -> Result<
+    (StateGraphDisplay, ObservableGraphDisplay, LayoutSettings),
+    String,
+> {
     let state = serialization::load_from_file(path)?;
     let state_graph =
         serialization::serializable_to_graph(&state.dynamical_system);
@@ -529,11 +506,12 @@ pub fn load_graphs_from_path(
     Ok((
         setup_state_graph_display(&state_graph),
         setup_observable_graph_display(&observable_graph),
+        state.layout_settings,
     ))
 }
 
 pub fn load_or_create_default_state()
--> (StateGraphDisplay, ObservableGraphDisplay) {
+-> (StateGraphDisplay, ObservableGraphDisplay, LayoutSettings) {
     if Path::new(STATE_FILE).exists()
         && let Ok(graphs) =
             load_graphs_from_path(Path::new(STATE_FILE))
@@ -546,5 +524,6 @@ pub fn load_or_create_default_state()
     (
         setup_state_graph_display(&state_graph),
         setup_observable_graph_display(&observable_graph),
+        LayoutSettings::default(),
     )
 }

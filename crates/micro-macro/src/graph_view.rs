@@ -6,19 +6,46 @@ use crate::layout_bipartite::{
 };
 use crate::layout_circular::{LayoutCircular, LayoutStateCircular};
 use crate::node_shapes::{BipartiteNodeShape, CircularNodeShape};
-use eframe::egui;
+use eframe::egui::{self, Pos2, Shape, Vec2};
 use egui_graphs::{
     DefaultEdgeShape, DisplayEdge, DisplayNode, DrawContext,
-    EdgeProps, Graph, GraphView, Node,
+    EdgeProps, Graph, GraphView, Node, node_size,
 };
+use once_cell::sync::Lazy;
 use petgraph::graph::DefaultIx;
 use petgraph::stable_graph::{IndexType, StableGraph};
 use petgraph::{Directed, EdgeType};
+use std::sync::RwLock;
 
-const EDGE_THICKNESS_MIN: f32 = 1.0;
-const EDGE_THICKNESS_MAX: f32 = 3.0;
-const EDGE_THICKNESS_DEFAULT: f32 =
-    (EDGE_THICKNESS_MIN + EDGE_THICKNESS_MAX) / 2.0;
+static EDGE_THICKNESS_BOUNDS: Lazy<RwLock<(f32, f32)>> =
+    Lazy::new(|| RwLock::new((1.0, 3.0)));
+static LOOP_RADIUS: Lazy<RwLock<f32>> =
+    Lazy::new(|| RwLock::new(3.0));
+
+fn edge_thickness_bounds() -> (f32, f32) {
+    *EDGE_THICKNESS_BOUNDS.read().unwrap()
+}
+
+fn edge_thickness_default() -> f32 {
+    let (min, max) = edge_thickness_bounds();
+    (min + max) * 0.5
+}
+
+pub fn set_edge_thickness_bounds(min: f32, max: f32) {
+    let mut guard = EDGE_THICKNESS_BOUNDS.write().unwrap();
+    let clamped_min = min.min(max);
+    let clamped_max = max.max(clamped_min);
+    *guard = (clamped_min, clamped_max);
+}
+
+fn loop_radius_value() -> f32 {
+    *LOOP_RADIUS.read().unwrap()
+}
+
+pub fn set_loop_radius(radius: f32) {
+    let mut guard = LOOP_RADIUS.write().unwrap();
+    *guard = radius.max(0.1);
+}
 
 // ------------------------------------------------------------------
 // Type aliases for graph types
@@ -140,12 +167,13 @@ fn calculate_edge_thickness(
     weight: f32,
     sorted_weights: &[f32],
 ) -> f32 {
+    let (min_width, max_width) = edge_thickness_bounds();
     if sorted_weights.is_empty() {
-        return EDGE_THICKNESS_DEFAULT;
+        return edge_thickness_default();
     }
 
     if sorted_weights.len() == 1 {
-        return EDGE_THICKNESS_DEFAULT;
+        return edge_thickness_default();
     }
 
     // Find first and last index of the weight in sorted list
@@ -174,8 +202,7 @@ fn calculate_edge_thickness(
     // Interpolate between configured min/max
     let n = sorted_weights.len();
     let ratio = middle_idx as f32 / (n - 1) as f32;
-    EDGE_THICKNESS_MIN
-        + (EDGE_THICKNESS_MAX - EDGE_THICKNESS_MIN) * ratio
+    min_width + (max_width - min_width) * ratio
 }
 
 /// Custom edge shape that calculates width from edge weight
@@ -192,7 +219,7 @@ impl From<EdgeProps<f32>> for WeightedEdgeShape {
         let weight = props.payload;
         let mut default_impl = DefaultEdgeShape::from(props);
         // Initialize with middle thickness - will be updated with global weights later
-        default_impl.width = EDGE_THICKNESS_DEFAULT;
+        default_impl.width = edge_thickness_default();
         Self {
             default_impl,
             weight,
@@ -223,7 +250,12 @@ impl<
         end: &Node<N, f32, Ty, Ix, D>,
         ctx: &DrawContext,
     ) -> Vec<egui::Shape> {
-        self.default_impl.shapes(start, end, ctx)
+        self.default_impl.loop_size = loop_radius_value();
+        let mut shapes = self.default_impl.shapes(start, end, ctx);
+        if start.id() == end.id() {
+            shapes = self.rotate_loop_shapes(start, ctx, shapes);
+        }
+        shapes
     }
 
     fn update(&mut self, state: &EdgeProps<f32>) {
@@ -244,7 +276,139 @@ impl<
         start: &Node<N, f32, Ty, Ix, D>,
         end: &Node<N, f32, Ty, Ix, D>,
     ) -> Option<(egui::Pos2, egui::Pos2)> {
+        if start.id() == end.id() {
+            return Some(self.loop_extra_bounds(start));
+        }
         self.default_impl.extra_bounds(start, end)
+    }
+}
+
+impl WeightedEdgeShape {
+    fn rotate_loop_shapes<
+        N: Clone,
+        Ty: EdgeType,
+        Ix: IndexType,
+        D: DisplayNode<N, f32, Ty, Ix>,
+    >(
+        &self,
+        node: &Node<N, f32, Ty, Ix, D>,
+        ctx: &DrawContext,
+        shapes: Vec<egui::Shape>,
+    ) -> Vec<egui::Shape> {
+        let graph_center = ctx.meta.graph_bounds().center();
+        let node_center_canvas = node.location();
+        let node_center_screen =
+            ctx.meta.canvas_to_screen_pos(node_center_canvas);
+        let graph_center_screen =
+            ctx.meta.canvas_to_screen_pos(graph_center);
+
+        let mut radial = node_center_screen - graph_center_screen;
+        if radial.length_sq() < f32::EPSILON {
+            return shapes;
+        }
+        radial = radial.normalized();
+        let base = Vec2::new(0.0, -1.0);
+        let angle = Self::signed_angle(base, radial);
+
+        if angle.abs() < f32::EPSILON {
+            return shapes;
+        }
+
+        shapes
+            .into_iter()
+            .map(|shape| {
+                Self::rotate_shape_about(
+                    shape,
+                    node_center_screen,
+                    angle,
+                )
+            })
+            .collect()
+    }
+
+    fn rotate_shape_about(
+        shape: Shape,
+        center: Pos2,
+        angle: f32,
+    ) -> Shape {
+        match shape {
+            Shape::CubicBezier(mut cubic) => {
+                for point in cubic.points.iter_mut() {
+                    *point =
+                        Self::rotate_point(*point, center, angle);
+                }
+                Shape::CubicBezier(cubic)
+            }
+            Shape::Text(mut text) => {
+                text.pos =
+                    Self::rotate_point(text.pos, center, angle);
+                Shape::Text(text)
+            }
+            Shape::Vec(shapes) => Shape::Vec(
+                shapes
+                    .into_iter()
+                    .map(|s| {
+                        Self::rotate_shape_about(s, center, angle)
+                    })
+                    .collect(),
+            ),
+            other => other,
+        }
+    }
+
+    fn rotate_point(point: Pos2, center: Pos2, angle: f32) -> Pos2 {
+        let offset = point - center;
+        let rotated = Self::rotate_vec(offset, angle);
+        center + rotated
+    }
+
+    fn rotate_vec(vec: Vec2, angle: f32) -> Vec2 {
+        let (sin, cos) = angle.sin_cos();
+        Vec2::new(
+            vec.x * cos - vec.y * sin,
+            vec.x * sin + vec.y * cos,
+        )
+    }
+
+    fn signed_angle(from: Vec2, to: Vec2) -> f32 {
+        let from_n = if from.length_sq() < f32::EPSILON {
+            Vec2::ZERO
+        } else {
+            from.normalized()
+        };
+        let to_n = if to.length_sq() < f32::EPSILON {
+            Vec2::ZERO
+        } else {
+            to.normalized()
+        };
+        if from_n == Vec2::ZERO || to_n == Vec2::ZERO {
+            0.0
+        } else {
+            let det = from_n.x * to_n.y - from_n.y * to_n.x;
+            let dot = from_n.dot(to_n);
+            det.atan2(dot)
+        }
+    }
+
+    fn loop_extra_bounds<
+        N: Clone,
+        Ty: EdgeType,
+        Ix: IndexType,
+        D: DisplayNode<N, f32, Ty, Ix>,
+    >(
+        &self,
+        node: &Node<N, f32, Ty, Ix, D>,
+    ) -> (Pos2, Pos2) {
+        let radius = node_size(node, Vec2::new(1.0, 0.0));
+        let order = self.default_impl.order as f32;
+        let loop_extent = radius * (loop_radius_value() + order);
+        let max_offset = loop_extent + radius;
+        let center = node.location();
+        let min =
+            Pos2::new(center.x - max_offset, center.y - max_offset);
+        let max =
+            Pos2::new(center.x + max_offset, center.y + max_offset);
+        (min, max)
     }
 }
 
@@ -275,45 +439,6 @@ pub fn update_edge_thicknesses<N, D>(
             let weight = edge.display().weight;
             edge.display_mut().default_impl.width =
                 calculate_edge_thickness(weight, &sorted_weights);
-        }
-    }
-}
-
-pub fn enforce_circular_radius<N, D>(
-    graph: &mut GraphDisplay<N, D>,
-    radius: f32,
-) where
-    N: Clone,
-    D: DisplayNode<N, f32, Directed, DefaultIx>,
-{
-    if radius <= 0.0 || graph.node_count() == 0 {
-        return;
-    }
-
-    let node_indices: Vec<_> = graph.g().node_indices().collect();
-    if node_indices.is_empty() {
-        return;
-    }
-
-    let mut sum = egui::Vec2::ZERO;
-    for idx in &node_indices {
-        if let Some(node) = graph.node(*idx) {
-            sum += node.location().to_vec2();
-        }
-    }
-    let center_vec = sum / node_indices.len() as f32;
-    let center = center_vec.to_pos2();
-
-    for idx in node_indices {
-        if let Some(node) = graph.node_mut(idx) {
-            let mut dir = node.location() - center;
-            if dir.length_sq() < f32::EPSILON {
-                dir = egui::Vec2::new(0.0, -1.0);
-            } else {
-                dir = dir.normalized();
-            }
-            let new_pos = (center.to_vec2() + dir * radius).to_pos2();
-            node.set_location(new_pos);
         }
     }
 }

@@ -2,10 +2,27 @@ use crate::effects::Effect;
 use crate::graph_state::{
     ObservableNode, ObservableNodeType, StateNode,
 };
+use crate::layout_settings::{
+    BipartiteTabLayoutSettings, CircularTabLayoutSettings,
+};
 use crate::store::{ActiveTab, EditMode, Store};
 use eframe::egui;
 use petgraph::stable_graph::{EdgeIndex, NodeIndex};
 use std::path::PathBuf;
+
+#[derive(Debug, Clone)]
+pub enum LayoutSettingChange {
+    NodeRadius(f32),
+    LabelGap(f32),
+    LabelFontSize(f32),
+    ShowLabels(bool),
+    EdgeMinWidth(f32),
+    EdgeMaxWidth(f32),
+    CircularBaseRadius(f32),
+    LoopRadius(f32),
+    BipartiteLayerGap(f32),
+    BipartiteNodeGap(f32),
+}
 
 /// Actions that can be dispatched to modify the editor state
 #[derive(Debug, Clone)]
@@ -89,10 +106,13 @@ pub enum Action {
     SetEditMode { mode: EditMode },
     /// Switch between DynamicalSystem, ObservableEditor, and ObservedDynamics tabs
     SetActiveTab { tab: ActiveTab },
-    /// Toggle node label visibility
-    SetShowLabels { show: bool },
     /// Toggle weight display
     SetShowWeights { show: bool },
+    /// Update a layout setting for a tab
+    UpdateLayoutSetting {
+        tab: ActiveTab,
+        change: LayoutSettingChange,
+    },
     /// Clear all selected edges in the state graph
     ClearEdgeSelections,
     /// Clear all selected edges in the observable graph
@@ -408,12 +428,31 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             store.active_tab = tab;
             vec![]
         }
-        Action::SetShowLabels { show } => {
-            store.show_labels = show;
-            vec![]
-        }
         Action::SetShowWeights { show } => {
             store.show_weights = show;
+            vec![]
+        }
+        Action::UpdateLayoutSetting { tab, change } => {
+            match tab {
+                ActiveTab::DynamicalSystem => {
+                    apply_circular_setting(
+                        &mut store.layout_settings.dynamical_system,
+                        change,
+                    );
+                }
+                ActiveTab::ObservedDynamics => {
+                    apply_circular_setting(
+                        &mut store.layout_settings.observed_dynamics,
+                        change,
+                    );
+                }
+                ActiveTab::ObservableEditor => {
+                    apply_bipartite_setting(
+                        &mut store.layout_settings.observable_editor,
+                        change,
+                    );
+                }
+            }
             vec![]
         }
         Action::ClearEdgeSelections => {
@@ -465,5 +504,75 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             store.error_message = None;
             vec![]
         }
+    }
+}
+
+fn apply_circular_setting(
+    settings: &mut CircularTabLayoutSettings,
+    change: LayoutSettingChange,
+) {
+    match change {
+        LayoutSettingChange::NodeRadius(value) => {
+            settings.visuals.node_radius = value;
+        }
+        LayoutSettingChange::LabelGap(value) => {
+            settings.visuals.label_gap = value;
+        }
+        LayoutSettingChange::LabelFontSize(value) => {
+            settings.visuals.label_font_size = value;
+        }
+        LayoutSettingChange::ShowLabels(value) => {
+            settings.visuals.show_labels = value;
+        }
+        LayoutSettingChange::EdgeMinWidth(value) => {
+            settings.edges.min_width =
+                value.min(settings.edges.max_width);
+        }
+        LayoutSettingChange::EdgeMaxWidth(value) => {
+            settings.edges.max_width =
+                value.max(settings.edges.min_width);
+        }
+        LayoutSettingChange::CircularBaseRadius(value) => {
+            settings.layout.base_radius = value;
+        }
+        LayoutSettingChange::LoopRadius(value) => {
+            settings.layout.loop_radius = value.max(0.1);
+        }
+        _ => {}
+    }
+}
+
+fn apply_bipartite_setting(
+    settings: &mut BipartiteTabLayoutSettings,
+    change: LayoutSettingChange,
+) {
+    match change {
+        LayoutSettingChange::NodeRadius(value) => {
+            settings.visuals.node_radius = value;
+        }
+        LayoutSettingChange::LabelGap(value) => {
+            settings.visuals.label_gap = value;
+        }
+        LayoutSettingChange::LabelFontSize(value) => {
+            settings.visuals.label_font_size = value;
+        }
+        LayoutSettingChange::ShowLabels(value) => {
+            settings.visuals.show_labels = value;
+        }
+        LayoutSettingChange::EdgeMinWidth(value) => {
+            settings.edges.min_width =
+                value.min(settings.edges.max_width);
+        }
+        LayoutSettingChange::EdgeMaxWidth(value) => {
+            settings.edges.max_width =
+                value.max(settings.edges.min_width);
+        }
+        LayoutSettingChange::BipartiteLayerGap(value) => {
+            settings.layout.layer_gap = value;
+        }
+        LayoutSettingChange::BipartiteNodeGap(value) => {
+            settings.layout.node_gap = value;
+        }
+        _ => {}
     }
 }

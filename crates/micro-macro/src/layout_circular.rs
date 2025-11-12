@@ -2,10 +2,12 @@ use eframe::egui;
 use egui_graphs::{
     DisplayEdge, DisplayNode, Graph, Layout, LayoutState,
 };
+use once_cell::sync::Lazy;
 use petgraph::EdgeType;
 use petgraph::graph::IndexType;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use std::sync::RwLock;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LayoutStateCircular {
@@ -15,7 +17,7 @@ pub struct LayoutStateCircular {
 impl LayoutState for LayoutStateCircular {}
 
 /// Configuration for spacing/radius of the circular layout
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SpacingConfig {
     /// Base radius when there are few nodes
     pub base_radius: f32,
@@ -23,6 +25,13 @@ pub struct SpacingConfig {
     pub radius_per_node: f32,
     /// If set, overrides the auto-calculated radius
     pub fixed_radius: Option<f32>,
+}
+
+impl SpacingConfig {
+    pub fn with_fixed_radius(mut self, radius: f32) -> Self {
+        self.fixed_radius = Some(radius);
+        self
+    }
 }
 
 impl Default for SpacingConfig {
@@ -35,22 +44,19 @@ impl Default for SpacingConfig {
     }
 }
 
-#[allow(dead_code)]
-impl SpacingConfig {
-    pub fn with_base_radius(mut self, base: f32) -> Self {
-        self.base_radius = base;
-        self
-    }
+static ACTIVE_SPACING: Lazy<RwLock<SpacingConfig>> =
+    Lazy::new(|| RwLock::new(SpacingConfig::default()));
 
-    pub fn with_radius_per_node(mut self, per_node: f32) -> Self {
-        self.radius_per_node = per_node;
-        self
-    }
+pub fn set_active_spacing(config: SpacingConfig) {
+    *ACTIVE_SPACING
+        .write()
+        .expect("failed to write circular spacing") = config;
+}
 
-    pub fn with_fixed_radius(mut self, radius: f32) -> Self {
-        self.fixed_radius = Some(radius);
-        self
-    }
+fn active_spacing() -> SpacingConfig {
+    *ACTIVE_SPACING
+        .read()
+        .expect("failed to read circular spacing")
 }
 
 /// Sort order for circular layout nodes
@@ -104,7 +110,7 @@ impl Layout<LayoutStateCircular> for LayoutCircular {
         Self {
             state,
             sort_order: SortOrder::default(),
-            spacing: SpacingConfig::default(),
+            spacing: active_spacing(),
         }
     }
 
@@ -124,6 +130,7 @@ impl Layout<LayoutStateCircular> for LayoutCircular {
         if self.state.applied {
             return;
         }
+        self.spacing = active_spacing();
 
         // Collect all nodes with their indices and labels
         let mut nodes: Vec<_> = g

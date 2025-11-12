@@ -8,6 +8,7 @@ use crate::graph_state::{
     ObservableGraph, ObservableNode, ObservableNodeType, StateGraph,
     StateNode,
 };
+use crate::layout_settings::LayoutSettings;
 
 // ------------------------------------------------------------------
 // Serialization structures
@@ -54,6 +55,8 @@ pub struct SerializableObservableState {
 pub struct SerializableState {
     pub dynamical_system: SerializableGraphState,
     pub observable: SerializableObservableState,
+    #[serde(default)]
+    pub layout_settings: LayoutSettings,
 }
 
 // ------------------------------------------------------------------

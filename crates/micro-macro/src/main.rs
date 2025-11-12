@@ -6,12 +6,19 @@ mod graph_view;
 mod heatmap;
 mod layout_bipartite;
 mod layout_circular;
+mod layout_settings;
 mod node_shapes;
 mod serialization;
 mod state;
 mod store;
 mod versioned;
 
+use crate::layout_settings::{
+    BIPARTITE_LAYER_GAP_RANGE, BIPARTITE_NODE_GAP_RANGE,
+    CIRCULAR_BASE_RADIUS_RANGE, EDGE_THICKNESS_MAX_RANGE,
+    EDGE_THICKNESS_MIN_RANGE, LABEL_FONT_RANGE, LABEL_GAP_RANGE,
+    LOOP_RADIUS_RANGE, NODE_RADIUS_RANGE,
+};
 use eframe::egui;
 use egui_extras::{Size, StripBuilder};
 use egui_graphs::{
@@ -24,10 +31,10 @@ use graph_state::{
 };
 use graph_view::{
     ObservableGraphView, ObservedGraphView, StateGraphView,
-    setup_observed_graph_display,
+    set_loop_radius, setup_observed_graph_display,
 };
 use layout_bipartite::LayoutStateBipartite;
-use layout_circular::LayoutStateCircular;
+use layout_circular::{LayoutStateCircular, SpacingConfig};
 use petgraph::{
     Directed, graph::DefaultIx, stable_graph::NodeIndex,
     visit::EdgeRef,
@@ -41,18 +48,6 @@ const EDGE_PREVIEW_STROKE_WIDTH: f32 = 2.0;
 const EDGE_PREVIEW_COLOR: egui::Color32 =
     egui::Color32::from_rgb(100, 100, 255);
 const GRAPH_FIT_PADDING: f32 = 0.75;
-const STATE_CIRCULAR_BASE_RADIUS: f32 = 120.0;
-const STATE_CIRCULAR_RADIUS_PER_NODE: f32 = 12.0;
-const OBSERVED_CIRCULAR_BASE_RADIUS: f32 = 120.0;
-const OBSERVED_CIRCULAR_RADIUS_PER_NODE: f32 = 12.0;
-
-fn desired_circular_radius(
-    base: f32,
-    per_node: f32,
-    node_count: usize,
-) -> f32 {
-    base + (node_count as f32) * per_node
-}
 
 // ------------------------------------------------------------------
 // Initialization helpers
@@ -69,7 +64,7 @@ fn main() -> eframe::Result<()> {
             // Set light theme
             cc.egui_ctx.set_visuals(egui::Visuals::light());
 
-            let (graph, observable_graph) =
+            let (graph, observable_graph, layout_settings) =
                 store::load_or_create_default_state();
 
             let observed_graph_raw =
@@ -83,6 +78,7 @@ fn main() -> eframe::Result<()> {
                 graph,
                 observable_graph,
                 observed_graph,
+                layout_settings,
             );
 
             Ok(Box::new(State::new(store)))
@@ -272,10 +268,12 @@ impl State {
 
     // Returns style settings: controls whether node labels are
     // always visible
-    fn get_settings_style(&self) -> SettingsStyle {
-        node_shapes::set_label_visibility(self.store.show_labels);
+    fn get_settings_style(
+        &self,
+        labels_always: bool,
+    ) -> SettingsStyle {
         SettingsStyle::new()
-            .with_labels_always(self.store.show_labels)
+            .with_labels_always(labels_always)
             .with_node_stroke_hook(
                 |selected,
                  _dragged,
@@ -666,8 +664,20 @@ impl State {
             .default_width(320.0)
             .resizable(true)
             .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
-            .show(ctx, |ui| {
-            ui.vertical(|ui| {
+            .show(ctx, |panel_ui| {
+                egui::TopBottomPanel::bottom("state_left_footer")
+                    .resizable(false)
+                    .frame(egui::Frame::NONE)
+                    .show_inside(panel_ui, |ui| {
+                        self.layout_settings_panel(
+                            ui,
+                            ActiveTab::DynamicalSystem,
+                        );
+                    });
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(panel_ui, |ui| {
+                ui.vertical(|ui| {
                 // Panel name
                 ui.heading("Nodes");
                 ui.separator();
@@ -757,16 +767,8 @@ impl State {
                         }
                     }
                 });
-
-                // Metadata at bottom
-                ui.with_layout(
-                    egui::Layout::bottom_up(egui::Align::LEFT),
-                    |ui| {
-                        ui.label(format!("Nodes: {}", self.store.state_graph.get().node_count()));
-                        ui.separator();
-                    },
-                );
             });
+        });
         });
 
         // Calculate middle Viridis color for histograms
@@ -776,7 +778,7 @@ impl State {
         };
 
         // Bottom panel for histograms - takes ~25% of screen height
-        let total_height = ctx.input(|i| i.screen_rect().height());
+        let total_height = ctx.available_rect().height();
         let histogram_height = (total_height * 0.25).max(180.0);
 
         egui::TopBottomPanel::bottom("histogram_panel")
@@ -850,27 +852,6 @@ impl State {
                                 "Balance dev: {:.4}",
                                 state_data.detailed_balance_deviation
                             ));
-                            ui.separator();
-                            let selected =
-                                self.store.state_selection();
-                            ui.label(format!(
-                                "Selected: {}",
-                                selected.len()
-                            ));
-                            ui.label(format!(
-                                "Edges: {}",
-                                self.store
-                                    .state_graph
-                                    .get()
-                                    .edge_count()
-                            ));
-                            ui.label(format!(
-                                "Nodes: {}",
-                                self.store
-                                    .state_graph
-                                    .get()
-                                    .node_count()
-                            ));
                         });
                     });
             });
@@ -888,6 +869,32 @@ impl State {
                         strip.cell(|ui| {
                         ui.heading("Graph");
                         ui.separator();
+
+                        let tab_settings = self
+                            .store
+                            .layout_settings
+                            .dynamical_system
+                            .clone();
+                        node_shapes::set_circular_visual_params(
+                            tab_settings.visuals.node_radius,
+                            tab_settings.visuals.label_gap,
+                            tab_settings.visuals.label_font_size,
+                        );
+                        node_shapes::set_label_visibility(
+                            tab_settings.visuals.show_labels,
+                        );
+                        layout_circular::set_active_spacing(
+                            SpacingConfig::default().with_fixed_radius(
+                                tab_settings.layout.base_radius,
+                            ),
+                        );
+                        graph_view::set_edge_thickness_bounds(
+                            tab_settings.edges.min_width,
+                            tab_settings.edges.max_width,
+                        );
+                        set_loop_radius(
+                            tab_settings.layout.loop_radius,
+                        );
 
                         // Reset layout if state graph version changed
                         let state_version = self.store.state_graph.version();
@@ -909,19 +916,14 @@ impl State {
                             self.store.state_graph.get_mut(),
                             sorted_weights,
                         );
-                        let desired_radius = desired_circular_radius(
-                            STATE_CIRCULAR_BASE_RADIUS,
-                            STATE_CIRCULAR_RADIUS_PER_NODE,
-                            self.store.state_graph.get().node_count(),
-                        );
-                        graph_view::enforce_circular_radius(
-                            self.store.state_graph.get_mut(),
-                            desired_radius,
-                        );
 
                         let settings_interaction = self.get_settings_interaction(mode);
-                        let settings_style = self.get_settings_style();
-                        let settings_navigation = self.get_settings_navigation();
+                        let settings_style = self
+                            .get_settings_style(
+                                tab_settings.visuals.show_labels,
+                            );
+                        let settings_navigation =
+                            self.get_settings_navigation();
 
                         // Graph takes most of available space, leaving room for controls
                         ui.add(
@@ -950,19 +952,7 @@ impl State {
                             self.dispatch(actions::Action::ClearEdgeSelections);
                         }
 
-                        // Controls at bottom
-                        let (mode_text, hint_text) = match mode {
-                            EditMode::NodeEditor => ("Mode: Node Editor", "Hold Ctrl for Edge Editor"),
-                            EditMode::EdgeEditor => ("Mode: Edge Editor", "Release Ctrl for Node Editor"),
-                        };
-                        ui.label(hint_text);
-                        ui.label(mode_text);
                         ui.horizontal(|ui| {
-                            let mut show_labels = self.store.show_labels;
-                            ui.checkbox(&mut show_labels, "Show Labels");
-                            if show_labels != self.store.show_labels {
-                                self.dispatch(actions::Action::SetShowLabels { show: show_labels });
-                            }
                             let mut show_weights = self.store.show_weights;
                             ui.checkbox(&mut show_weights, "Show Weights");
                             if show_weights != self.store.show_weights {
@@ -1037,8 +1027,20 @@ impl State {
         egui::SidePanel::left("observable_left_panel")
             .exact_width(panel_width)
             .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
-            .show(ctx, |ui| {
-                ui.vertical(|ui| {
+            .show(ctx, |panel_ui| {
+                egui::TopBottomPanel::bottom("observable_left_footer")
+                    .resizable(false)
+                    .frame(egui::Frame::NONE)
+                    .show_inside(panel_ui, |ui| {
+                        self.layout_settings_panel(
+                            ui,
+                            ActiveTab::ObservableEditor,
+                        );
+                    });
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(panel_ui, |ui| {
+                        ui.vertical(|ui| {
                     ui.heading("Observable Values");
                     ui.separator();
 
@@ -1125,23 +1127,8 @@ impl State {
                                 }
                             }
                         });
-
-                    // Metadata at bottom
-                    ui.with_layout(
-                        egui::Layout::bottom_up(egui::Align::LEFT),
-                        |ui| {
-                            let dest_count = self
-                                .store
-                                .observable_graph
-                                .get()
-                                .nodes_iter()
-                                .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Destination)
-                                .count();
-                            ui.label(format!("Values: {}", dest_count));
-                            ui.separator();
-                        },
-                    );
                 });
+            });
             });
 
         // Right panel: Heatmap
@@ -1238,25 +1225,8 @@ impl State {
                             }
                         },
                     );
-
-                    // Metadata at bottom
-                    ui.with_layout(
-                        egui::Layout::bottom_up(egui::Align::LEFT),
-                        |ui| {
-                            let selected = self.store.observable_selection();
-                            ui.label(format!(
-                                "Selected: {}",
-                                selected.len()
-                            ));
-                            ui.label(format!(
-                                "Observables: {}",
-                                self.store.observable_graph.get().edge_count()
-                            ));
-                            ui.separator();
-                        },
-                    );
-                });
             });
+        });
 
         // Center panel: Bipartite graph visualization
         egui::CentralPanel::default()
@@ -1268,6 +1238,30 @@ impl State {
                 ui.vertical(|ui| {
                     ui.heading("Observable Mapping");
                     ui.separator();
+
+                    let tab_settings = self
+                        .store
+                        .layout_settings
+                        .observable_editor
+                        .clone();
+                    node_shapes::set_bipartite_visual_params(
+                        tab_settings.visuals.node_radius,
+                        tab_settings.visuals.label_gap,
+                        tab_settings.visuals.label_font_size,
+                    );
+                    node_shapes::set_label_visibility(
+                        tab_settings.visuals.show_labels,
+                    );
+                    layout_bipartite::set_active_spacing(
+                        layout_bipartite::BipartiteSpacingConfig {
+                            node_gap: tab_settings.layout.node_gap,
+                            layer_gap: tab_settings.layout.layer_gap,
+                        },
+                    );
+                    graph_view::set_edge_thickness_bounds(
+                        tab_settings.edges.min_width,
+                        tab_settings.edges.max_width,
+                    );
 
                     // Reset layout if observable graph version changed
                     let observable_version = self.store.observable_graph.version();
@@ -1293,7 +1287,10 @@ impl State {
 
                     let settings_interaction =
                         self.get_settings_interaction(mode);
-                    let settings_style = self.get_settings_style();
+                    let settings_style = self
+                        .get_settings_style(
+                            tab_settings.visuals.show_labels,
+                        );
                     let settings_navigation =
                         self.get_settings_navigation();
 
@@ -1365,36 +1362,7 @@ impl State {
                     );
 
                     // Controls and metadata at the bottom
-                    ui.with_layout(
-                        egui::Layout::bottom_up(egui::Align::LEFT),
-                        |ui| {
-                            let (mode_text, hint_text) = match mode {
-                                EditMode::NodeEditor => (
-                                    "Mode: Node Editor",
-                                    "Hold Ctrl for Edge Editor",
-                                ),
-                                EditMode::EdgeEditor => (
-                                    "Mode: Edge Editor",
-                                    "Release Ctrl for Node Editor",
-                                ),
-                            };
-                            ui.label(hint_text);
-                            ui.label(mode_text);
-                            let mut show_labels = self.store.show_labels;
-                            ui.checkbox(
-                                &mut show_labels,
-                                "Show Labels",
-                            );
-                            if show_labels != self.store.show_labels {
-                                self.dispatch(
-                                    actions::Action::SetShowLabels {
-                                        show: show_labels,
-                                    },
-                                );
-                            }
-                            ui.separator();
-                        },
-                    );
+                    ui.separator();
                 });
             });
     }
@@ -1409,8 +1377,20 @@ impl State {
         egui::SidePanel::left("observed_left_panel")
             .exact_width(panel_width)
             .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
-            .show(ctx, |ui| {
-                ui.vertical(|ui| {
+            .show(ctx, |panel_ui| {
+                egui::TopBottomPanel::bottom("observed_left_footer")
+                    .resizable(false)
+                    .frame(egui::Frame::NONE)
+                    .show_inside(panel_ui, |ui| {
+                        self.layout_settings_panel(
+                            ui,
+                            ActiveTab::ObservedDynamics,
+                        );
+                    });
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(panel_ui, |ui| {
+                        ui.vertical(|ui| {
                     ui.heading("Observed Values");
                     ui.separator();
 
@@ -1534,17 +1514,8 @@ impl State {
                         egui::Color32::from_rgb(250, 150, 100),
                         150.0,
                     );
-
-                    // Metadata at bottom
-                    ui.with_layout(
-                        egui::Layout::bottom_up(egui::Align::LEFT),
-                        |ui| {
-                            let observed_data = self.cache.observed_data.get(&self.store);
-                            ui.label(format!("Values: {}", observed_data.graph.node_count()));
-                            ui.separator();
-                        },
-                    );
                 });
+            });
             });
 
         // Right panel - read-only heatmap
@@ -1631,12 +1602,6 @@ impl State {
                                 "Detailed balance deviation: {:.4}",
                                 observed_data.detailed_balance_deviation
                             ));
-                            ui.separator();
-                            ui.label(format!(
-                                "Edges: {}",
-                                observed_data.graph.edge_count()
-                            ));
-                            ui.separator();
                         },
                     );
                 });
@@ -1653,13 +1618,39 @@ impl State {
                     ui.heading("Observed Graph");
                     ui.separator();
 
+                    let tab_settings = self
+                        .store
+                        .layout_settings
+                        .observed_dynamics
+                        .clone();
+                    node_shapes::set_circular_visual_params(
+                        tab_settings.visuals.node_radius,
+                        tab_settings.visuals.label_gap,
+                        tab_settings.visuals.label_font_size,
+                    );
+                    node_shapes::set_label_visibility(
+                        tab_settings.visuals.show_labels,
+                    );
+                    layout_circular::set_active_spacing(
+                        SpacingConfig::default().with_fixed_radius(
+                            tab_settings.layout.base_radius,
+                        ),
+                    );
+                    graph_view::set_edge_thickness_bounds(
+                        tab_settings.edges.min_width,
+                        tab_settings.edges.max_width,
+                    );
+                    set_loop_radius(tab_settings.layout.loop_radius);
+
                     // Get settings first to avoid borrowing issues
                     let settings_interaction =
                         SettingsInteraction::new()
                             .with_dragging_enabled(false)
                             .with_node_clicking_enabled(true)
                             .with_node_selection_enabled(true);
-                    let settings_style = self.get_settings_style();
+                    let settings_style = self.get_settings_style(
+                        tab_settings.visuals.show_labels,
+                    );
                     let settings_navigation =
                         self.get_settings_navigation();
 
@@ -1686,15 +1677,6 @@ impl State {
                     graph_view::update_edge_thicknesses(
                         &mut observed_data.graph,
                         observed_data.sorted_weights.clone(),
-                    );
-                    let desired_radius = desired_circular_radius(
-                        OBSERVED_CIRCULAR_BASE_RADIUS,
-                        OBSERVED_CIRCULAR_RADIUS_PER_NODE,
-                        observed_data.graph.node_count(),
-                    );
-                    graph_view::enforce_circular_radius(
-                        &mut observed_data.graph,
-                        desired_radius,
                     );
 
                     let available_height =
@@ -1726,19 +1708,6 @@ impl State {
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
                             ui.label("Read-only view");
-                            let mut show_labels =
-                                self.store.show_labels;
-                            ui.checkbox(
-                                &mut show_labels,
-                                "Show Labels",
-                            );
-                            if show_labels != self.store.show_labels {
-                                self.dispatch(
-                                    actions::Action::SetShowLabels {
-                                        show: show_labels,
-                                    },
-                                );
-                            }
                             let mut show_weights =
                                 self.store.show_weights;
                             ui.checkbox(
@@ -1871,6 +1840,277 @@ impl State {
                 }
                 // Select this node
                 self.dispatch(on_select(node_idx, true));
+            }
+        }
+    }
+
+    fn layout_settings_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        tab: ActiveTab,
+    ) {
+        egui::CollapsingHeader::new("Layout settings")
+            .default_open(false)
+            .show(ui, |ui| match tab {
+                ActiveTab::DynamicalSystem => {
+                    let settings = self
+                        .store
+                        .layout_settings
+                        .dynamical_system
+                        .clone();
+                    self.render_circular_layout_controls(
+                        ui, tab, settings,
+                    );
+                }
+                ActiveTab::ObservedDynamics => {
+                    let settings = self
+                        .store
+                        .layout_settings
+                        .observed_dynamics
+                        .clone();
+                    self.render_circular_layout_controls(
+                        ui, tab, settings,
+                    );
+                }
+                ActiveTab::ObservableEditor => {
+                    let settings = self
+                        .store
+                        .layout_settings
+                        .observable_editor
+                        .clone();
+                    self.render_bipartite_layout_controls(
+                        ui, tab, settings,
+                    );
+                }
+            });
+
+        if matches!(
+            tab,
+            ActiveTab::DynamicalSystem | ActiveTab::ObservableEditor
+        ) {
+            ui.add_space(4.0);
+            ui.label("Hold Ctrl for Edge Editor");
+            ui.label("Release Ctrl for Node Editor");
+        }
+    }
+
+    fn render_circular_layout_controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        tab: ActiveTab,
+        settings: layout_settings::CircularTabLayoutSettings,
+    ) {
+        ui.label("Node visuals");
+        self.layout_slider(
+            ui,
+            tab,
+            "Node radius",
+            settings.visuals.node_radius,
+            NODE_RADIUS_RANGE,
+            actions::LayoutSettingChange::NodeRadius,
+            false,
+        );
+        self.layout_slider(
+            ui,
+            tab,
+            "Label gap",
+            settings.visuals.label_gap,
+            LABEL_GAP_RANGE,
+            actions::LayoutSettingChange::LabelGap,
+            false,
+        );
+        self.layout_slider(
+            ui,
+            tab,
+            "Label font size",
+            settings.visuals.label_font_size,
+            LABEL_FONT_RANGE,
+            actions::LayoutSettingChange::LabelFontSize,
+            false,
+        );
+        self.show_label_toggle(ui, tab, settings.visuals.show_labels);
+
+        ui.separator();
+        ui.label("Edges");
+        self.layout_slider(
+            ui,
+            tab,
+            "Min width",
+            settings.edges.min_width,
+            EDGE_THICKNESS_MIN_RANGE,
+            actions::LayoutSettingChange::EdgeMinWidth,
+            false,
+        );
+        self.layout_slider(
+            ui,
+            tab,
+            "Max width",
+            settings.edges.max_width,
+            EDGE_THICKNESS_MAX_RANGE,
+            actions::LayoutSettingChange::EdgeMaxWidth,
+            false,
+        );
+        self.layout_slider(
+            ui,
+            tab,
+            "Self-loop radius",
+            settings.layout.loop_radius,
+            LOOP_RADIUS_RANGE,
+            actions::LayoutSettingChange::LoopRadius,
+            false,
+        );
+
+        ui.separator();
+        ui.label("Layout");
+        self.layout_slider(
+            ui,
+            tab,
+            "Ring radius",
+            settings.layout.base_radius,
+            CIRCULAR_BASE_RADIUS_RANGE,
+            actions::LayoutSettingChange::CircularBaseRadius,
+            true,
+        );
+    }
+
+    fn render_bipartite_layout_controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        tab: ActiveTab,
+        settings: layout_settings::BipartiteTabLayoutSettings,
+    ) {
+        ui.label("Node visuals");
+        self.layout_slider(
+            ui,
+            tab,
+            "Node radius",
+            settings.visuals.node_radius,
+            NODE_RADIUS_RANGE,
+            actions::LayoutSettingChange::NodeRadius,
+            false,
+        );
+        self.layout_slider(
+            ui,
+            tab,
+            "Label gap",
+            settings.visuals.label_gap,
+            LABEL_GAP_RANGE,
+            actions::LayoutSettingChange::LabelGap,
+            false,
+        );
+        self.layout_slider(
+            ui,
+            tab,
+            "Label font size",
+            settings.visuals.label_font_size,
+            LABEL_FONT_RANGE,
+            actions::LayoutSettingChange::LabelFontSize,
+            false,
+        );
+        self.show_label_toggle(ui, tab, settings.visuals.show_labels);
+
+        ui.separator();
+        ui.label("Edges");
+        self.layout_slider(
+            ui,
+            tab,
+            "Min width",
+            settings.edges.min_width,
+            EDGE_THICKNESS_MIN_RANGE,
+            actions::LayoutSettingChange::EdgeMinWidth,
+            false,
+        );
+        self.layout_slider(
+            ui,
+            tab,
+            "Max width",
+            settings.edges.max_width,
+            EDGE_THICKNESS_MAX_RANGE,
+            actions::LayoutSettingChange::EdgeMaxWidth,
+            false,
+        );
+
+        ui.separator();
+        ui.label("Layout");
+        self.layout_slider(
+            ui,
+            tab,
+            "Layer gap",
+            settings.layout.layer_gap,
+            BIPARTITE_LAYER_GAP_RANGE,
+            actions::LayoutSettingChange::BipartiteLayerGap,
+            true,
+        );
+        self.layout_slider(
+            ui,
+            tab,
+            "Node spacing",
+            settings.layout.node_gap,
+            BIPARTITE_NODE_GAP_RANGE,
+            actions::LayoutSettingChange::BipartiteNodeGap,
+            true,
+        );
+    }
+
+    fn layout_slider(
+        &mut self,
+        ui: &mut egui::Ui,
+        tab: ActiveTab,
+        label: &str,
+        value: f32,
+        range: layout_settings::SliderRange,
+        change: impl Fn(f32) -> actions::LayoutSettingChange,
+        requires_layout_reset: bool,
+    ) {
+        let mut slider_value = value;
+        let response = ui.add(
+            egui::Slider::new(
+                &mut slider_value,
+                range.min..=range.max,
+            )
+            .text(label)
+            .step_by(range.step as f64),
+        );
+        if response.changed() {
+            self.dispatch(actions::Action::UpdateLayoutSetting {
+                tab,
+                change: change(slider_value),
+            });
+            if requires_layout_reset {
+                self.reset_layout_for_tab(ui, tab);
+            }
+        }
+    }
+
+    fn show_label_toggle(
+        &mut self,
+        ui: &mut egui::Ui,
+        tab: ActiveTab,
+        value: bool,
+    ) {
+        let mut show_labels = value;
+        if ui.checkbox(&mut show_labels, "Show labels").changed() {
+            self.dispatch(actions::Action::UpdateLayoutSetting {
+                tab,
+                change: actions::LayoutSettingChange::ShowLabels(
+                    show_labels,
+                ),
+            });
+        }
+    }
+
+    fn reset_layout_for_tab(
+        &self,
+        ui: &mut egui::Ui,
+        tab: ActiveTab,
+    ) {
+        match tab {
+            ActiveTab::ObservableEditor => {
+                reset_layout::<LayoutStateBipartite>(ui, None);
+            }
+            ActiveTab::DynamicalSystem
+            | ActiveTab::ObservedDynamics => {
+                reset_layout::<LayoutStateCircular>(ui, None);
             }
         }
     }

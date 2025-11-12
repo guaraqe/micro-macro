@@ -2,10 +2,13 @@ use eframe::egui;
 use egui_graphs::{
     DisplayEdge, DisplayNode, Graph, Layout, LayoutState,
 };
+use once_cell::sync::Lazy;
 use petgraph::EdgeType;
 use petgraph::graph::IndexType;
+use petgraph::stable_graph::NodeIndex;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use std::sync::RwLock;
 
 use crate::graph_state::{ObservableNode, ObservableNodeType};
 
@@ -17,21 +20,36 @@ pub struct LayoutStateBipartite {
 impl LayoutState for LayoutStateBipartite {}
 
 /// Configuration for spacing in the bipartite layout
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct BipartiteSpacingConfig {
-    /// Vertical spacing between nodes
-    pub vertical_spacing: f32,
-    /// Top margin from the edge
-    pub top_margin: f32,
+    /// Vertical spacing between nodes within a column
+    pub node_gap: f32,
+    /// Distance between Source and Destination columns
+    pub layer_gap: f32,
 }
 
 impl Default for BipartiteSpacingConfig {
     fn default() -> Self {
         Self {
-            vertical_spacing: 60.0,
-            top_margin: 100.0,
+            node_gap: 60.0,
+            layer_gap: 220.0,
         }
     }
+}
+
+static ACTIVE_SPACING: Lazy<RwLock<BipartiteSpacingConfig>> =
+    Lazy::new(|| RwLock::new(BipartiteSpacingConfig::default()));
+
+pub fn set_active_spacing(config: BipartiteSpacingConfig) {
+    *ACTIVE_SPACING
+        .write()
+        .expect("failed to write bipartite spacing") = config;
+}
+
+fn active_spacing() -> BipartiteSpacingConfig {
+    *ACTIVE_SPACING
+        .read()
+        .expect("failed to read bipartite spacing")
 }
 
 /// Bipartite layout with Source nodes on left, Destination nodes on right
@@ -63,7 +81,7 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
     ) -> impl Layout<LayoutStateBipartite> {
         Self {
             state,
-            spacing: BipartiteSpacingConfig::default(),
+            spacing: active_spacing(),
         }
     }
 
@@ -83,6 +101,7 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
         if self.state.applied {
             return;
         }
+        self.spacing = active_spacing();
 
         // Separate Source and Destination nodes based on node_type field
         //
@@ -120,41 +139,59 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
 
         let rect = ui.available_rect_before_wrap();
         let center_x = rect.center().x;
+        let center_y = rect.center().y;
 
-        // Calculate dynamic column spacing based on number of Source nodes
-        let source_count = source_nodes.len();
-        let dynamic_spacing =
-            (80.0 + (source_count as f32) * 10.0).min(300.0);
+        let half_layer = (self.spacing.layer_gap.max(40.0)) / 2.0;
+        let source_x = center_x - half_layer;
+        let dest_x = center_x + half_layer;
 
-        // Calculate positions for left column (Source)
-        let left_x = center_x - dynamic_spacing / 2.0;
+        place_column(
+            g,
+            &source_nodes,
+            source_x,
+            center_y,
+            self.spacing.node_gap.max(5.0),
+        );
 
-        // Calculate positions for right column (Destination)
-        let right_x = center_x + dynamic_spacing / 2.0;
-
-        // Place Source nodes in left column
-        for (i, (node_idx, _label)) in source_nodes.iter().enumerate()
-        {
-            let y = self.spacing.top_margin
-                + (i as f32) * self.spacing.vertical_spacing;
-            if let Some(node) = g.node_mut(*node_idx) {
-                node.set_location(egui::Pos2::new(left_x, y));
-            }
-        }
-
-        // Place Destination nodes in right column
-        for (i, (node_idx, _label)) in dest_nodes.iter().enumerate() {
-            let y = self.spacing.top_margin
-                + (i as f32) * self.spacing.vertical_spacing;
-            if let Some(node) = g.node_mut(*node_idx) {
-                node.set_location(egui::Pos2::new(right_x, y));
-            }
-        }
+        place_column(
+            g,
+            &dest_nodes,
+            dest_x,
+            center_y,
+            self.spacing.node_gap.max(5.0),
+        );
 
         self.state.applied = true;
     }
 
     fn state(&self) -> LayoutStateBipartite {
         self.state.clone()
+    }
+}
+
+fn place_column<N, E, Ty, Ix, Dn, De>(
+    g: &mut Graph<N, E, Ty, Ix, Dn, De>,
+    nodes: &[(NodeIndex<Ix>, String)],
+    x: f32,
+    center_y: f32,
+    spacing: f32,
+) where
+    N: Clone,
+    E: Clone,
+    Ty: EdgeType,
+    Ix: IndexType,
+    Dn: DisplayNode<N, E, Ty, Ix>,
+    De: DisplayEdge<N, E, Ty, Ix, Dn>,
+{
+    if nodes.is_empty() {
+        return;
+    }
+    let count = nodes.len() as f32;
+    let start_y = center_y - ((count - 1.0) * spacing) / 2.0;
+    for (i, (node_idx, _)) in nodes.iter().enumerate() {
+        if let Some(node) = g.node_mut(*node_idx) {
+            let y = start_y + (i as f32) * spacing;
+            node.set_location(egui::Pos2::new(x, y));
+        }
     }
 }

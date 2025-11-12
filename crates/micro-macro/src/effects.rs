@@ -2,6 +2,7 @@ use crate::graph_view::{
     ObservableGraphDisplay, StateGraphDisplay,
     setup_observable_graph_display, setup_state_graph_display,
 };
+use crate::layout_settings;
 use crate::serialization;
 use crate::store::Store;
 use std::fs;
@@ -23,6 +24,7 @@ pub fn run(store: &mut Store, effect: Effect) {
             let state = serializable_state_from_graphs(
                 store.state_graph.get(),
                 store.observable_graph.get(),
+                &store.layout_settings,
             );
             if let Err(e) = serialization::save_to_file(&state, &path)
             {
@@ -55,6 +57,7 @@ pub fn run(store: &mut Store, effect: Effect) {
                         &observable_graph_raw,
                     ),
                 );
+                store.layout_settings = state.layout_settings;
 
                 store.recompute_observed_graph();
                 // Layout resets now automatic via version tracking
@@ -70,6 +73,7 @@ pub fn run(store: &mut Store, effect: Effect) {
 fn serializable_state_from_graphs(
     state_graph: &StateGraphDisplay,
     observable_graph: &ObservableGraphDisplay,
+    layout_settings: &layout_settings::LayoutSettings,
 ) -> serialization::SerializableState {
     serialization::SerializableState {
         dynamical_system: serialization::graph_to_serializable(
@@ -78,5 +82,6 @@ fn serializable_state_from_graphs(
         observable: serialization::observable_graph_to_serializable(
             observable_graph,
         ),
+        layout_settings: layout_settings.clone(),
     }
 }
