@@ -5,10 +5,11 @@ use crate::layout_bipartite::{
     LayoutBipartite, LayoutStateBipartite,
 };
 use crate::layout_circular::{LayoutCircular, LayoutStateCircular};
+use crate::node_shapes::{BipartiteNodeShape, CircularNodeShape};
 use eframe::egui;
 use egui_graphs::{
-    DefaultEdgeShape, DefaultNodeShape, DisplayEdge, DisplayNode,
-    DrawContext, EdgeProps, Graph, GraphView, Node,
+    DefaultEdgeShape, DisplayEdge, DisplayNode, DrawContext,
+    EdgeProps, Graph, GraphView, Node,
 };
 use petgraph::graph::DefaultIx;
 use petgraph::stable_graph::{IndexType, StableGraph};
@@ -18,23 +19,18 @@ use petgraph::{Directed, EdgeType};
 // Type aliases for graph types
 // ------------------------------------------------------------------
 
-pub type GraphDisplay<N> = Graph<
-    N,
-    f32,
-    Directed,
-    DefaultIx,
-    DefaultNodeShape,
-    WeightedEdgeShape,
->;
+pub type GraphDisplay<N, D> =
+    Graph<N, f32, Directed, DefaultIx, D, WeightedEdgeShape>;
 
-pub fn setup_graph_display<N>(
+pub fn setup_graph_display<N, D>(
     g: &StableGraph<N, f32>,
-) -> GraphDisplay<N>
+) -> GraphDisplay<N, D>
 where
     N: Clone,
     N: HasName,
+    D: DisplayNode<N, f32, Directed, DefaultIx>,
 {
-    let mut graph: GraphDisplay<N> = GraphDisplay::from(g);
+    let mut graph: GraphDisplay<N, D> = GraphDisplay::from(g);
     // Set labels and size for all nodes
     for (idx, node) in g.node_indices().zip(g.node_weights()) {
         if let Some(graph_node) = graph.node_mut(idx) {
@@ -52,33 +48,33 @@ where
     graph
 }
 
+pub fn setup_state_graph_display(
+    g: &StableGraph<StateNode, f32>,
+) -> StateGraphDisplay {
+    setup_graph_display::<StateNode, CircularNodeShape>(g)
+}
+
+pub fn setup_observable_graph_display(
+    g: &StableGraph<ObservableNode, f32>,
+) -> ObservableGraphDisplay {
+    setup_graph_display::<ObservableNode, BipartiteNodeShape>(g)
+}
+
+pub fn setup_observed_graph_display(
+    g: &StableGraph<ObservedNode, f32>,
+) -> ObservedGraphDisplay {
+    setup_graph_display::<ObservedNode, CircularNodeShape>(g)
+}
+
 // Type aliases for the display graph types (with visualization properties)
-pub type StateGraphDisplay = Graph<
-    StateNode,
-    f32,
-    Directed,
-    DefaultIx,
-    DefaultNodeShape,
-    WeightedEdgeShape,
->;
+pub type StateGraphDisplay =
+    GraphDisplay<StateNode, CircularNodeShape>;
 
-pub type ObservableGraphDisplay = Graph<
-    ObservableNode,
-    f32,
-    Directed,
-    DefaultIx,
-    DefaultNodeShape,
-    WeightedEdgeShape,
->;
+pub type ObservableGraphDisplay =
+    GraphDisplay<ObservableNode, BipartiteNodeShape>;
 
-pub type ObservedGraphDisplay = Graph<
-    ObservedNode,
-    f32,
-    Directed,
-    DefaultIx,
-    DefaultNodeShape,
-    WeightedEdgeShape,
->;
+pub type ObservedGraphDisplay =
+    GraphDisplay<ObservedNode, CircularNodeShape>;
 
 // ------------------------------------------------------------------
 // Type aliases for graph views (with layout configurations)
@@ -90,7 +86,7 @@ pub type StateGraphView<'a> = GraphView<
     f32,
     Directed,
     DefaultIx,
-    DefaultNodeShape,
+    CircularNodeShape,
     WeightedEdgeShape,
     LayoutStateCircular,
     LayoutCircular,
@@ -102,7 +98,7 @@ pub type ObservableGraphView<'a> = GraphView<
     f32,
     Directed,
     DefaultIx,
-    DefaultNodeShape,
+    BipartiteNodeShape,
     WeightedEdgeShape,
     LayoutStateBipartite,
     LayoutBipartite,
@@ -114,7 +110,7 @@ pub type ObservedGraphView<'a> = GraphView<
     f32,
     Directed,
     DefaultIx,
-    DefaultNodeShape,
+    CircularNodeShape,
     WeightedEdgeShape,
     LayoutStateCircular,
     LayoutCircular,
@@ -252,11 +248,12 @@ impl<
 /// This function:
 /// 1. Updates the sorted_weights field in each edge shape
 /// 2. Recalculates edge widths based on global weight distribution
-pub fn update_edge_thicknesses<N>(
-    graph: &mut GraphDisplay<N>,
+pub fn update_edge_thicknesses<N, D>(
+    graph: &mut GraphDisplay<N, D>,
     sorted_weights: Vec<f32>,
 ) where
     N: Clone,
+    D: DisplayNode<N, f32, Directed, DefaultIx>,
 {
     // Get all edge indices first (to avoid borrowing issues)
     let edge_indices: Vec<_> =

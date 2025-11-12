@@ -253,14 +253,17 @@ where
             },
         )
     }
-
 }
 
 // Implement equilibrium computation for square matrices (A = B)
 impl<A, N> Markov<A, A, N>
 where
     A: Ord + Clone + std::fmt::Debug,
-    N: Float + Default + ndarray::ScalarOperand + 'static + std::ops::AddAssign,
+    N: Float
+        + Default
+        + ndarray::ScalarOperand
+        + 'static
+        + std::ops::AddAssign,
     for<'r> &'r N: std::ops::Mul<&'r N, Output = N>,
 {
     /// Compute equilibrium distribution using power iteration.
@@ -311,7 +314,10 @@ where
     ///
     /// # Returns
     /// The entropy rate, measuring the average unpredictability per transition
-    pub fn entropy_rate(&self, stationary: &crate::prob::Prob<A, N>) -> N {
+    pub fn entropy_rate(
+        &self,
+        stationary: &crate::prob::Prob<A, N>,
+    ) -> N {
         let csr = self.csc.to_csr();
         let mut total = N::zero();
 
@@ -357,11 +363,14 @@ where
         for i in 0..self.rows.len() {
             let pi = stationary.probs[i];
             if let Some(row_i) = csr.outer_view(i) {
-                for (&j, &p_ij) in row_i.indices().iter().zip(row_i.data().iter()) {
+                for (&j, &p_ij) in
+                    row_i.indices().iter().zip(row_i.data().iter())
+                {
                     let pj = stationary.probs[j];
 
                     // Get P_ji (transition from j to i)
-                    let p_ji = if let Some(row_j) = csr.outer_view(j) {
+                    let p_ji = if let Some(row_j) = csr.outer_view(j)
+                    {
                         row_j.get(i).copied().unwrap_or(N::zero())
                     } else {
                         N::zero()

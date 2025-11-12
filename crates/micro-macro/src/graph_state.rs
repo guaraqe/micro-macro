@@ -2,7 +2,7 @@
 
 use crate::graph_view::{
     ObservableGraphDisplay, ObservedGraphDisplay, StateGraphDisplay,
-    setup_graph_display,
+    setup_observed_graph_display,
 };
 use markov::{Markov, Prob};
 use ndarray::linalg::Dot;
@@ -149,7 +149,7 @@ pub fn calculate_observed_graph(
         );
 
     let mut observed_graph =
-        setup_graph_display(&observed_stable_graph);
+        setup_observed_graph_display(&observed_stable_graph);
 
     match compute_input_statistics(state_graph, observable_graph) {
         Ok(input_stats) => {
@@ -219,9 +219,14 @@ pub fn calculate_observed_graph(
                     }
 
                     // Clear edge labels after all edges have been added
-                    let edge_indices: Vec<_> = observed_graph.edges_iter().map(|(idx, _)| idx).collect();
+                    let edge_indices: Vec<_> = observed_graph
+                        .edges_iter()
+                        .map(|(idx, _)| idx)
+                        .collect();
                     for edge_idx in edge_indices {
-                        if let Some(edge) = observed_graph.edge_mut(edge_idx) {
+                        if let Some(edge) =
+                            observed_graph.edge_mut(edge_idx)
+                        {
                             edge.set_label(String::new());
                         }
                     }

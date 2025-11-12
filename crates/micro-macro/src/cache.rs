@@ -85,7 +85,8 @@ impl Cache {
             |s: &Store| s.state_graph.version(),
             |s: &Store| {
                 let heatmap = s.state_heatmap_uncached();
-                let sorted_weights = s.state_sorted_weights_uncached();
+                let sorted_weights =
+                    s.state_sorted_weights_uncached();
 
                 let state_graph = s.state_graph.get();
                 let node_count = state_graph.node_count();
@@ -100,19 +101,20 @@ impl Cache {
                 // Compute weight distribution
                 let node_stats = if node_count > 0 {
                     let stats = s.state_node_weight_stats();
-                    let weight_assoc: Vec<(NodeIndex, f64)> = state_graph
-                        .nodes_iter()
-                        .filter_map(|(idx, node)| {
-                            stats
-                                .iter()
-                                .find(|(name, _)| {
-                                    name == &node.payload().name
-                                })
-                                .map(|(_, weight)| {
-                                    (idx, *weight as f64)
-                                })
-                        })
-                        .collect();
+                    let weight_assoc: Vec<(NodeIndex, f64)> =
+                        state_graph
+                            .nodes_iter()
+                            .filter_map(|(idx, node)| {
+                                stats
+                                    .iter()
+                                    .find(|(name, _)| {
+                                        name == &node.payload().name
+                                    })
+                                    .map(|(_, weight)| {
+                                        (idx, *weight as f64)
+                                    })
+                            })
+                            .collect();
 
                     Prob::from_assoc(node_count, weight_assoc)
                         .unwrap_or_else(|_| {
@@ -123,54 +125,79 @@ impl Cache {
                             .unwrap()
                         })
                 } else {
-                    Prob::from_assoc(1, vec![(NodeIndex::new(0), 1.0)])
-                        .unwrap()
+                    Prob::from_assoc(
+                        1,
+                        vec![(NodeIndex::new(0), 1.0)],
+                    )
+                    .unwrap()
                 };
 
-                let weight_distribution =
-                    ProbabilityChart::new(
-                        node_stats,
-                        node_labels.clone(),
-                    );
+                let weight_distribution = ProbabilityChart::new(
+                    node_stats,
+                    node_labels.clone(),
+                );
 
                 // Compute equilibrium distribution and statistics for state graph
-                let (equilibrium, entropy_rate, detailed_balance_deviation) =
-                    if s.state_graph.get().node_count() > 0 {
-                        if let Ok(input_stats) = compute_input_statistics(
-                            s.state_graph.get(),
-                            s.observable_graph.get(),
-                        ) {
-                            let eq = input_stats.state_markov.compute_equilibrium(
+                let (
+                    equilibrium,
+                    entropy_rate,
+                    detailed_balance_deviation,
+                ) = if s.state_graph.get().node_count() > 0 {
+                    if let Ok(input_stats) = compute_input_statistics(
+                        s.state_graph.get(),
+                        s.observable_graph.get(),
+                    ) {
+                        let eq = input_stats
+                            .state_markov
+                            .compute_equilibrium(
                                 &input_stats.state_prob,
                                 1e-4,
                                 100,
                             );
-                            let ent_rate = input_stats.state_markov.entropy_rate(&eq);
-                            let deviation = input_stats.state_markov.detailed_balance_deviation(&eq);
-                            (eq, ent_rate, deviation)
-                        } else {
-                            // If we can't compute stats, return uniform distribution with default stats
-                            let node_count = s.state_graph.get().node_count();
-                            let indices: Vec<_> = s.state_graph.get().nodes_iter().map(|(idx, _)| idx).collect();
-                            let eq = Prob::from_assoc(
-                                node_count,
-                                indices.into_iter().map(|idx| (idx, 1.0)),
-                            ).unwrap_or_else(|_| {
-                                Prob::from_assoc(1, vec![(NodeIndex::new(0), 1.0)]).unwrap()
-                            });
-                            (eq, 0.0, 0.0)
-                        }
+                        let ent_rate = input_stats
+                            .state_markov
+                            .entropy_rate(&eq);
+                        let deviation = input_stats
+                            .state_markov
+                            .detailed_balance_deviation(&eq);
+                        (eq, ent_rate, deviation)
                     } else {
-                        // Empty graph: create a minimal valid Prob with default stats
-                        let eq = Prob::from_assoc(1, vec![(NodeIndex::new(0), 1.0)]).unwrap();
+                        // If we can't compute stats, return uniform distribution with default stats
+                        let node_count =
+                            s.state_graph.get().node_count();
+                        let indices: Vec<_> = s
+                            .state_graph
+                            .get()
+                            .nodes_iter()
+                            .map(|(idx, _)| idx)
+                            .collect();
+                        let eq = Prob::from_assoc(
+                            node_count,
+                            indices.into_iter().map(|idx| (idx, 1.0)),
+                        )
+                        .unwrap_or_else(|_| {
+                            Prob::from_assoc(
+                                1,
+                                vec![(NodeIndex::new(0), 1.0)],
+                            )
+                            .unwrap()
+                        });
                         (eq, 0.0, 0.0)
-                    };
+                    }
+                } else {
+                    // Empty graph: create a minimal valid Prob with default stats
+                    let eq = Prob::from_assoc(
+                        1,
+                        vec![(NodeIndex::new(0), 1.0)],
+                    )
+                    .unwrap();
+                    (eq, 0.0, 0.0)
+                };
 
-                let equilibrium_distribution =
-                    ProbabilityChart::new(
-                        equilibrium,
-                        node_labels.clone(),
-                    );
+                let equilibrium_distribution = ProbabilityChart::new(
+                    equilibrium,
+                    node_labels.clone(),
+                );
 
                 StateData {
                     heatmap,
@@ -187,7 +214,8 @@ impl Cache {
             |s: &Store| s.observable_graph.version(),
             |s: &Store| {
                 let heatmap = s.observable_heatmap_uncached();
-                let sorted_weights = s.observable_sorted_weights_uncached();
+                let sorted_weights =
+                    s.observable_sorted_weights_uncached();
 
                 ObservableData {
                     heatmap,
@@ -208,15 +236,16 @@ impl Cache {
                     s.state_graph.get(),
                     s.observable_graph.get(),
                 );
-                let observed_labels: HashMap<NodeIndex, String> = graph
-                    .nodes_iter()
-                    .map(|(_, node)| {
-                        (
-                            node.payload().observable_node_idx,
-                            node.payload().name.clone(),
-                        )
-                    })
-                    .collect();
+                let observed_labels: HashMap<NodeIndex, String> =
+                    graph
+                        .nodes_iter()
+                        .map(|(_, node)| {
+                            (
+                                node.payload().observable_node_idx,
+                                node.payload().name.clone(),
+                            )
+                        })
+                        .collect();
 
                 // Collect heatmap from the graph we just created
                 let heatmap = s.observed_heatmap_from_graph(&graph);
@@ -245,33 +274,54 @@ impl Cache {
                     ) {
                         Ok(input_stats) => {
                             // 1. State equilibrium
-                            let state_eq = input_stats.state_markov.compute_equilibrium(
-                                &input_stats.state_prob,
-                                1e-4,
-                                100,
-                            );
+                            let state_eq = input_stats
+                                .state_markov
+                                .compute_equilibrium(
+                                    &input_stats.state_prob,
+                                    1e-4,
+                                    100,
+                                );
 
                             // 2. Observed equilibrium = state_eq · observable_markov
-                            let obs_eq_from_state = state_eq.dot(&input_stats.observable_markov);
+                            let obs_eq_from_state = state_eq
+                                .dot(&input_stats.observable_markov);
 
                             // 3. Calculated observed equilibrium and statistics
-                            let (obs_eq_calculated, ent_rate, deviation) =
-                                match compute_output_statistics(&input_stats) {
-                                    Ok(output_stats) => {
-                                        let eq_calc = output_stats.observed_markov.compute_equilibrium(
-                                            &output_stats.observed_prob,
+                            let (
+                                obs_eq_calculated,
+                                ent_rate,
+                                deviation,
+                            ) = match compute_output_statistics(
+                                &input_stats,
+                            ) {
+                                Ok(output_stats) => {
+                                    let eq_calc = output_stats
+                                        .observed_markov
+                                        .compute_equilibrium(
+                                            &output_stats
+                                                .observed_prob,
                                             1e-4,
                                             100,
                                         );
-                                        let ent_r = output_stats.observed_markov.entropy_rate(&eq_calc);
-                                        let dev = output_stats.observed_markov.detailed_balance_deviation(&eq_calc);
-                                        (eq_calc, ent_r, dev)
-                                    }
-                                    Err(_) => {
-                                        // Fallback to observed_prob if calculation fails
-                                        (obs_eq_from_state.clone(), 0.0, 0.0)
-                                    }
-                                };
+                                    let ent_r = output_stats
+                                        .observed_markov
+                                        .entropy_rate(&eq_calc);
+                                    let dev = output_stats
+                                        .observed_markov
+                                        .detailed_balance_deviation(
+                                            &eq_calc,
+                                        );
+                                    (eq_calc, ent_r, dev)
+                                }
+                                Err(_) => {
+                                    // Fallback to observed_prob if calculation fails
+                                    (
+                                        obs_eq_from_state.clone(),
+                                        0.0,
+                                        0.0,
+                                    )
+                                }
+                            };
 
                             (
                                 obs_eq_from_state,
@@ -282,34 +332,47 @@ impl Cache {
                         }
                         Err(_) => {
                             // Create fallback distributions
-                            let node_count = graph.node_count().max(1);
-                            let indices: Vec<_> = graph.nodes_iter().map(|(idx, _)| idx).collect();
+                            let node_count =
+                                graph.node_count().max(1);
+                            let indices: Vec<_> = graph
+                                .nodes_iter()
+                                .map(|(idx, _)| idx)
+                                .collect();
                             let fallback = Prob::from_assoc(
                                 node_count,
-                                indices.into_iter().map(|idx| (idx, 1.0)),
-                            ).unwrap_or_else(|_| {
-                                Prob::from_assoc(1, vec![(NodeIndex::new(0), 1.0)]).unwrap()
+                                indices
+                                    .into_iter()
+                                    .map(|idx| (idx, 1.0)),
+                            )
+                            .unwrap_or_else(|_| {
+                                Prob::from_assoc(
+                                    1,
+                                    vec![(NodeIndex::new(0), 1.0)],
+                                )
+                                .unwrap()
                             });
                             (fallback.clone(), fallback, 0.0, 0.0)
                         }
                     }
                 } else {
                     // Empty graph fallback
-                    let fallback = Prob::from_assoc(1, vec![(NodeIndex::new(0), 1.0)]).unwrap();
+                    let fallback = Prob::from_assoc(
+                        1,
+                        vec![(NodeIndex::new(0), 1.0)],
+                    )
+                    .unwrap();
                     (fallback.clone(), fallback, 0.0, 0.0)
                 };
 
-                let equilibrium_from_state =
-                    ProbabilityChart::new(
-                        equilibrium_from_state,
-                        observed_labels.clone(),
-                    );
+                let equilibrium_from_state = ProbabilityChart::new(
+                    equilibrium_from_state,
+                    observed_labels.clone(),
+                );
 
-                let equilibrium_calculated =
-                    ProbabilityChart::new(
-                        equilibrium_calculated,
-                        observed_labels.clone(),
-                    );
+                let equilibrium_calculated = ProbabilityChart::new(
+                    equilibrium_calculated,
+                    observed_labels.clone(),
+                );
 
                 ObservedData {
                     graph,

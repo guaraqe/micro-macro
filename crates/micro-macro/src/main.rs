@@ -6,28 +6,34 @@ mod graph_view;
 mod heatmap;
 mod layout_bipartite;
 mod layout_circular;
+mod node_shapes;
 mod serialization;
 mod state;
 mod store;
 mod versioned;
 
 use eframe::egui;
-use egui_graphs::{SettingsInteraction, SettingsStyle, reset_layout};
-use egui_extras::{StripBuilder, Size};
+use egui_extras::{Size, StripBuilder};
+use egui_graphs::{
+    DisplayNode, SettingsInteraction, SettingsNavigation,
+    SettingsStyle, reset_layout,
+};
 use graph_state::{
     ObservableNodeType,
     calculate_observed_graph_from_observable_display,
 };
 use graph_view::{
     ObservableGraphView, ObservedGraphView, StateGraphView,
-    setup_graph_display,
+    setup_observed_graph_display,
 };
 use layout_bipartite::LayoutStateBipartite;
 use layout_circular::{
     LayoutCircular, LayoutStateCircular, SortOrder, SpacingConfig,
 };
-use petgraph::stable_graph::NodeIndex;
-use petgraph::visit::EdgeRef;
+use petgraph::{
+    Directed, graph::DefaultIx, stable_graph::NodeIndex,
+    visit::EdgeRef,
+};
 use state::State;
 use store::{ActiveTab, EditMode};
 
@@ -36,6 +42,7 @@ const DRAG_THRESHOLD: f32 = 2.0;
 const EDGE_PREVIEW_STROKE_WIDTH: f32 = 2.0;
 const EDGE_PREVIEW_COLOR: egui::Color32 =
     egui::Color32::from_rgb(100, 100, 255);
+const GRAPH_FIT_PADDING: f32 = 0.75;
 
 // ------------------------------------------------------------------
 // Layout Configuration - Customize circular layout behavior here
@@ -111,7 +118,7 @@ fn main() -> eframe::Result<()> {
                     &observable_graph,
                 );
             let observed_graph =
-                setup_graph_display(&observed_graph_raw);
+                setup_observed_graph_display(&observed_graph_raw);
 
             let store = store::Store::new(
                 graph,
@@ -186,7 +193,8 @@ fn render_probability_chart(
     let mut sorted_data = data.clone();
     sorted_data.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let names: Vec<String> = sorted_data.iter().map(|(name, _)| name.clone()).collect();
+    let names: Vec<String> =
+        sorted_data.iter().map(|(name, _)| name.clone()).collect();
 
     let bars: Vec<egui_plot::Bar> = sorted_data
         .into_iter()
@@ -202,7 +210,9 @@ fn render_probability_chart(
     let chart = egui_plot::BarChart::new(plot_id, bars)
         .color(color)
         .highlight(true)
-        .element_formatter(Box::new(|bar, _chart| format!("{:.4}", bar.value)));
+        .element_formatter(Box::new(|bar, _chart| {
+            format!("{:.4}", bar.value)
+        }));
 
     egui_plot::Plot::new(plot_id)
         .height(height)
@@ -235,19 +245,23 @@ fn render_probability_chart(
     ui.horizontal(|ui| {
         ui.label(format!("Entropy: {:.4}", chart_data.entropy));
         ui.separator();
-        ui.label(format!("Eff: {:.2} ({:.0}%)", chart_data.effective_states, percentage));
+        ui.label(format!(
+            "Eff: {:.2} ({:.0}%)",
+            chart_data.effective_states, percentage
+        ));
     });
 }
 
 impl State {
     // Returns (incoming_connections, outgoing_connections) for a given node in any graph
     // Each connection is (node_name, edge_weight)
-    fn get_connections<N>(
-        graph: &graph_view::GraphDisplay<N>,
+    fn get_connections<N, D>(
+        graph: &graph_view::GraphDisplay<N, D>,
         node_idx: NodeIndex,
     ) -> (Vec<(String, f32)>, Vec<(String, f32)>)
     where
         N: Clone + graph_state::HasName,
+        D: DisplayNode<N, f32, Directed, DefaultIx>,
     {
         let incoming: Vec<(String, f32)> = graph
             .edges_directed(node_idx, petgraph::Direction::Incoming)
@@ -300,6 +314,7 @@ impl State {
     // Returns style settings: controls whether node labels are
     // always visible
     fn get_settings_style(&self) -> SettingsStyle {
+        node_shapes::set_label_visibility(self.store.show_labels);
         SettingsStyle::new()
             .with_labels_always(self.store.show_labels)
             .with_node_stroke_hook(
@@ -339,6 +354,12 @@ impl State {
                     }
                 },
             )
+    }
+
+    fn get_settings_navigation(&self) -> SettingsNavigation {
+        SettingsNavigation::new()
+            .with_fit_to_screen_enabled(true)
+            .with_fit_to_screen_padding(GRAPH_FIT_PADDING)
     }
 
     // Drag-to-create edge workflow: click on source node, drag
@@ -801,7 +822,10 @@ impl State {
 
         egui::TopBottomPanel::bottom("histogram_panel")
             .exact_height(histogram_height)
-            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
+            .frame(
+                egui::Frame::side_top_panel(&ctx.style())
+                    .inner_margin(8.0),
+            )
             .show(ctx, |ui| {
                 // Use StripBuilder for proper proportional layout in histogram strip
                 StripBuilder::new(ui)
@@ -812,8 +836,12 @@ impl State {
                         // Weight histogram
                         strip.cell(|ui| {
                             ui.vertical(|ui| {
-                                let state_data = self.cache.state_data.get(&self.store);
-                                let plot_height = ui.available_height() - 30.0;
+                                let state_data = self
+                                    .cache
+                                    .state_data
+                                    .get(&self.store);
+                                let plot_height =
+                                    ui.available_height() - 30.0;
 
                                 render_probability_chart(
                                     ui,
@@ -829,14 +857,19 @@ impl State {
                         // Equilibrium histogram
                         strip.cell(|ui| {
                             ui.vertical(|ui| {
-                                let state_data = self.cache.state_data.get(&self.store);
-                                let plot_height = ui.available_height() - 30.0;
+                                let state_data = self
+                                    .cache
+                                    .state_data
+                                    .get(&self.store);
+                                let plot_height =
+                                    ui.available_height() - 30.0;
 
                                 render_probability_chart(
                                     ui,
                                     "state_equilibrium_histogram",
                                     "State Equilibrium Distribution",
-                                    &state_data.equilibrium_distribution,
+                                    &state_data
+                                        .equilibrium_distribution,
                                     viridis_mid,
                                     plot_height,
                                 );
@@ -845,15 +878,40 @@ impl State {
 
                         // Stats section
                         strip.cell(|ui| {
-                        ui.label("Statistics");
-                        let state_data = self.cache.state_data.get(&self.store);
-                        ui.label(format!("Entropy rate: {:.4}", state_data.entropy_rate));
-                        ui.label(format!("Balance dev: {:.4}", state_data.detailed_balance_deviation));
-                        ui.separator();
-                        let selected = self.store.state_selection();
-                        ui.label(format!("Selected: {}", selected.len()));
-                        ui.label(format!("Edges: {}", self.store.state_graph.get().edge_count()));
-                        ui.label(format!("Nodes: {}", self.store.state_graph.get().node_count()));
+                            ui.label("Statistics");
+                            let state_data = self
+                                .cache
+                                .state_data
+                                .get(&self.store);
+                            ui.label(format!(
+                                "Entropy rate: {:.4}",
+                                state_data.entropy_rate
+                            ));
+                            ui.label(format!(
+                                "Balance dev: {:.4}",
+                                state_data.detailed_balance_deviation
+                            ));
+                            ui.separator();
+                            let selected =
+                                self.store.state_selection();
+                            ui.label(format!(
+                                "Selected: {}",
+                                selected.len()
+                            ));
+                            ui.label(format!(
+                                "Edges: {}",
+                                self.store
+                                    .state_graph
+                                    .get()
+                                    .edge_count()
+                            ));
+                            ui.label(format!(
+                                "Nodes: {}",
+                                self.store
+                                    .state_graph
+                                    .get()
+                                    .node_count()
+                            ));
                         });
                     });
             });
@@ -895,11 +953,13 @@ impl State {
 
                         let settings_interaction = self.get_settings_interaction(mode);
                         let settings_style = self.get_settings_style();
+                        let settings_navigation = self.get_settings_navigation();
 
                         // Graph takes most of available space, leaving room for controls
                         ui.add(
                             &mut StateGraphView::new(self.store.state_graph.get_mut())
                                 .with_interactions(&settings_interaction)
+                                .with_navigations(&settings_navigation)
                                 .with_styles(&settings_style),
                         );
 
@@ -1266,6 +1326,8 @@ impl State {
                     let settings_interaction =
                         self.get_settings_interaction(mode);
                     let settings_style = self.get_settings_style();
+                    let settings_navigation =
+                        self.get_settings_navigation();
 
                     // Allocate remaining space for the graph
                     let available_height =
@@ -1283,6 +1345,9 @@ impl State {
                                 )
                                 .with_interactions(
                                     &settings_interaction,
+                                )
+                                .with_navigations(
+                                    &settings_navigation,
                                 )
                                 .with_styles(&settings_style),
                             );
@@ -1627,6 +1692,8 @@ impl State {
                             .with_node_clicking_enabled(true)
                             .with_node_selection_enabled(true);
                     let settings_style = self.get_settings_style();
+                    let settings_navigation =
+                        self.get_settings_navigation();
 
                     // Get observed version before mutable borrow
                     let observed_version =
@@ -1668,6 +1735,9 @@ impl State {
                                 )
                                 .with_interactions(
                                     &settings_interaction,
+                                )
+                                .with_navigations(
+                                    &settings_navigation,
                                 )
                                 .with_styles(&settings_style),
                             );

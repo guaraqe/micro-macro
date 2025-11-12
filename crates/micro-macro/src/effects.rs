@@ -1,5 +1,6 @@
 use crate::graph_view::{
-    ObservableGraphDisplay, StateGraphDisplay, setup_graph_display,
+    ObservableGraphDisplay, StateGraphDisplay,
+    setup_observable_graph_display, setup_state_graph_display,
 };
 use crate::serialization;
 use crate::store::Store;
@@ -48,10 +49,12 @@ pub fn run(store: &mut Store, effect: Effect) {
                     );
                 store
                     .state_graph
-                    .set(setup_graph_display(&state_graph_raw));
-                store
-                    .observable_graph
-                    .set(setup_graph_display(&observable_graph_raw));
+                    .set(setup_state_graph_display(&state_graph_raw));
+                store.observable_graph.set(
+                    setup_observable_graph_display(
+                        &observable_graph_raw,
+                    ),
+                );
 
                 store.recompute_observed_graph();
                 // Layout resets now automatic via version tracking

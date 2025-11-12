@@ -263,7 +263,9 @@ pub fn load_from_file(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph_view::setup_graph_display;
+    use crate::graph_view::{
+        setup_observable_graph_display, setup_state_graph_display,
+    };
 
     /// Helper to create a test observable graph with edges from each Source node
     fn create_test_graphs() -> (StateGraph, ObservableGraph) {
@@ -442,8 +444,8 @@ mod tests {
         }
 
         // Convert to serializable format using setup_graph_display
-        let state_display = setup_graph_display(&state_graph);
-        let obs_display = setup_graph_display(&obs_graph);
+        let state_display = setup_state_graph_display(&state_graph);
+        let obs_display = setup_observable_graph_display(&obs_graph);
 
         let state_serializable =
             graph_to_serializable(&state_display);
@@ -480,9 +482,9 @@ mod tests {
 
         // Convert back to serializable again using setup_graph_display
         let loaded_state_display =
-            setup_graph_display(&loaded_state_graph);
+            setup_state_graph_display(&loaded_state_graph);
         let loaded_obs_display =
-            setup_graph_display(&loaded_obs_graph);
+            setup_observable_graph_display(&loaded_obs_graph);
 
         let state_serializable2 =
             graph_to_serializable(&loaded_state_display);

@@ -146,13 +146,16 @@ where
             .iter()
             .zip(other.probs.iter())
             .map(|(a, b)| (*a - *b).abs())
-            .fold(N::zero(), |max, diff| {
-                if diff > max {
-                    diff
-                } else {
-                    max
-                }
-            })
+            .fold(
+                N::zero(),
+                |max, diff| {
+                    if diff > max {
+                        diff
+                    } else {
+                        max
+                    }
+                },
+            )
     }
 
     /// Compute Shannon entropy using natural logarithm.

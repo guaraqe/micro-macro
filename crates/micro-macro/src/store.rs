@@ -6,14 +6,19 @@ use crate::graph_state::{
 use crate::graph_view;
 use crate::graph_view::{
     ObservableGraphDisplay, ObservedGraphDisplay, StateGraphDisplay,
-    setup_graph_display,
+    setup_observable_graph_display, setup_state_graph_display,
 };
 use crate::heatmap::HeatmapData;
 use crate::serialization;
 use crate::versioned::Versioned;
 use eframe::egui;
-use petgraph::stable_graph::NodeIndex;
-use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+use egui_graphs::DisplayNode;
+use petgraph::{
+    Directed,
+    graph::DefaultIx,
+    stable_graph::NodeIndex,
+    visit::{EdgeRef, IntoEdgeReferences},
+};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -333,11 +338,12 @@ fn sync_source_nodes_display(
     synced
 }
 
-fn compute_generic_heatmap_data<N>(
-    graph: &graph_view::GraphDisplay<N>,
+fn compute_generic_heatmap_data<N, D>(
+    graph: &graph_view::GraphDisplay<N, D>,
 ) -> HeatmapData
 where
     N: Clone + HasName,
+    D: DisplayNode<N, f32, Directed, DefaultIx>,
 {
     let mut nodes: Vec<_> = graph
         .nodes_iter()
@@ -444,11 +450,12 @@ fn compute_observable_heatmap_data(
     (x_labels, y_labels, matrix, x_node_indices, y_node_indices)
 }
 
-fn collect_sorted_weights_from_display<N>(
-    graph: &graph_view::GraphDisplay<N>,
+fn collect_sorted_weights_from_display<N, D>(
+    graph: &graph_view::GraphDisplay<N, D>,
 ) -> Vec<f32>
 where
     N: Clone,
+    D: DisplayNode<N, f32, Directed, DefaultIx>,
 {
     let mut weights: Vec<f32> = graph
         .edges_iter()
@@ -520,8 +527,8 @@ pub fn load_graphs_from_path(
         );
 
     Ok((
-        setup_graph_display(&state_graph),
-        setup_graph_display(&observable_graph),
+        setup_state_graph_display(&state_graph),
+        setup_observable_graph_display(&observable_graph),
     ))
 }
 
@@ -537,7 +544,7 @@ pub fn load_or_create_default_state()
     let state_graph = default_state_graph();
     let observable_graph = default_observable_graph(&state_graph);
     (
-        setup_graph_display(&state_graph),
-        setup_graph_display(&observable_graph),
+        setup_state_graph_display(&state_graph),
+        setup_observable_graph_display(&observable_graph),
     )
 }
