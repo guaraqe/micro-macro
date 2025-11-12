@@ -301,6 +301,82 @@ where
         // Return best approximation after max iterations
         current
     }
+
+    /// Compute the entropy rate of the Markov chain using natural logarithm.
+    /// H_rate = -Σ_i π_i Σ_j P_ij ln(P_ij)
+    /// Uses the convention that 0·ln(0) = 0.
+    ///
+    /// # Arguments
+    /// * `stationary` - The stationary distribution π
+    ///
+    /// # Returns
+    /// The entropy rate, measuring the average unpredictability per transition
+    pub fn entropy_rate(&self, stationary: &crate::prob::Prob<A, N>) -> N {
+        let csr = self.csc.to_csr();
+        let mut total = N::zero();
+
+        for i in 0..self.rows.len() {
+            let pi = stationary.probs[i];
+            if pi <= N::zero() {
+                continue;
+            }
+
+            if let Some(row) = csr.outer_view(i) {
+                for &val in row.data().iter() {
+                    if val > N::zero() {
+                        total = total + pi * val * val.ln();
+                    }
+                }
+            }
+        }
+
+        -total
+    }
+
+    /// Compute the detailed balance deviation.
+    /// Φ = (1/2) Σ_ij |π_i P_ij - π_j P_ji|
+    ///
+    /// Measures the degree of irreversibility in the Markov chain.
+    /// Returns 0 for reversible chains, larger values for chains with
+    /// stronger cyclic probability currents.
+    ///
+    /// # Arguments
+    /// * `stationary` - The stationary distribution π
+    ///
+    /// # Returns
+    /// The total probability circulation measure
+    pub fn detailed_balance_deviation(
+        &self,
+        stationary: &crate::prob::Prob<A, N>,
+    ) -> N {
+        let csr = self.csc.to_csr();
+        let mut total = N::zero();
+        let two = N::one() + N::one();
+
+        // Iterate over all pairs (i, j)
+        for i in 0..self.rows.len() {
+            let pi = stationary.probs[i];
+            if let Some(row_i) = csr.outer_view(i) {
+                for (&j, &p_ij) in row_i.indices().iter().zip(row_i.data().iter()) {
+                    let pj = stationary.probs[j];
+
+                    // Get P_ji (transition from j to i)
+                    let p_ji = if let Some(row_j) = csr.outer_view(j) {
+                        row_j.get(i).copied().unwrap_or(N::zero())
+                    } else {
+                        N::zero()
+                    };
+
+                    // Add |π_i P_ij - π_j P_ji|
+                    let diff = (pi * p_ij - pj * p_ji).abs();
+                    total = total + diff;
+                }
+            }
+        }
+
+        // Divide by 2 since we count each pair twice
+        total / two
+    }
 }
 
 // Implement Dot<Prob> for Markov: matrix · vector -> vector

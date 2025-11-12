@@ -188,6 +188,55 @@ fn create_probability_bars(
     (bars, names)
 }
 
+/// Render a distribution bar chart with entropy and effective states statistics below
+fn render_distribution_with_stats(
+    ui: &mut egui::Ui,
+    plot_id: &str,
+    label: &str,
+    data: &[(String, f64)],
+    entropy: f64,
+    effective_states: f64,
+    color: egui::Color32,
+) {
+    ui.separator();
+    ui.label(label);
+
+    let (bars, names) = create_probability_bars(data, color);
+
+    let chart = egui_plot::BarChart::new(plot_id, bars)
+        .highlight(true)
+        .element_formatter(Box::new(|bar, _chart| {
+            format!("{:.4}", bar.value)
+        }));
+
+    egui_plot::Plot::new(plot_id)
+        .height(150.0)
+        .show_axes([true, true])
+        .allow_zoom(false)
+        .allow_drag(false)
+        .allow_scroll(false)
+        .show_x(false)
+        .show_background(false)
+        .show_grid(false)
+        .include_y(0.0)
+        .include_y(1.0)
+        .x_axis_formatter(move |val, _range| {
+            let idx = val.value as usize;
+            names.get(idx).cloned().unwrap_or_default()
+        })
+        .y_axis_label("Probability")
+        .show(ui, |plot_ui| {
+            plot_ui.bar_chart(chart);
+        });
+
+    // Display statistics below the plot
+    ui.horizontal(|ui| {
+        ui.label(format!("Entropy: {:.4} nats", entropy));
+        ui.separator();
+        ui.label(format!("Effective states: {:.2}", effective_states));
+    });
+}
+
 impl State {
     // Returns (incoming_connections, outgoing_connections) for a given node in any graph
     // Each connection is (node_name, edge_weight)
@@ -766,9 +815,7 @@ impl State {
                         plot_ui.bar_chart(chart);
                     });
 
-                // Equilibrium distribution
-                ui.separator();
-                ui.label("State Equilibrium Distribution");
+                // Equilibrium distribution with statistics
                 let state_data = self.cache.state_data.get(&self.store);
                 let equilibrium_data: Vec<(String, f64)> = state_data.equilibrium.enumerate()
                     .map(|(node_idx, prob)| {
@@ -781,35 +828,15 @@ impl State {
                     })
                     .collect();
 
-                let (eq_bars, eq_names) = create_probability_bars(
+                render_distribution_with_stats(
+                    ui,
+                    "state_equilibrium_histogram",
+                    "State Equilibrium Distribution",
                     &equilibrium_data,
-                    egui::Color32::from_rgb(100, 150, 250)
+                    state_data.entropy,
+                    state_data.effective_states,
+                    egui::Color32::from_rgb(100, 150, 250),
                 );
-
-                let eq_chart = egui_plot::BarChart::new("eq_weights", eq_bars)
-                    .highlight(true)
-                    .element_formatter(Box::new(|bar, _chart| {
-                        format!("{:.4}", bar.value)
-                    }));
-
-                egui_plot::Plot::new("state_equilibrium_histogram")
-                    .height(150.0)
-                    .show_axes([true, true])
-                    .allow_zoom(false)
-                    .allow_drag(false)
-                    .allow_scroll(false)
-                    .show_background(false)
-                    .show_grid(false)
-                    .include_y(0.0)
-                    .include_y(1.0)
-                    .x_axis_formatter(move |val, _range| {
-                        let idx = val.value as usize;
-                        eq_names.get(idx).cloned().unwrap_or_default()
-                    })
-                    .y_axis_label("Probability")
-                    .show(ui, |plot_ui| {
-                        plot_ui.bar_chart(eq_chart);
-                    });
 
                 // Metadata at bottom
                 ui.with_layout(
@@ -918,10 +945,20 @@ impl State {
                         },
                     );
 
-                    // Metadata at bottom
+                    // Metadata and statistics at bottom
                     ui.with_layout(
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
+                            let state_data = self.cache.state_data.get(&self.store);
+                            ui.label(format!(
+                                "Entropy rate: {:.4} nats",
+                                state_data.entropy_rate
+                            ));
+                            ui.label(format!(
+                                "Detailed balance deviation: {:.4}",
+                                state_data.detailed_balance_deviation
+                            ));
+                            ui.separator();
                             let selected = self.store.state_selection();
                             ui.label(format!(
                                 "Selected: {}",
@@ -1581,9 +1618,7 @@ impl State {
                             plot_ui.bar_chart(chart);
                         });
 
-                    // Observed Equilibrium (from state)
-                    ui.separator();
-                    ui.label("Observed Equilibrium (State × Observable)");
+                    // Observed Equilibrium (from state) with statistics
                     let observed_data = self.cache.observed_data.get(&self.store);
                     let eq_from_state_data: Vec<(String, f64)> = observed_data.equilibrium_from_state.enumerate()
                         .map(|(observable_node_idx, prob)| {
@@ -1598,35 +1633,15 @@ impl State {
                         })
                         .collect();
 
-                    let (eq_from_state_bars, eq_from_state_names) = create_probability_bars(
+                    render_distribution_with_stats(
+                        ui,
+                        "observed_equilibrium_from_state",
+                        "Observed Equilibrium (State × Observable)",
                         &eq_from_state_data,
-                        egui::Color32::from_rgb(250, 150, 100)
+                        observed_data.entropy_from_state,
+                        observed_data.effective_states_from_state,
+                        egui::Color32::from_rgb(250, 150, 100),
                     );
-
-                    let eq_from_state_chart = egui_plot::BarChart::new("eq_from_state", eq_from_state_bars)
-                        .highlight(true)
-                        .element_formatter(Box::new(|bar, _chart| {
-                            format!("{:.4}", bar.value)
-                        }));
-
-                    egui_plot::Plot::new("observed_equilibrium_from_state")
-                        .height(150.0)
-                        .show_axes([true, true])
-                        .allow_zoom(false)
-                        .allow_drag(false)
-                        .allow_scroll(false)
-                        .show_background(false)
-                        .show_grid(false)
-                        .include_y(0.0)
-                        .include_y(1.0)
-                        .x_axis_formatter(move |val, _range| {
-                            let idx = val.value as usize;
-                            eq_from_state_names.get(idx).cloned().unwrap_or_default()
-                        })
-                        .y_axis_label("Probability")
-                        .show(ui, |plot_ui| {
-                            plot_ui.bar_chart(eq_from_state_chart);
-                        });
 
                     // Metadata at bottom
                     ui.with_layout(
@@ -1699,9 +1714,7 @@ impl State {
                         },
                     );
 
-                    // Calculated Observed Equilibrium
-                    ui.separator();
-                    ui.label("Calculated Observed Equilibrium");
+                    // Calculated Observed Equilibrium with statistics
                     let observed_data = self.cache.observed_data.get(&self.store);
                     let eq_calculated_data: Vec<(String, f64)> = observed_data.equilibrium_calculated.enumerate()
                         .map(|(observable_node_idx, prob)| {
@@ -1716,41 +1729,30 @@ impl State {
                         })
                         .collect();
 
-                    let (eq_calc_bars, eq_calc_names) = create_probability_bars(
+                    render_distribution_with_stats(
+                        ui,
+                        "observed_equilibrium_calculated",
+                        "Calculated Observed Equilibrium",
                         &eq_calculated_data,
-                        egui::Color32::from_rgb(250, 150, 100)
+                        observed_data.entropy_calculated,
+                        observed_data.effective_states_calculated,
+                        egui::Color32::from_rgb(250, 150, 100),
                     );
 
-                    let eq_calc_chart = egui_plot::BarChart::new("eq_calculated", eq_calc_bars)
-                        .highlight(true)
-                        .element_formatter(Box::new(|bar, _chart| {
-                            format!("{:.4}", bar.value)
-                        }));
-
-                    egui_plot::Plot::new("observed_equilibrium_calculated")
-                        .height(150.0)
-                        .show_axes([true, true])
-                        .allow_zoom(false)
-                        .allow_drag(false)
-                        .allow_scroll(false)
-                        .show_background(false)
-                        .show_grid(false)
-                        .include_y(0.0)
-                        .include_y(1.0)
-                        .x_axis_formatter(move |val, _range| {
-                            let idx = val.value as usize;
-                            eq_calc_names.get(idx).cloned().unwrap_or_default()
-                        })
-                        .y_axis_label("Probability")
-                        .show(ui, |plot_ui| {
-                            plot_ui.bar_chart(eq_calc_chart);
-                        });
-
-                    // Metadata at bottom
+                    // Metadata and statistics at bottom
                     ui.with_layout(
                         egui::Layout::bottom_up(egui::Align::LEFT),
                         |ui| {
                             let observed_data = self.cache.observed_data.get(&self.store);
+                            ui.label(format!(
+                                "Entropy rate: {:.4} nats",
+                                observed_data.entropy_rate
+                            ));
+                            ui.label(format!(
+                                "Detailed balance deviation: {:.4}",
+                                observed_data.detailed_balance_deviation
+                            ));
+                            ui.separator();
                             ui.label(format!(
                                 "Edges: {}",
                                 observed_data.graph.edge_count()

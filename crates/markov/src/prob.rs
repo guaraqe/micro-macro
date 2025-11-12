@@ -154,6 +154,30 @@ where
                 }
             })
     }
+
+    /// Compute Shannon entropy using natural logarithm.
+    /// H = -Σ p_i ln(p_i)
+    /// Uses the convention that 0·ln(0) = 0.
+    pub fn entropy(&self) -> N {
+        self.probs
+            .iter()
+            .map(|&p| {
+                if p > N::zero() {
+                    -(p * p.ln())
+                } else {
+                    N::zero()
+                }
+            })
+            .fold(N::zero(), |acc, x| acc + x)
+    }
+
+    /// Compute the effective number of states.
+    /// N_eff = exp(H)
+    /// Returns the exponential of the Shannon entropy, which represents
+    /// the effective number of equally likely outcomes.
+    pub fn effective_states(&self) -> N {
+        self.entropy().exp()
+    }
 }
 
 // Import Markov for the cross-type dot method
