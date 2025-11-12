@@ -33,6 +33,26 @@ fn inferno(t: f32) -> egui::Color32 {
     egui::Color32::from_rgb(c.r, c.g, c.b)
 }
 
+/// Calculate contrasting text color for given background
+/// Returns black for light backgrounds, white for dark backgrounds
+fn contrasting_text_color(bg: egui::Color32) -> egui::Color32 {
+    // Calculate relative luminance using sRGB
+    let r = bg.r() as f32 / 255.0;
+    let g = bg.g() as f32 / 255.0;
+    let b = bg.b() as f32 / 255.0;
+
+    // Simplified luminance calculation
+    let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+
+    // Use black text for bright backgrounds (luminance > 0.5)
+    // Use white text for dark backgrounds
+    if luminance > 0.5 {
+        egui::Color32::BLACK
+    } else {
+        egui::Color32::WHITE
+    }
+}
+
 /// Calculate color interpolation value based on weight position in sorted list
 /// Returns value between 0.0 and 1.0 for the Inferno color gradient
 /// Handles any weight value by finding where it fits in the sorted list
@@ -480,7 +500,8 @@ pub fn show_heatmap(
                         if let Some(weight) = weight_opt {
                             let text = format!("{:.1}", weight);
                             let font_id = egui::FontId::proportional(9.0);
-                            let text_color = egui::Color32::WHITE;
+                            // Use contrasting text color based on background
+                            let text_color = contrasting_text_color(cell_color);
                             ui.painter().text(
                                 rect.center(),
                                 egui::Align2::CENTER_CENTER,

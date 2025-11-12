@@ -211,14 +211,6 @@ impl Store {
         compute_observable_heatmap_data(self.observable_graph.get())
     }
 
-    pub fn observed_heatmap_uncached(&self) -> HeatmapData {
-        let observed = calculate_observed_graph(
-            self.state_graph.get(),
-            self.observable_graph.get(),
-        );
-        compute_generic_heatmap_data(&observed)
-    }
-
     pub fn observed_heatmap_from_graph(
         &self,
         observed: &graph_view::ObservedGraphDisplay,

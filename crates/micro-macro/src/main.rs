@@ -152,33 +152,38 @@ fn create_weight_histogram(
 }
 
 impl State {
-    // Returns (incoming_nodes, outgoing_nodes) for a given node in any graph
+    // Returns (incoming_connections, outgoing_connections) for a given node in any graph
+    // Each connection is (node_name, edge_weight)
     fn get_connections<N>(
         graph: &graph_view::GraphDisplay<N>,
         node_idx: NodeIndex,
-    ) -> (Vec<String>, Vec<String>)
+    ) -> (Vec<(String, f32)>, Vec<(String, f32)>)
     where
         N: Clone + graph_state::HasName,
     {
-        let incoming: Vec<String> = graph
+        let incoming: Vec<(String, f32)> = graph
             .edges_directed(node_idx, petgraph::Direction::Incoming)
             .map(|edge_ref| {
                 let other_idx = edge_ref.source();
-                graph
+                let node_name = graph
                     .node(other_idx)
                     .map(|n| n.payload().name())
-                    .unwrap_or_else(|| String::from("???"))
+                    .unwrap_or_else(|| String::from("???"));
+                let weight = *edge_ref.weight().payload();
+                (node_name, weight)
             })
             .collect();
 
-        let outgoing: Vec<String> = graph
+        let outgoing: Vec<(String, f32)> = graph
             .edges_directed(node_idx, petgraph::Direction::Outgoing)
             .map(|edge_ref| {
                 let other_idx = edge_ref.target();
-                graph
+                let node_name = graph
                     .node(other_idx)
                     .map(|n| n.payload().name())
-                    .unwrap_or_else(|| String::from("???"))
+                    .unwrap_or_else(|| String::from("???"));
+                let weight = *edge_ref.weight().payload();
+                (node_name, weight)
             })
             .collect();
 
@@ -1756,20 +1761,20 @@ impl State {
 
     fn connections_widget(
         ui: &mut egui::Ui,
-        incoming: Vec<String>,
-        outgoing: Vec<String>,
+        incoming: Vec<(String, f32)>,
+        outgoing: Vec<(String, f32)>,
     ) {
         if !incoming.is_empty() {
             ui.label(format!("Incoming ({}):", incoming.len()));
-            for name in incoming {
-                ui.label(format!("  ⬅ {}", name));
+            for (name, weight) in incoming {
+                ui.label(format!("  ⬅ {} ({:.3})", name, weight));
             }
         }
 
         if !outgoing.is_empty() {
             ui.label(format!("Outgoing ({}):", outgoing.len()));
-            for name in outgoing {
-                ui.label(format!("  ➡ {}", name));
+            for (name, weight) in outgoing {
+                ui.label(format!("  ➡ {} ({:.3})", name, weight));
             }
         }
     }
