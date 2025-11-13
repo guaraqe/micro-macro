@@ -457,6 +457,7 @@ mod tests {
         let original_state = SerializableState {
             dynamical_system: state_serializable,
             observable: obs_serializable,
+            layout_settings: LayoutSettings::default(),
         };
 
         // Save to file
@@ -496,6 +497,7 @@ mod tests {
         let reloaded_state = SerializableState {
             dynamical_system: state_serializable2,
             observable: obs_serializable2,
+            layout_settings: LayoutSettings::default(),
         };
 
         // Compare: loaded serializable vs re-serialized
