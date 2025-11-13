@@ -1,54 +1,42 @@
 use ndarray::{linalg::Dot, Array1};
 use num_traits::Float;
+use std::collections::BTreeMap;
 
 use crate::ix_map::IxMap;
+use crate::markov::Markov;
 
 /// Vector with a bidirectional map for labels X.
-/// Similar to Prob but without normalization requirement.
 #[derive(Debug, Clone)]
 pub struct Vector<X, N> {
-    /// Dense vector of length n (not necessarily normalized).
     pub values: Array1<N>,
-    /// Labels <-> indices
     pub map: IxMap<X>,
 }
 
 impl<X, N> Vector<X, N>
 where
-    X: Ord + Clone + std::fmt::Debug,
-    N: Float + ndarray::ScalarOperand,
+    X: Ord + Clone,
+    N: Float + std::ops::AddAssign,
 {
+    // Build from an association list
     pub fn from_assoc(
-        size: usize,
         assoc: impl IntoIterator<Item = (X, N)>,
     ) -> Self {
-        // Collect and sort pairs by key
-        let mut pairs: Vec<(X, N)> = assoc.into_iter().collect();
-        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut map: BTreeMap<X, N> = BTreeMap::new();
 
-        // Aggregate duplicates
-        let mut aggregated: Vec<(X, N)> = Vec::new();
-        for (x, w) in pairs {
-            if let Some(last) = aggregated.last_mut() {
-                if last.0 == x {
-                    last.1 = last.1 + w;
-                    continue;
-                }
-            }
-            aggregated.push((x, w));
+        for (x, n) in assoc.into_iter() {
+            *map.entry(x).or_insert(N::zero()) += n;
         }
 
-        // Extract sorted distinct keys for IxMap
-        let keys: Vec<X> =
-            aggregated.iter().map(|(x, _)| x.clone()).collect();
-        let map = IxMap::from_distinct_sorted(keys);
-
-        // Place values into fixed-size array
+        let size = map.len();
+        let mut keys = Vec::new();
         let mut values = Array1::zeros(size);
-        for (x, w) in aggregated {
-            let i = map.index_of(&x).expect("built from same keys");
-            values[i] = w;
+
+        for (i, (x, n)) in map.into_iter().enumerate() {
+            keys.push(x.clone());
+            values[i] = n;
         }
+
+        let map = IxMap::from_distinct_sorted(keys);
 
         Self { values, map }
     }
@@ -61,27 +49,8 @@ where
             .copied()
     }
 
-    /// Get value at label x, returning 0 if `x` is unknown.
-    pub fn get0(&self, x: &X) -> N {
-        self.get(x).unwrap_or(N::zero())
-    }
-
-    /// Direct access by index.
-    pub fn get_at(&self, i: usize) -> Option<N> {
-        self.values.get(i).copied()
-    }
-
-    /// Index of label.
-    pub fn index_of(&self, x: &X) -> Option<usize> {
-        self.map.index_of(x)
-    }
-
     /// Element-wise multiplication with another vector.
-    /// Returns a new vector with the same labels.
-    pub fn mul_elementwise(
-        &self,
-        other: &Vector<X, N>,
-    ) -> Vector<X, N> {
+    pub fn mul(&self, other: &Vector<X, N>) -> Vector<X, N> {
         let values = &self.values * &other.values;
         Vector {
             values,
@@ -89,8 +58,22 @@ where
         }
     }
 
+    /// Element-wise multiplication with another vector.
+    pub fn mapv_inplace<F>(&mut self, f: F)
+    where F: FnMut(N) -> N,
+    {
+        self.values.mapv_inplace(f);
+    }
+
+    /// Enumerate all values.
+    pub fn values(&self) -> impl Iterator<Item = &N> + '_
+    where
+        N: Copy,
+    {
+        self.values.iter()
+    }
+
     /// Enumerate all (label, value) pairs.
-    /// Returns an iterator over (X, N) tuples.
     pub fn enumerate(&self) -> impl Iterator<Item = (X, N)> + '_
     where
         N: Copy,
@@ -101,19 +84,12 @@ where
     }
 }
 
-// Import Markov for the cross-type dot method
-use crate::markov::Markov;
-
-// Implement Dot<Vector> for Vector: vector · vector -> scalar
 impl<X, N> Dot<Vector<X, N>> for Vector<X, N>
 where
     X: Ord + Clone + std::fmt::Debug,
     N: Float + Default + ndarray::ScalarOperand + 'static,
 {
     type Output = N;
-
-    /// Vector-vector dot product: self · other
-    /// Uses ndarray's optimized dot product implementation
     fn dot(&self, rhs: &Vector<X, N>) -> N {
         self.values.dot(&rhs.values)
     }
