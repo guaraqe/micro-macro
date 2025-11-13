@@ -24,6 +24,7 @@
           pkgs.rust-analyzer
           pkgs.cargo-watch
           pkgs.bacon
+          pkgs.evcxr
         ] ++ runLibs;
 
         # make the dynamic linker see the libs at runtime
