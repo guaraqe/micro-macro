@@ -147,10 +147,10 @@ where
         stationary: &Prob<X, N>,
     ) -> N
     where
-        N: std::iter::Sum,
+        N: Float + std::iter::Sum,
     {
         let matrix = self.detailed_balance_deviation(stationary);
-        matrix.values.iter().map(|(v,_)| *v).sum()
+        matrix.values.iter().map(|(v,_)| v.abs() / N::from(2.0).unwrap()).sum()
     }
 
 }
