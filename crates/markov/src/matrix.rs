@@ -1,6 +1,7 @@
 use ndarray::{linalg::Dot, Array1};
 use num_traits::Float;
-use sprs::{prod, CsMat, TriMat};
+use sprs::binop::csmat_binop;
+use sprs::{CsMat, TriMat};
 use std::collections::BTreeMap;
 
 use crate::ix_map::IxMap;
@@ -32,7 +33,7 @@ where
         let mut x_map: BTreeMap<X, Vec<(Y, N)>> = BTreeMap::new();
 
         for (x, y, n) in assoc.into_iter() {
-            x_map.entry(x).or_insert(Vec::new()).push((y, n));
+            x_map.entry(x).or_default().push((y, n));
         }
 
         let x_size: usize = x_map.len();
@@ -49,7 +50,7 @@ where
         let mut y_map: BTreeMap<Y, Vec<(usize, N)>> = BTreeMap::new();
 
         for (y, i, n) in x_values.into_iter() {
-            y_map.entry(y).or_insert(Vec::new()).push((i, n));
+            y_map.entry(y).or_default().push((i, n));
         }
 
         let y_size: usize = y_map.len();
@@ -127,17 +128,52 @@ where
     }
 
     // Applies (m_ij, v_i) -> f(m_ij, v_i)
-    pub fn map_rows<F: Fn(N,N) -> N>(&self, vector: Vector<X, N>, f: F) -> Matrix<X, Y, N> {
+    pub fn map_rows<F: Fn(N, N) -> N>(
+        &self,
+        vector: &Vector<X, N>,
+        f: F,
+    ) -> Matrix<X, Y, N> {
         let mut mat = self.values.clone();
         for mut col in mat.outer_iterator_mut() {
             for (row, val) in col.iter_mut() {
-                *val = f(*val,vector.values[row]);
+                *val = f(*val, vector.values[row]);
             }
         }
         Matrix {
             values: mat,
             x_ix_map: self.x_ix_map.clone(),
             y_ix_map: self.y_ix_map.clone(),
+        }
+    }
+
+    pub fn transpose(&self) -> Matrix<Y, X, N>
+    where
+        N: Default,
+    {
+        let transpose = self.values.view().transpose_into().to_csc();
+        Matrix {
+            x_ix_map: self.y_ix_map.clone(),
+            y_ix_map: self.x_ix_map.clone(),
+            values: transpose,
+        }
+    }
+
+    pub fn binop<F: Fn(N, N) -> N>(
+        &self,
+        other: &Matrix<X, Y, N>,
+        f: F,
+    ) -> Matrix<X, Y, N>
+    where
+        N: Float,
+    {
+        Matrix {
+            x_ix_map: self.x_ix_map.clone(),
+            y_ix_map: self.y_ix_map.clone(),
+            values: csmat_binop(
+                self.values.view(),
+                other.values.view(),
+                |x, y| f(*x, *y),
+            ),
         }
     }
 }
@@ -153,7 +189,7 @@ where
 {
     let col_view = matrix.outer_view(ix).unwrap();
     Vector::unsafe_from_assoc(
-        *ix_map,
+        ix_map,
         col_view.indices(),
         col_view.data(),
     )

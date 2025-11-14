@@ -20,7 +20,7 @@ where
     where
         N: std::iter::Sum + ndarray::ScalarOperand,
     {
-        if vector.len() == 0 {
+        if vector.is_empty() {
             return Err(BuildError::Empty);
         }
 
@@ -37,7 +37,7 @@ where
         let mut probs = vector.clone();
         probs.mapv_inplace(|x| x / sum);
 
-        Ok(Self { probs: probs })
+        Ok(Self { probs })
     }
 
     /// Get P[X = x] if `x` is known; otherwise None.

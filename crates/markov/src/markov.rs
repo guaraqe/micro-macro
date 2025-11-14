@@ -1,10 +1,9 @@
 use ndarray::linalg::Dot;
 use num_traits::Float;
-use sprs::{prod, CsMat};
 
 use crate::matrix::Matrix;
 use crate::prob::Prob;
-use crate::vector::{max_difference, Vector};
+use crate::vector::{max_difference};
 
 /// Row-stochastic Markov kernel
 #[derive(Debug, Clone)]
@@ -31,39 +30,19 @@ where
             return Err(BuildError::EmptyMatrix);
         }
 
-        let mut mat: CsMat<N> = matrix.values.clone();
-
-        if mat.data().iter().any(|s| *s < N::zero()) {
+        if matrix.values.data().iter().any(|s| *s < N::zero()) {
             return Err(BuildError::NegativeValue);
         }
 
-        let mut row_sums = vec![N::zero(); nrows];
+        let row_sums = matrix.get_rows_sums();
 
-        for col in mat.outer_iterator() {
-            for (&row, &val) in
-                col.indices().iter().zip(col.data().iter())
-            {
-                row_sums[row] += val;
-            }
-        }
-
-        if row_sums.iter().any(|s| *s <= N::zero()) {
+        if row_sums.values.iter().any(|s| *s <= N::zero()) {
             return Err(BuildError::EmptyRow);
         }
 
-        for mut col in mat.outer_iterator_mut() {
-            for (row, val) in col.iter_mut() {
-                *val = *val / row_sums[row];
-            }
-        }
+        let result = matrix.map_rows(&row_sums, |v, s| v / s);
 
-        Ok(Self {
-            matrix: Matrix {
-                values: mat,
-                x_ix_map: matrix.x_ix_map,
-                y_ix_map: matrix.y_ix_map,
-            },
-        })
+        Ok(Self { matrix: result })
     }
 
     /// Enumerate all (row_label, col_label, value) triplets.
@@ -145,51 +124,35 @@ where
 
     /// Compute the detailed balance deviation.
     /// Φ = (1/2) Σ_ij |π_i P_ij - π_j P_ji|
-    ///
-    /// Measures the degree of irreversibility in the Markov chain.
-    /// Returns 0 for reversible chains, larger values for chains with
-    /// stronger cyclic probability currents.
-    ///
-    /// # Arguments
-    /// * `stationary` - The stationary distribution π
-    ///
-    /// # Returns
-    /// The total probability circulation measure
     pub fn detailed_balance_deviation(
         &self,
         stationary: &Prob<X, N>,
-    ) -> N {
-        let csr = self.matrix.values.to_csr();
-        let mut total = N::zero();
-        let two = N::one() + N::one();
+    ) -> Matrix<X,X,N>
+    {
+        let transition = self.matrix.map_rows(
+          &stationary.probs,
+          |v,p| v * p
+        );
 
-        // Iterate over all pairs (i, j)
-        for i in 0..self.matrix.x_ix_map.len() {
-            let pi = stationary.probs[i];
-            if let Some(row_i) = csr.outer_view(i) {
-                for (&j, &p_ij) in
-                    row_i.indices().iter().zip(row_i.data().iter())
-                {
-                    let pj = stationary.probs[j];
+        let transpose = transition.transpose();
 
-                    // Get P_ji (transition from j to i)
-                    let p_ji = if let Some(row_j) = csr.outer_view(j)
-                    {
-                        row_j.get(i).copied().unwrap_or(N::zero())
-                    } else {
-                        N::zero()
-                    };
-
-                    // Add |π_i P_ij - π_j P_ji|
-                    let diff = (pi * p_ij - pj * p_ji).abs();
-                    total += diff;
-                }
-            }
-        }
-
-        // Divide by 2 since we count each pair twice
-        total / two
+        transition.binop(
+          &transpose,
+          |x,y| x - y
+          )
     }
+
+    pub fn detailed_balance_deviation_sum(
+        &self,
+        stationary: &Prob<X, N>,
+    ) -> N
+    where
+        N: std::iter::Sum,
+    {
+        let matrix = self.detailed_balance_deviation(stationary);
+        matrix.values.iter().map(|(v,_)| *v).sum()
+    }
+
 }
 
 // Implement Dot<Markov> for Prob: vector · matrix -> vector

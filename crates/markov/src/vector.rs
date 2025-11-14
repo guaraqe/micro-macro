@@ -42,23 +42,31 @@ where
     }
 
     // Build from an manual association list
-    pub fn unsafe_from_assoc(
-        ix_map: IxMap<X>,
-        ixes: impl IntoIterator<Item = &usize>,
-        vals: impl IntoIterator<Item = &N>,
-    ) -> Self {
+    pub fn unsafe_from_assoc<'a>(
+        ix_map: &IxMap<X>,
+        ixes: impl IntoIterator<Item = &'a usize>,
+        vals: impl IntoIterator<Item = &'a N>,
+    ) -> Self
+    where
+      N: 'a
+    {
         let mut values = Array1::zeros(ix_map.len());
 
         for (r, v) in ixes.into_iter().zip(vals.into_iter()) {
-            values[r] = v;
+            values[*r] = *v;
         }
 
-        Self { values, ix_map }
+        Self { values, ix_map: ix_map.clone() }
     }
 
     /// Lenght.
     pub fn len(&self) -> usize {
         self.values.len()
+    }
+
+    /// Is empty
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
     }
 
     /// Get value at label x if `x` is known; otherwise None.
