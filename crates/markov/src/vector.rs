@@ -3,24 +3,24 @@ use num_traits::Float;
 use std::collections::BTreeMap;
 
 use crate::ix_map::IxMap;
-use crate::markov::Markov;
 
 /// Vector with a bidirectional map for labels X.
 #[derive(Debug, Clone)]
 pub struct Vector<X, N> {
     pub values: Array1<N>,
-    pub map: IxMap<X>,
+    pub ix_map: IxMap<X>,
 }
 
 impl<X, N> Vector<X, N>
 where
     X: Ord + Clone,
-    N: Float + std::ops::AddAssign,
+    N: Float,
 {
     // Build from an association list
-    pub fn from_assoc(
-        assoc: impl IntoIterator<Item = (X, N)>,
-    ) -> Self {
+    pub fn from_assoc(assoc: impl IntoIterator<Item = (X, N)>) -> Self
+    where
+        N: std::ops::AddAssign,
+    {
         let mut map: BTreeMap<X, N> = BTreeMap::new();
 
         for (x, n) in assoc.into_iter() {
@@ -36,14 +36,34 @@ where
             values[i] = n;
         }
 
-        let map = IxMap::from_distinct_sorted(keys);
+        let ix_map = IxMap::from_distinct_sorted(keys);
 
-        Self { values, map }
+        Self { values, ix_map }
+    }
+
+    // Build from an manual association list
+    pub fn unsafe_from_assoc(
+        ix_map: IxMap<X>,
+        ixes: impl IntoIterator<Item = &usize>,
+        vals: impl IntoIterator<Item = &N>,
+    ) -> Self {
+        let mut values = Array1::zeros(ix_map.len());
+
+        for (r, v) in ixes.into_iter().zip(vals.into_iter()) {
+            values[r] = v;
+        }
+
+        Self { values, ix_map }
+    }
+
+    /// Lenght.
+    pub fn len(&self) -> usize {
+        self.values.len()
     }
 
     /// Get value at label x if `x` is known; otherwise None.
     pub fn get(&self, x: &X) -> Option<N> {
-        self.map
+        self.ix_map
             .index_of(x)
             .and_then(|i| self.values.get(i))
             .copied()
@@ -54,13 +74,14 @@ where
         let values = &self.values * &other.values;
         Vector {
             values,
-            map: self.map.clone(),
+            ix_map: self.ix_map.clone(),
         }
     }
 
-    /// Element-wise multiplication with another vector.
+    // Map each value, mutably
     pub fn mapv_inplace<F>(&mut self, f: F)
-    where F: FnMut(N) -> N,
+    where
+        F: FnMut(N) -> N,
     {
         self.values.mapv_inplace(f);
     }
@@ -79,15 +100,17 @@ where
         N: Copy,
     {
         (0..self.values.len()).filter_map(move |i| {
-            self.map.value_of(i).map(|x| (x.clone(), self.values[i]))
+            self.ix_map
+                .value_of(i)
+                .map(|x| (x.clone(), self.values[i]))
         })
     }
 }
 
 impl<X, N> Dot<Vector<X, N>> for Vector<X, N>
 where
-    X: Ord + Clone + std::fmt::Debug,
-    N: Float + Default + ndarray::ScalarOperand + 'static,
+    X: Ord,
+    N: Float + ndarray::ScalarOperand,
 {
     type Output = N;
     fn dot(&self, rhs: &Vector<X, N>) -> N {
@@ -95,45 +118,16 @@ where
     }
 }
 
-// Implement Dot<Markov> for Vector: vector · matrix -> vector
-impl<X, B, N> Dot<Markov<X, B, N>> for Vector<X, N>
+/// Compute the maximum absolute difference between two vectors.
+pub fn max_difference<X, N>(v1: &Vector<X, N>, v2: &Vector<X, N>) -> N
 where
-    X: Ord + Clone + std::fmt::Debug,
-    B: Ord + Clone + std::fmt::Debug,
-    N: Float
-        + Default
-        + ndarray::ScalarOperand
-        + 'static
-        + std::ops::AddAssign,
-    for<'r> &'r N: std::ops::Mul<&'r N, Output = N>,
+    X: Clone + Ord,
+    N: Float + Ord,
 {
-    type Output = Vector<B, N>;
+    let pairs = v1.values().zip(v2.values());
 
-    /// Vector-matrix dot product: self · matrix (left multiplication)
-    /// Treats self as a row vector, returns Vector<B, N> with column labels.
-    ///
-    /// Computes: result[b] = sum_x self[x] * matrix[x, b]
-    /// Uses sprs CSC format to efficiently access columns
-    fn dot(&self, matrix: &Markov<X, B, N>) -> Vector<B, N> {
-        // For vector · matrix, compute dot product of vector with each column
-        let n = matrix.cols.len();
-        let mut result_vec = vec![N::zero(); n];
-
-        for (j, acc) in result_vec.iter_mut().enumerate() {
-            if let Some(col) = matrix.csc.outer_view(j) {
-                for (row_idx, &val) in
-                    col.indices().iter().zip(col.data().iter())
-                {
-                    *acc += self.values[*row_idx] * val;
-                }
-            }
-        }
-
-        let result_values = ndarray::Array1::from(result_vec);
-
-        Vector {
-            values: result_values,
-            map: matrix.cols.clone(),
-        }
-    }
+    pairs
+        .map(|(a, b)| (*a - *b).abs())
+        .max()
+        .unwrap_or(N::zero())
 }
