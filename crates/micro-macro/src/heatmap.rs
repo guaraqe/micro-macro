@@ -497,8 +497,8 @@ pub fn show_heatmap(
                             egui::epaint::StrokeKind::Outside,
                         );
 
-                        if let Some(weight) = weight_opt {
-                            if *weight > 0.0 {
+                        if let Some(weight) = weight_opt
+                            && *weight > 0.0 {
                                 let text = format!("{:.1}", weight);
                                 let font_id = egui::FontId::proportional(9.0);
                                 // Use contrasting text color based on background
@@ -511,7 +511,6 @@ pub fn show_heatmap(
                                     text_color,
                                 );
                             }
-                        }
                     }
                 }
             });
