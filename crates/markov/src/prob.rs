@@ -6,7 +6,7 @@ use crate::vector::Vector;
 /// Probability vector with a bidirectional map for labels X.
 #[derive(Debug, Clone)]
 pub struct Prob<X, N> {
-    pub probs: Vector<X, N>,
+    pub vector: Vector<X, N>,
 }
 
 impl<X, N> Prob<X, N>
@@ -34,20 +34,25 @@ where
             return Err(BuildError::ZeroSum);
         }
 
-        let mut probs = vector.clone();
-        probs.mapv_inplace(|x| x / sum);
+        let mut vector = vector.clone();
+        vector.mapv_inplace(|x| x / sum);
 
-        Ok(Self { probs })
+        Ok(Self { vector })
+    }
+
+    /// To vector
+    pub fn to_vector(&self) -> &Vector<X,N> {
+        &self.vector
     }
 
     /// Get P[X = x] if `x` is known; otherwise None.
     pub fn prob(&self, x: &X) -> Option<N> {
-        self.probs.get(x)
+        self.vector.get(x)
     }
 
     /// Convert to a Vector.
     pub fn to_vec(&self) -> crate::vector::Vector<X, N> {
-        self.probs.clone()
+        self.vector.clone()
     }
 
     /// Enumerate all (label, probability) pairs.
@@ -55,12 +60,12 @@ where
     where
         N: Copy,
     {
-        self.probs.enumerate()
+        self.vector.enumerate()
     }
 
     /// Compute Shannon entropy using natural logarithm.
     pub fn entropy(&self) -> N {
-        self.probs
+        self.vector
             .values()
             .map(|&p| {
                 if p > N::zero() {
@@ -86,7 +91,7 @@ where
 {
     type Output = N;
     fn dot(&self, rhs: &Prob<X, N>) -> N {
-        self.probs.dot(&rhs.probs)
+        self.vector.dot(&rhs.vector)
     }
 }
 

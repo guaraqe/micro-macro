@@ -45,6 +45,11 @@ where
         Ok(Self { matrix: result })
     }
 
+    /// To matrix
+    pub fn to_matrix(&self) -> &Matrix<X,Y,N> {
+        &self.matrix
+    }
+
     /// Enumerate all (row_label, col_label, value) triplets.
     pub fn enumerate(&self) -> impl Iterator<Item = (X, Y, N)> + '_
     where
@@ -88,7 +93,7 @@ where
         for _ in 0..max_iterations {
             let next = current.dot(self);
 
-            let diff = max_difference(&current.probs, &next.probs);
+            let diff = max_difference(&current.vector, &next.vector);
             if diff < tolerance {
                 return next;
             }
@@ -105,7 +110,7 @@ where
         let mut total = N::zero();
 
         for i in 0..self.matrix.x_ix_map.len() {
-            let pi = stationary.probs.values[i];
+            let pi = stationary.vector.values[i];
             if pi <= N::zero() {
                 continue;
             }
@@ -130,7 +135,7 @@ where
     ) -> Matrix<X,X,N>
     {
         let transition = self.matrix.map_rows(
-          &stationary.probs,
+          &stationary.vector,
           |v,p| v * p
         );
 
@@ -168,7 +173,7 @@ where
 {
     type Output = Prob<Y, N>;
     fn dot(&self, markov: &Markov<X, Y, N>) -> Prob<Y, N> {
-        Prob::from_vector(self.probs.dot(&markov.matrix)).unwrap()
+        Prob::from_vector(self.vector.dot(&markov.matrix)).unwrap()
     }
 }
 
