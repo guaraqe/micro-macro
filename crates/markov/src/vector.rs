@@ -130,12 +130,17 @@ where
 pub fn max_difference<X, N>(v1: &Vector<X, N>, v2: &Vector<X, N>) -> N
 where
     X: Clone + Ord,
-    N: Float + Ord,
+    N: Float,
 {
     let pairs = v1.values().zip(v2.values());
 
     pairs
         .map(|(a, b)| (*a - *b).abs())
-        .max()
-        .unwrap_or(N::zero())
+        .fold(N::zero(), |acc, x| {
+            if x > acc {
+                x
+            } else {
+                acc
+            }
+        })
 }

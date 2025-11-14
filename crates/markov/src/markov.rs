@@ -86,7 +86,7 @@ where
         max_iterations: usize,
     ) -> Prob<X, N>
     where
-        N: Ord + std::iter::Sum,
+        N: std::iter::Sum,
     {
         let mut current = initial.clone();
 

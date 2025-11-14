@@ -4,7 +4,7 @@ use crate::graph_view::{
     ObservableGraphDisplay, ObservedGraphDisplay, StateGraphDisplay,
     setup_observed_graph_display,
 };
-use markov::{Markov, Prob};
+use markov::{Markov, Matrix, Prob, Vector};
 use ndarray::linalg::Dot;
 use petgraph::stable_graph::NodeIndex;
 use petgraph::stable_graph::StableGraph;
@@ -303,6 +303,8 @@ pub enum StatisticsError {
     EmptyStateGraph,
     #[error("probability construction failed: {0}")]
     ProbError(#[from] markov::prob::BuildError),
+    #[error("markov construction failed: {0}")]
+    MarkovError(#[from] markov::markov::BuildError),
 }
 
 #[derive(Clone)]
@@ -328,7 +330,7 @@ pub fn compute_input_statistics(
         .collect();
 
     let state_prob =
-        Prob::from_assoc(state_graph.node_count(), state_weights)?;
+        Prob::from_vector(Vector::from_assoc(state_weights))?;
 
     // 3. Build state_markov from state graph edges (all nodes)
     let state_g = state_graph.g();
@@ -339,14 +341,12 @@ pub fn compute_input_statistics(
         })
         .collect();
 
-    let state_markov = Markov::from_assoc(
-        state_graph.node_count(),
-        state_graph.node_count(),
-        state_edges,
+    let state_markov = Markov::from_matrix(
+        Matrix::from_assoc(state_edges)
     )?;
 
     // 4. Build observable_markov from observable edges (source -> destination)
-    let dest_nodes: Vec<NodeIndex> = observable_graph
+    let _dest_nodes: Vec<NodeIndex> = observable_graph
         .nodes_iter()
         .filter(|(_, node)| {
             node.payload().node_type
@@ -365,10 +365,8 @@ pub fn compute_input_statistics(
             })
             .collect();
 
-    let observable_markov = Markov::from_assoc(
-        state_graph.node_count(),
-        dest_nodes.len(),
-        observable_edges,
+    let observable_markov = Markov::from_matrix(
+        Matrix::from_assoc(observable_edges)
     )?;
 
     Ok(InputStatistics {
@@ -407,9 +405,9 @@ pub fn compute_observable_markov(
 ) -> Result<Markov<NodeIndex, NodeIndex, f64>, StatisticsError> {
     // Extract destination observable node indices (columns of observable_markov)
     let dest_nodes: Vec<NodeIndex> =
-        (0..statistics.observable_markov.cols.len())
+        (0..statistics.observable_markov.matrix.y_ix_map.len())
             .filter_map(|i| {
-                statistics.observable_markov.cols.value_of(i).cloned()
+                statistics.observable_markov.matrix.y_ix_map.value_of(i).cloned()
             })
             .collect();
 
@@ -427,6 +425,7 @@ pub fn compute_observable_markov(
         // Get column F_y from observable_markov
         let f_y = statistics
             .observable_markov
+            .matrix
             .get_column(&y)
             .ok_or(StatisticsError::EmptyStateGraph)?; // Column should exist
 
@@ -445,12 +444,13 @@ pub fn compute_observable_markov(
             // Get column F_{y'}
             let f_y_prime = statistics
                 .observable_markov
+                .matrix
                 .get_column(&y_prime)
                 .ok_or(StatisticsError::EmptyStateGraph)?;
 
             // Compute numerator: (pF_y) · Φ · F_{y'}
             // First: pF_y · Φ (left multiply matrix by vector)
-            let temp_vec = pf_y.dot(&statistics.state_markov);
+            let temp_vec = pf_y.dot(&statistics.state_markov.matrix);
 
             // Then: temp_vec · F_{y'} (dot product)
             let numerator = temp_vec.dot(&f_y_prime);
@@ -463,8 +463,9 @@ pub fn compute_observable_markov(
     }
 
     // Build the observable Markov matrix from triplets
-    let n = dest_nodes.len();
-    let observable_transition = Markov::from_assoc(n, n, triplets)?;
+    let observable_transition = Markov::from_matrix(
+        Matrix::from_assoc(triplets)
+    )?;
 
     Ok(observable_transition)
 }

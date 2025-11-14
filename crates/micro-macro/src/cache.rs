@@ -6,7 +6,7 @@ use crate::graph_view::ObservedGraphDisplay;
 use crate::heatmap::HeatmapData;
 use crate::store::Store;
 use crate::versioned::Memoized;
-use markov::Prob;
+use markov::{Prob, Vector};
 use ndarray::linalg::Dot;
 use petgraph::{
     Direction,
@@ -32,9 +32,9 @@ impl ProbabilityChart {
         }
 
         // Ensure every index present in the probability map has a label.
-        for (_, node_idx) in distribution.map.iter() {
+        for (node_idx, _) in distribution.vector.enumerate() {
             labels
-                .entry(*node_idx)
+                .entry(node_idx)
                 .or_insert_with(|| format!("Node {:?}", node_idx));
         }
 
@@ -128,19 +128,17 @@ impl Cache {
                             })
                             .collect();
 
-                    Prob::from_assoc(node_count, weight_assoc)
+                    Prob::from_vector(Vector::from_assoc(weight_assoc))
                         .unwrap_or_else(|_| {
-                            Prob::from_assoc(
-                                1,
+                            Prob::from_vector(Vector::from_assoc(
                                 vec![(NodeIndex::new(0), 1.0)],
-                            )
+                            ))
                             .unwrap()
                         })
                 } else {
-                    Prob::from_assoc(
-                        1,
+                    Prob::from_vector(Vector::from_assoc(
                         vec![(NodeIndex::new(0), 1.0)],
-                    )
+                    ))
                     .unwrap()
                 };
 
@@ -171,11 +169,11 @@ impl Cache {
                             .entropy_rate(&eq);
                         let deviation = input_stats
                             .state_markov
-                            .detailed_balance_deviation(&eq);
+                            .detailed_balance_deviation_sum(&eq);
                         (eq, ent_rate, deviation)
                     } else {
                         // If we can't compute stats, return uniform distribution with default stats
-                        let node_count =
+                        let _node_count =
                             s.state_graph.get().node_count();
                         let indices: Vec<_> = s
                             .state_graph
@@ -183,25 +181,22 @@ impl Cache {
                             .nodes_iter()
                             .map(|(idx, _)| idx)
                             .collect();
-                        let eq = Prob::from_assoc(
-                            node_count,
+                        let eq = Prob::from_vector(Vector::from_assoc(
                             indices.into_iter().map(|idx| (idx, 1.0)),
-                        )
+                        ))
                         .unwrap_or_else(|_| {
-                            Prob::from_assoc(
-                                1,
+                            Prob::from_vector(Vector::from_assoc(
                                 vec![(NodeIndex::new(0), 1.0)],
-                            )
+                            ))
                             .unwrap()
                         });
                         (eq, 0.0, 0.0)
                     }
                 } else {
                     // Empty graph: create a minimal valid Prob with default stats
-                    let eq = Prob::from_assoc(
-                        1,
+                    let eq = Prob::from_vector(Vector::from_assoc(
                         vec![(NodeIndex::new(0), 1.0)],
-                    )
+                    ))
                     .unwrap();
                     (eq, 0.0, 0.0)
                 };
@@ -274,14 +269,13 @@ impl Cache {
                 weights.insert(0, 0.0);
 
                 let prob_fallback = || {
-                    Prob::from_assoc(
-                        1,
+                    Prob::from_vector(Vector::from_assoc(
                         vec![(NodeIndex::new(0), 1.0)],
-                    )
+                    ))
                     .unwrap()
                 };
 
-                let node_count = graph.node_count().max(1);
+                let _node_count = graph.node_count().max(1);
                 let observed_weight_assoc: Vec<(NodeIndex, f64)> =
                     graph
                         .nodes_iter()
@@ -299,10 +293,9 @@ impl Cache {
                     .sum();
 
                 let weight_distribution = if total_weight > 0.0 {
-                    let prob = Prob::from_assoc(
-                        node_count,
+                    let prob = Prob::from_vector(Vector::from_assoc(
                         observed_weight_assoc,
-                    )
+                    ))
                     .unwrap_or_else(|_| prob_fallback());
                     ProbabilityChart::new(
                         prob,
@@ -362,7 +355,7 @@ impl Cache {
                                         .entropy_rate(&eq_calc);
                                     let dev = output_stats
                                         .observed_markov
-                                        .detailed_balance_deviation(
+                                        .detailed_balance_deviation_sum(
                                             &eq_calc,
                                         );
                                     (eq_calc, ent_r, dev)
@@ -386,23 +379,21 @@ impl Cache {
                         }
                         Err(_) => {
                             // Create fallback distributions
-                            let node_count =
+                            let _node_count =
                                 graph.node_count().max(1);
                             let indices: Vec<_> = graph
                                 .nodes_iter()
                                 .map(|(idx, _)| idx)
                                 .collect();
-                            let fallback = Prob::from_assoc(
-                                node_count,
+                            let fallback = Prob::from_vector(Vector::from_assoc(
                                 indices
                                     .into_iter()
                                     .map(|idx| (idx, 1.0)),
-                            )
+                            ))
                             .unwrap_or_else(|_| {
-                                Prob::from_assoc(
-                                    1,
+                                Prob::from_vector(Vector::from_assoc(
                                     vec![(NodeIndex::new(0), 1.0)],
-                                )
+                                ))
                                 .unwrap()
                             });
                             (fallback.clone(), fallback, 0.0, 0.0)
@@ -410,10 +401,9 @@ impl Cache {
                     }
                 } else {
                     // Empty graph fallback
-                    let fallback = Prob::from_assoc(
-                        1,
+                    let fallback = Prob::from_vector(Vector::from_assoc(
                         vec![(NodeIndex::new(0), 1.0)],
-                    )
+                    ))
                     .unwrap();
                     (fallback.clone(), fallback, 0.0, 0.0)
                 };
