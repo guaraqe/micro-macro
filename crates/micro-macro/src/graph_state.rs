@@ -346,15 +346,6 @@ pub fn compute_input_statistics(
     )?;
 
     // 4. Build observable_markov from observable edges (source -> destination)
-    let _dest_nodes: Vec<NodeIndex> = observable_graph
-        .nodes_iter()
-        .filter(|(_, node)| {
-            node.payload().node_type
-                == ObservableNodeType::Destination
-        })
-        .map(|(idx, _)| idx)
-        .collect();
-
     // Get edges from the underlying petgraph
     let observable_g = observable_graph.g();
     let observable_edges: Vec<(NodeIndex, NodeIndex, f64)> =

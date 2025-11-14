@@ -173,8 +173,6 @@ impl Cache {
                         (eq, ent_rate, deviation)
                     } else {
                         // If we can't compute stats, return uniform distribution with default stats
-                        let _node_count =
-                            s.state_graph.get().node_count();
                         let indices: Vec<_> = s
                             .state_graph
                             .get()
@@ -275,7 +273,6 @@ impl Cache {
                     .unwrap()
                 };
 
-                let _node_count = graph.node_count().max(1);
                 let observed_weight_assoc: Vec<(NodeIndex, f64)> =
                     graph
                         .nodes_iter()
@@ -379,8 +376,6 @@ impl Cache {
                         }
                         Err(_) => {
                             // Create fallback distributions
-                            let _node_count =
-                                graph.node_count().max(1);
                             let indices: Vec<_> = graph
                                 .nodes_iter()
                                 .map(|(idx, _)| idx)
