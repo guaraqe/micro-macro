@@ -185,6 +185,7 @@ pub enum BuildError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Vector;
 
     #[test]
     fn test_prob_dot_markov_alice_bob_chico() {
@@ -198,12 +199,6 @@ mod tests {
         .unwrap();
 
         // Setup Markov matrix (3×2) with DIFFERENT input order:
-        //          1     2
-        // alice:  0.7   0.3
-        // bob:    0.4   0.6
-        // chico:  0.2   0.8
-        // Input order: bob, chico, alice (scrambled)
-        // Will be sorted internally to match prob vector
         let markov = Markov::from_matrix(Matrix::from_assoc(vec![
             ("bob", 2, 0.6),
             ("chico", 1, 0.2),
@@ -214,17 +209,9 @@ mod tests {
         ]))
         .unwrap();
 
-        // Test: prob · markov (left multiplication, row vector × matrix)
         let result = prob.dot(&markov);
 
         // Expected calculation:
-        // result[1] = 0.5×0.7 + 0.3×0.4 + 0.2×0.2
-        //           = 0.35 + 0.12 + 0.04
-        //           = 0.51
-        // result[2] = 0.5×0.3 + 0.3×0.6 + 0.2×0.8
-        //           = 0.15 + 0.18 + 0.16
-        //           = 0.49
-
         let p1 =
             result.prob(&1).expect("Result should have outcome 1");
         let p2 =
