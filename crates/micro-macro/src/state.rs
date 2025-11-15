@@ -31,7 +31,6 @@ impl State {
                 actions::update(&mut self.store, action);
             self.effect_queue.append(&mut effects);
         }
-        self.store.ensure_observed_graph_fresh();
     }
 
     pub fn flush_effects(&mut self) {

@@ -58,9 +58,6 @@ pub fn run(store: &mut Store, effect: Effect) {
                     ),
                 );
                 store.layout_settings = state.layout_settings;
-
-                store.recompute_observed_graph();
-                // Layout resets now automatic via version tracking
                 Ok(())
             })();
             if let Err(e) = result {

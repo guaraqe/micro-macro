@@ -1516,8 +1516,6 @@ impl State {
     }
 
     fn render_observed_dynamics_tab(&mut self, ctx: &egui::Context) {
-        self.store.ensure_observed_graph_fresh();
-
         let screen_width = ctx.viewport_rect().width().max(1.0);
         let left_panel_width = screen_width * 0.25;
 

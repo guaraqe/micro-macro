@@ -153,16 +153,10 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             {
                 node.set_label(name);
             }
-            // Layout resets now automatic via version tracking
-            store.sync_source_nodes();
-            store.mark_observed_graph_dirty();
             vec![]
         }
         Action::RemoveStateNode { node_idx } => {
             store.state.graph.get_mut().remove_node(node_idx);
-            // Layout resets now automatic via version tracking
-            store.sync_source_nodes();
-            store.mark_observed_graph_dirty();
             vec![]
         }
         Action::RenameStateNode { node_idx, new_name } => {
@@ -172,9 +166,6 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                 node.payload_mut().name = new_name.clone();
                 node.set_label(new_name);
             }
-            // Layout resets now automatic via version tracking
-            store.sync_source_nodes();
-            store.mark_observed_graph_dirty();
             vec![]
         }
         Action::UpdateStateNodeWeightEditor { node_idx, value } => {
@@ -190,7 +181,6 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             {
                 node.payload_mut().weight = new_weight;
             }
-            store.mark_observed_graph_dirty();
             vec![]
         }
         Action::UpdateStateNodeLabelEditor { node_idx, value } => {
@@ -300,14 +290,10 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             {
                 node.set_label(name);
             }
-            // Layout resets now automatic via version tracking
-            store.mark_observed_graph_dirty();
             vec![]
         }
         Action::RemoveObservableDestinationNode { node_idx } => {
             store.observable.graph.get_mut().remove_node(node_idx);
-            // Layout resets now automatic via version tracking
-            store.mark_observed_graph_dirty();
             vec![]
         }
         Action::UpdateObservableDestinationNodeLabelEditor {
@@ -327,7 +313,6 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                 node.payload_mut().name = new_name.clone();
                 node.set_label(new_name);
             }
-            store.mark_observed_graph_dirty();
             vec![]
         }
         Action::SelectObservableNode { node_idx, selected } => {
@@ -368,7 +353,6 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             target_idx,
             weight,
         } => {
-            let mut added = false;
             if let Some(source_node) =
                 store.observable.graph.get().node(source_idx)
                 && source_node.payload().node_type
@@ -384,16 +368,11 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                     weight,
                     String::new(),
                 );
-                added = true;
-            }
-            if added {
-                store.mark_observed_graph_dirty();
             }
             vec![]
         }
         Action::RemoveObservableEdgeByIndex { edge_idx } => {
             store.observable.graph.get_mut().remove_edge(edge_idx);
-            store.mark_observed_graph_dirty();
             vec![]
         }
         Action::UpdateObservableEdgeWeightFromHeatmap {
@@ -442,7 +421,6 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                     String::new(),
                 );
             }
-            store.mark_observed_graph_dirty();
             vec![]
         }
 

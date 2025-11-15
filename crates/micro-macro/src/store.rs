@@ -1,5 +1,5 @@
 use crate::graph_state::{
-    HasName, ObservableNode, ObservableNodeType,
+    HasName, ObservableNodeType,
     default_observable_graph, default_state_graph,
 };
 use crate::graph_view;
@@ -20,7 +20,7 @@ use petgraph::{
     stable_graph::NodeIndex,
     visit::{EdgeRef, IntoEdgeReferences},
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
 const STATE_FILE: &str = "state.json";
@@ -247,7 +247,6 @@ pub struct ObservedGraphStore {
     pub circular_visuals: Versioned<VisualParams>,
     pub label_visibility: Versioned<bool>,
     layout_reset: LayoutReset<ObservedVersionKey>,
-    pub observed_graph_dirty: bool,
 }
 
 impl ObservedGraphStore {
@@ -256,7 +255,6 @@ impl ObservedGraphStore {
             circular_visuals: Versioned::new(VisualParams::default()),
             label_visibility: Versioned::new(true),
             layout_reset: LayoutReset::new(),
-            observed_graph_dirty: false,
         }
     }
 
@@ -279,14 +277,6 @@ impl ObservedGraphStore {
     {
         let key = self.version_key(observed_graph_version);
         self.layout_reset.run_if_layout_changed(key, f);
-    }
-
-    pub fn mark_dirty(&mut self) {
-        self.observed_graph_dirty = true;
-    }
-
-    pub fn mark_fresh(&mut self) {
-        self.observed_graph_dirty = false;
     }
 }
 
@@ -346,33 +336,6 @@ impl Store {
         }
     }
 
-    pub fn sync_source_nodes(&mut self) {
-        let synced = sync_source_nodes_display(
-            self.state.graph.get(),
-            self.observable.graph.get(),
-        );
-        self.observable.graph.set(synced);
-        // observable_layout_reset will auto-reset via version tracking
-        self.mark_observed_graph_dirty();
-    }
-
-    pub fn recompute_observed_graph(&mut self) {
-        // This is now handled by the cache
-        self.observed.mark_fresh();
-    }
-
-    pub fn mark_observed_graph_dirty(&mut self) {
-        self.observed.mark_dirty();
-    }
-
-    pub fn ensure_observed_graph_fresh(&mut self) {
-        if self.observed.observed_graph_dirty {
-            self.recompute_observed_graph();
-        }
-    }
-
-    // mark_all_layouts_dirty() removed - layout resets now automatic via version tracking
-
     // Uncached versions (used internally by cache)
     pub fn state_heatmap_uncached(&self) -> HeatmapData {
         compute_generic_heatmap_data(self.state.graph.get())
@@ -405,67 +368,6 @@ impl Store {
     pub fn state_node_weight_stats(&self) -> Vec<(String, f32)> {
         collect_state_node_weights(self.state.graph.get())
     }
-}
-
-// Helper functions (converted from tracked queries)
-
-fn sync_source_nodes_display(
-    state_graph: &StateGraphDisplay,
-    observable_graph: &ObservableGraphDisplay,
-) -> ObservableGraphDisplay {
-    let mut synced = observable_graph.clone();
-
-    let dyn_nodes: Vec<(NodeIndex, String)> = state_graph
-        .nodes_iter()
-        .map(|(idx, node)| (idx, node.payload().name.clone()))
-        .collect();
-
-    let source_nodes: Vec<(NodeIndex, String)> = synced
-        .nodes_iter()
-        .filter(|(_, node)| {
-            node.payload().node_type == ObservableNodeType::Source
-        })
-        .map(|(idx, node)| (idx, node.payload().name.clone()))
-        .collect();
-
-    let source_map: HashMap<String, NodeIndex> = source_nodes
-        .iter()
-        .map(|(idx, name)| (name.clone(), *idx))
-        .collect();
-
-    for (state_idx, dyn_name) in &dyn_nodes {
-        if !source_map.contains_key(dyn_name) {
-            let new_idx = synced.add_node(ObservableNode {
-                name: dyn_name.clone(),
-                node_type: ObservableNodeType::Source,
-                state_node_idx: Some(*state_idx),
-            });
-            if let Some(node) = synced.node_mut(new_idx) {
-                node.set_label(dyn_name.clone());
-            }
-        }
-    }
-
-    let dyn_names: HashSet<String> =
-        dyn_nodes.iter().map(|(_, name)| name.clone()).collect();
-
-    for (source_idx, source_name) in source_nodes {
-        if !dyn_names.contains(&source_name) {
-            synced.remove_node(source_idx);
-        }
-    }
-
-    for (_, dyn_name) in &dyn_nodes {
-        if let Some(&source_idx) = source_map.get(dyn_name)
-            && let Some(source_node) = synced.node_mut(source_idx)
-            && source_node.payload().name != *dyn_name
-        {
-            source_node.payload_mut().name = dyn_name.clone();
-            source_node.set_label(dyn_name.clone());
-        }
-    }
-
-    synced
 }
 
 fn compute_generic_heatmap_data<N, D>(
