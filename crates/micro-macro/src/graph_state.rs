@@ -140,6 +140,7 @@ pub type ObservedGraph = StableGraph<ObservedNode, f32>;
 pub fn calculate_observed_graph(
     state_graph: &StateGraphDisplay,
     observable_graph: &ObservableGraphDisplay,
+    validation_passed: bool,
 ) -> ObservedGraphDisplay {
     let observed_stable_graph =
         calculate_observed_graph_from_observable_display(
@@ -148,6 +149,11 @@ pub fn calculate_observed_graph(
 
     let mut observed_graph =
         setup_observed_graph_display(&observed_stable_graph);
+
+    // Only compute edges if validation passed
+    if !validation_passed {
+        return observed_graph;
+    }
 
     match compute_input_statistics(state_graph, observable_graph) {
         Ok(input_stats) => {

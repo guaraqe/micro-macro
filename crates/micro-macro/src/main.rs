@@ -13,12 +13,6 @@ mod state;
 mod store;
 mod versioned;
 
-#[derive(Clone, Copy)]
-enum ValidationScope {
-    State,
-    Observable,
-}
-
 use crate::layout_settings::{
     BIPARTITE_LAYER_GAP_RANGE, BIPARTITE_NODE_GAP_RANGE,
     CIRCULAR_BASE_RADIUS_RANGE, EDGE_THICKNESS_MAX_RANGE,
@@ -186,18 +180,15 @@ fn render_probability_chart(
     });
 }
 
+type NodeConnections = (Vec<(String, f32)>, Vec<(String, f32)>);
+
 impl State {
-    fn render_validation_panel(
+    fn render_state_validation_panel(
         &mut self,
         ui: &mut egui::Ui,
-        scope: ValidationScope,
+        errors: &[cache::StateValidationIssue],
     ) {
-        let cached = self.cache.validation_errors.get(&self.store);
-        let messages = match scope {
-            ValidationScope::State => cached.state.clone(),
-            ValidationScope::Observable => cached.observable.clone(),
-        };
-        if messages.is_empty() {
+        if errors.is_empty() {
             return;
         }
 
@@ -210,12 +201,42 @@ impl State {
             .inner_margin(egui::Margin::symmetric(8, 8))
             .show(ui, |ui| {
                 ui.vertical(|ui| {
-                    ui.strong("Validation Issues");
+                    ui.strong("State Graph Validation Issues");
                     ui.add_space(4.0);
-                    for msg in &messages {
+                    for error in errors {
                         ui.colored_label(
                             egui::Color32::from_rgb(170, 30, 30),
-                            format!("• {msg}"),
+                            format!("• {}", error),
+                        );
+                    }
+                });
+            });
+    }
+
+    fn render_observable_validation_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        errors: &[cache::ObservableValidationIssue],
+    ) {
+        if errors.is_empty() {
+            return;
+        }
+
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgb(255, 230, 230))
+            .stroke(egui::Stroke::new(
+                1.0,
+                egui::Color32::from_rgb(200, 60, 60),
+            ))
+            .inner_margin(egui::Margin::symmetric(8, 8))
+            .show(ui, |ui| {
+                ui.vertical(|ui| {
+                    ui.strong("Observable Graph Validation Issues");
+                    ui.add_space(4.0);
+                    for error in errors {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(170, 30, 30),
+                            format!("• {}", error),
                         );
                     }
                 });
@@ -227,7 +248,7 @@ impl State {
     fn get_connections<N, D>(
         graph: &graph_view::GraphDisplay<N, D>,
         node_idx: NodeIndex,
-    ) -> (Vec<(String, f32)>, Vec<(String, f32)>)
+    ) -> NodeConnections
     where
         N: Clone + graph_state::HasName,
         D: DisplayNode<N, f32, Directed, DefaultIx>,
@@ -683,9 +704,10 @@ impl State {
                     .resizable(false)
                     .frame(egui::Frame::NONE)
                     .show_inside(panel_ui, |ui| {
-                        self.render_validation_panel(
+                        let validation_errors = self.cache.state_data.get(&self.store).validation_errors.clone();
+                        self.render_state_validation_panel(
                             ui,
-                            ValidationScope::State,
+                            &validation_errors,
                         );
                         ui.add_space(6.0);
                         self.layout_settings_panel(
@@ -853,18 +875,24 @@ impl State {
                                     .cache
                                     .state_data
                                     .get(&self.store);
-                                let plot_height =
-                                    ui.available_height() - 30.0;
 
-                                render_probability_chart(
-                                    ui,
-                                    "state_equilibrium_histogram",
-                                    "State Equilibrium Distribution",
-                                    &state_data
-                                        .equilibrium_distribution,
-                                    viridis_mid,
-                                    plot_height,
-                                );
+                                if let Some(ref equilibrium_distribution) = state_data.equilibrium_distribution {
+                                    let plot_height =
+                                        ui.available_height() - 30.0;
+
+                                    render_probability_chart(
+                                        ui,
+                                        "state_equilibrium_histogram",
+                                        "State Equilibrium Distribution",
+                                        equilibrium_distribution,
+                                        viridis_mid,
+                                        plot_height,
+                                    );
+                                } else {
+                                    ui.heading("State Equilibrium Distribution");
+                                    ui.separator();
+                                    ui.label("Requires valid state graph");
+                                }
                             });
                         });
 
@@ -875,14 +903,21 @@ impl State {
                                 .cache
                                 .state_data
                                 .get(&self.store);
-                            ui.label(format!(
-                                "Entropy rate: {:.4}",
-                                state_data.entropy_rate
-                            ));
-                            ui.label(format!(
-                                "Balance dev: {:.4}",
-                                state_data.detailed_balance_deviation
-                            ));
+
+                            if let (Some(entropy_rate), Some(detailed_balance_deviation)) =
+                                (state_data.entropy_rate, state_data.detailed_balance_deviation) {
+                                ui.label(format!(
+                                    "Entropy rate: {:.4}",
+                                    entropy_rate
+                                ));
+                                ui.label(format!(
+                                    "Balance dev: {:.4}",
+                                    detailed_balance_deviation
+                                ));
+                            } else {
+                                ui.label("Entropy rate: N/A");
+                                ui.label("Balance dev: N/A");
+                            }
                         });
                     });
             });
@@ -1075,9 +1110,10 @@ impl State {
                     .resizable(false)
                     .frame(egui::Frame::NONE)
                     .show_inside(panel_ui, |ui| {
-                        self.render_validation_panel(
+                        let validation_errors = self.cache.observable_data.get(&self.store).validation_errors.clone();
+                        self.render_observable_validation_panel(
                             ui,
-                            ValidationScope::Observable,
+                            &validation_errors,
                         );
                         ui.add_space(6.0);
                         self.layout_settings_panel(
@@ -1464,6 +1500,19 @@ impl State {
                     .resizable(false)
                     .frame(egui::Frame::NONE)
                     .show_inside(panel_ui, |ui| {
+                        let state_validation_errors = self.cache.state_data.get(&self.store).validation_errors.clone();
+                        let observable_validation_errors = self.cache.observable_data.get(&self.store).validation_errors.clone();
+
+                        self.render_state_validation_panel(
+                            ui,
+                            &state_validation_errors,
+                        );
+                        self.render_observable_validation_panel(
+                            ui,
+                            &observable_validation_errors,
+                        );
+
+                        ui.add_space(6.0);
                         self.layout_settings_panel(
                             ui,
                             ActiveTab::ObservedDynamics,
@@ -1587,41 +1636,59 @@ impl State {
 
                         strip.cell(|ui| {
                             ui.vertical(|ui| {
-                                let plot_height = ui.available_height() - 30.0;
-                                render_probability_chart(
-                                    ui,
-                                    "observed_equilibrium_from_state",
-                                    "Observed Equilibrium",
-                                    &observed_data.equilibrium_from_state,
-                                    observed_color,
-                                    plot_height,
-                                );
+                                if let Some(ref equilibrium_from_state) = observed_data.equilibrium_from_state {
+                                    let plot_height = ui.available_height() - 30.0;
+                                    render_probability_chart(
+                                        ui,
+                                        "observed_equilibrium_from_state",
+                                        "Observed Equilibrium",
+                                        equilibrium_from_state,
+                                        observed_color,
+                                        plot_height,
+                                    );
+                                } else {
+                                    ui.heading("Observed Equilibrium");
+                                    ui.separator();
+                                    ui.label("Requires valid state and observable graphs");
+                                }
                             });
                         });
 
                         strip.cell(|ui| {
                             ui.vertical(|ui| {
-                                let plot_height = ui.available_height() - 30.0;
-                                render_probability_chart(
-                                    ui,
-                                    "observed_equilibrium_calculated",
-                                    "Calculated Equilibrium",
-                                    &observed_data.equilibrium_calculated,
-                                    observed_color,
-                                    plot_height,
-                                );
+                                if let Some(ref equilibrium_calculated) = observed_data.equilibrium_calculated {
+                                    let plot_height = ui.available_height() - 30.0;
+                                    render_probability_chart(
+                                        ui,
+                                        "observed_equilibrium_calculated",
+                                        "Calculated Equilibrium",
+                                        equilibrium_calculated,
+                                        observed_color,
+                                        plot_height,
+                                    );
+                                } else {
+                                    ui.heading("Calculated Equilibrium");
+                                    ui.separator();
+                                    ui.label("Requires valid state and observable graphs");
+                                }
                             });
                         });
                         strip.cell(|ui| {
                             ui.vertical(|ui| {
-                                ui.label(format!(
-                                    "Entropy rate: {:.4}",
-                                    observed_data.entropy_rate
-                                ));
-                                ui.label(format!(
-                                    "Detailed balance deviation: {:.4}",
-                                    observed_data.detailed_balance_deviation
-                                ));
+                                if let (Some(entropy_rate), Some(detailed_balance_deviation)) =
+                                    (observed_data.entropy_rate, observed_data.detailed_balance_deviation) {
+                                    ui.label(format!(
+                                        "Entropy rate: {:.4}",
+                                        entropy_rate
+                                    ));
+                                    ui.label(format!(
+                                        "Detailed balance deviation: {:.4}",
+                                        detailed_balance_deviation
+                                    ));
+                                } else {
+                                    ui.label("Entropy rate: N/A");
+                                    ui.label("Detailed balance deviation: N/A");
+                                }
                             });
                         });
                     });
@@ -2124,6 +2191,7 @@ impl State {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn layout_slider(
         &mut self,
         ui: &mut egui::Ui,

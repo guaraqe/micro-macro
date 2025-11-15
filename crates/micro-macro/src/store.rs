@@ -165,7 +165,6 @@ pub struct StateGraphStore {
     pub graph: Versioned<StateGraphDisplay>,
     pub circular_visuals: Versioned<VisualParams>,
     pub label_visibility: Versioned<bool>,
-    pub validation_events: Versioned<Vec<String>>,
     layout_reset: LayoutReset<StateVersionKey>,
 }
 
@@ -175,7 +174,6 @@ impl StateGraphStore {
             graph: Versioned::new(graph),
             circular_visuals: Versioned::new(VisualParams::default()),
             label_visibility: Versioned::new(true),
-            validation_events: Versioned::new(Vec::new()),
             layout_reset: LayoutReset::new(),
         }
     }
@@ -195,20 +193,6 @@ impl StateGraphStore {
         let key = self.version_key();
         self.layout_reset.run_if_layout_changed(key, f);
     }
-
-    pub fn push_validation_error(&mut self, message: impl Into<String>) {
-        const MAX_ERRORS: usize = 50;
-        let mut events = self.validation_events.get().clone();
-        events.push(message.into());
-        if events.len() > MAX_ERRORS {
-            events.drain(..events.len() - MAX_ERRORS);
-        }
-        self.validation_events.set(events);
-    }
-
-    pub fn validation_event_messages(&self) -> &[String] {
-        self.validation_events.get()
-    }
 }
 
 // ============================================================================
@@ -220,7 +204,6 @@ pub struct ObservableGraphStore {
     pub graph: Versioned<ObservableGraphDisplay>,
     pub bipartite_visuals: Versioned<VisualParams>,
     pub label_visibility: Versioned<bool>,
-    pub validation_events: Versioned<Vec<String>>,
     layout_reset: LayoutReset<ObservableVersionKey>,
 }
 
@@ -234,7 +217,6 @@ impl ObservableGraphStore {
                 label_font: 13.0,
             }),
             label_visibility: Versioned::new(true),
-            validation_events: Versioned::new(Vec::new()),
             layout_reset: LayoutReset::new(),
         }
     }
@@ -253,20 +235,6 @@ impl ObservableGraphStore {
     {
         let key = self.version_key();
         self.layout_reset.run_if_layout_changed(key, f);
-    }
-
-    pub fn push_validation_error(&mut self, message: impl Into<String>) {
-        const MAX_ERRORS: usize = 50;
-        let mut events = self.validation_events.get().clone();
-        events.push(message.into());
-        if events.len() > MAX_ERRORS {
-            events.drain(..events.len() - MAX_ERRORS);
-        }
-        self.validation_events.set(events);
-    }
-
-    pub fn validation_event_messages(&self) -> &[String] {
-        self.validation_events.get()
     }
 }
 
@@ -436,37 +404,6 @@ impl Store {
 
     pub fn state_node_weight_stats(&self) -> Vec<(String, f32)> {
         collect_state_node_weights(self.state.graph.get())
-    }
-
-    pub fn state_node_name(&self, node_idx: NodeIndex) -> String {
-        self.state.graph
-            .get()
-            .g()
-            .node_weight(node_idx)
-            .map(|node| node.payload().name.clone())
-            .unwrap_or_else(|| format!("Node {}", node_idx.index()))
-    }
-
-    pub fn validation_event_messages_state(&self) -> &[String] {
-        self.state.validation_event_messages()
-    }
-
-    pub fn validation_event_messages_observable(&self) -> &[String] {
-        self.observable.validation_event_messages()
-    }
-
-    pub fn validation_error_key(&self) -> (u64, u64) {
-        (
-            self.state.validation_events.version(),
-            self.observable.validation_events.version(),
-        )
-    }
-
-    pub fn push_state_validation_error(
-        &mut self,
-        message: impl Into<String>,
-    ) {
-        self.state.push_validation_error(message);
     }
 }
 
