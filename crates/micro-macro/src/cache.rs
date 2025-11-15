@@ -111,15 +111,15 @@ pub struct Cache {
     pub observable_data: Memoized<Store, u64, ObservableData>,
     pub observed_data: Memoized<Store, (u64, u64), ObservedData>,
     pub validation_errors:
-        Memoized<Store, (u64, u64, u64), ValidationErrors>,
+        Memoized<Store, (u64, u64), ValidationErrors>,
 }
 
 impl Cache {
     pub fn new() -> Self {
         let state_data = Memoized::new(
-            |s: &Store| s.state_graph.version(),
+            |s: &Store| s.state.graph.version(),
             |s: &Store| {
-                let state_graph = s.state_graph.get();
+                let state_graph = s.state.graph.get();
                 let order = Order::alphabetical(state_graph);
                 let heatmap = s.state_heatmap_uncached();
                 let sorted_weights =
@@ -175,10 +175,10 @@ impl Cache {
                     equilibrium,
                     entropy_rate,
                     detailed_balance_deviation,
-                ) = if s.state_graph.get().node_count() > 0 {
+                ) = if s.state.graph.get().node_count() > 0 {
                     if let Ok(input_stats) = compute_input_statistics(
-                        s.state_graph.get(),
-                        s.observable_graph.get(),
+                        s.state.graph.get(),
+                        s.observable.graph.get(),
                     ) {
                         let eq = input_stats
                             .state_markov
@@ -197,7 +197,7 @@ impl Cache {
                     } else {
                         // If we can't compute stats, return uniform distribution with default stats
                         let indices: Vec<_> = s
-                            .state_graph
+                            .state.graph
                             .get()
                             .nodes_iter()
                             .map(|(idx, _)| idx)
@@ -240,7 +240,7 @@ impl Cache {
         );
 
         let observable_data = Memoized::new(
-            |s: &Store| s.observable_graph.version(),
+            |s: &Store| s.observable.graph.version(),
             |s: &Store| {
                 let heatmap = s.observable_heatmap_uncached();
                 let sorted_weights =
@@ -256,14 +256,14 @@ impl Cache {
         let observed_data = Memoized::new(
             |s: &Store| {
                 (
-                    s.state_graph.version(),
-                    s.observable_graph.version(),
+                    s.state.graph.version(),
+                    s.observable.graph.version(),
                 )
             },
             |s: &Store| {
                 let graph = calculate_observed_graph(
-                    s.state_graph.get(),
-                    s.observable_graph.get(),
+                    s.state.graph.get(),
+                    s.observable.graph.get(),
                 );
                 let order = Order::alphabetical(&graph);
                 let observed_labels: HashMap<NodeIndex, String> =
@@ -336,10 +336,10 @@ impl Cache {
                     equilibrium_calculated,
                     entropy_rate,
                     detailed_balance_deviation,
-                ) = if s.state_graph.get().node_count() > 0 {
+                ) = if s.state.graph.get().node_count() > 0 {
                     match compute_input_statistics(
-                        s.state_graph.get(),
-                        s.observable_graph.get(),
+                        s.state.graph.get(),
+                        s.observable.graph.get(),
                     ) {
                         Ok(input_stats) => {
                             // 1. State equilibrium
@@ -458,7 +458,7 @@ impl Cache {
                     s.validation_event_messages_state().to_vec();
                 let mut observable_messages =
                     s.validation_event_messages_observable().to_vec();
-                let state_graph = s.state_graph.get();
+                let state_graph = s.state.graph.get();
                 let stable = state_graph.g();
                 let mut seen_pairs = HashSet::new();
 
@@ -493,7 +493,7 @@ impl Cache {
                     }
                 }
 
-                let observable_display = s.observable_graph.get();
+                let observable_display = s.observable.graph.get();
                 let observable_stable = observable_display.g();
                 for (node_idx, node) in
                     observable_display.nodes_iter()

@@ -343,7 +343,7 @@ impl State {
         // Start potential drag from a node
         if pointer.primary_pressed()
             && let Some(hovered) =
-                self.store.state_graph.get().hovered_node()
+                self.store.state.graph.get().hovered_node()
             && let Some(press_pos) = pointer.interact_pos()
         {
             self.store.dragging_from = Some((hovered, press_pos));
@@ -379,7 +379,7 @@ impl State {
             {
                 // Drag completed - create edge if hovering different node
                 if let Some(target_node) =
-                    self.store.state_graph.get().hovered_node()
+                    self.store.state.graph.get().hovered_node()
                 {
                     self.dispatch(actions::Action::AddStateEdge {
                         source_idx: source_node,
@@ -408,7 +408,7 @@ impl State {
         {
             let selected_edges: Vec<_> = self
                 .store
-                .state_graph
+                .state.graph
                 .get()
                 .selected_edges()
                 .to_vec();
@@ -436,7 +436,7 @@ impl State {
         // Start potential drag from a node
         if pointer.primary_pressed()
             && let Some(hovered) =
-                self.store.observable_graph.get().hovered_node()
+                self.store.observable.graph.get().hovered_node()
             && let Some(press_pos) = pointer.interact_pos()
         {
             self.store.dragging_from = Some((hovered, press_pos));
@@ -472,19 +472,19 @@ impl State {
             {
                 // Drag completed - create edge if hovering different node
                 if let Some(target_node) =
-                    self.store.observable_graph.get().hovered_node()
+                    self.store.observable.graph.get().hovered_node()
                     && source_node != target_node
                 {
                     // Check node types: only allow Source -> Destination
                     let source_type = self
                         .store
-                        .observable_graph
+                        .observable.graph
                         .get()
                         .node(source_node)
                         .map(|n| n.payload().node_type);
                     let target_type = self
                         .store
-                        .observable_graph
+                        .observable.graph
                         .get()
                         .node(target_node)
                         .map(|n| n.payload().node_type);
@@ -527,7 +527,7 @@ impl State {
         {
             let selected_edges: Vec<_> = self
                 .store
-                .observable_graph
+                .observable.graph
                 .get()
                 .selected_edges()
                 .to_vec();
@@ -704,7 +704,7 @@ impl State {
                 // Controls
                 if ui.button("Add Node").clicked() {
                     // Dispatch action instead of directly modifying state
-                    let node_count = self.store.state_graph.get().node_count();
+                    let node_count = self.store.state.graph.get().node_count();
                     let default_name = format!("Node {}", node_count);
                     self.dispatch(actions::Action::AddStateNode {
                         name: default_name,
@@ -720,7 +720,7 @@ impl State {
                     .show(ui, |ui| {
                     let nodes: Vec<_> = self
                         .store
-                        .state_graph
+                        .state.graph
                         .get()
                         .nodes_iter()
                         .map(|(idx, node)| {
@@ -731,14 +731,14 @@ impl State {
                     for (node_idx, node_name) in nodes {
                         let is_selected = self
                             .store
-                            .state_graph
+                            .state.graph
                             .get()
                             .node(node_idx)
                             .map(|n| n.selected())
                             .unwrap_or(false);
                         let all_nodes: Vec<_> = self
                             .store
-                            .state_graph
+                            .state.graph
                             .get()
                             .nodes_iter()
                             .map(|(idx, _)| idx)
@@ -791,7 +791,7 @@ impl State {
                         if is_selected {
                             let (incoming, outgoing) =
                                 Self::get_connections(
-                                    self.store.state_graph.get(),
+                                    self.store.state.graph.get(),
                                     node_idx,
                                 );
                             Self::connections_widget(ui, incoming, outgoing);
@@ -912,21 +912,21 @@ impl State {
                             label_gap: tab_settings.visuals.label_gap,
                             label_font: tab_settings.visuals.label_font_size,
                         };
-                        if self.store.circular_visuals.get() != &new_visuals {
-                            self.store.circular_visuals.set(new_visuals);
+                        if self.store.state.circular_visuals.get() != &new_visuals {
+                            self.store.state.circular_visuals.set(new_visuals);
                         }
-                        if self.store.label_visibility.get() != &tab_settings.visuals.show_labels {
-                            self.store.label_visibility.set(tab_settings.visuals.show_labels);
+                        if self.store.state.label_visibility.get() != &tab_settings.visuals.show_labels {
+                            self.store.state.label_visibility.set(tab_settings.visuals.show_labels);
                         }
 
                         // Sync visual params from Store to node_shapes globals
-                        let visuals = self.store.circular_visuals.get();
+                        let visuals = self.store.state.circular_visuals.get();
                         node_shapes::set_circular_visual_params(
                             visuals.radius,
                             visuals.label_gap,
                             visuals.label_font,
                         );
-                        node_shapes::set_label_visibility(*self.store.label_visibility.get());
+                        node_shapes::set_label_visibility(*self.store.state.label_visibility.get());
 
                         graph_view::set_edge_thickness_bounds(
                             tab_settings.edges.min_width,
@@ -937,17 +937,12 @@ impl State {
                         );
 
                         // Reset layout if graph or visual params changed
-                        let state_version = self.store.state_graph.version();
-                        let visual_version = self.store.circular_visuals.version();
-                        let label_version = self.store.label_visibility.version();
-                        let key = (state_version, visual_version, label_version);
                         let order = self.cache.state_data.get(&self.store).order.clone();
                         let base_radius = tab_settings.layout.base_radius;
-                        let visuals = *self.store.circular_visuals.get();
-                        let label_visibility = *self.store.label_visibility.get();
+                        let visuals = *self.store.state.circular_visuals.get();
+                        let label_visibility = *self.store.state.label_visibility.get();
 
-                        self.store.state_layout_reset.run_if_version_changed(
-                            key,
+                        self.store.state.run_if_layout_changed(
                             || {
                                 let spacing = SpacingConfig::default().with_fixed_radius(base_radius);
                                 layout_circular::set_pending_layout(order.clone(), spacing, visuals, label_visibility);
@@ -963,7 +958,7 @@ impl State {
                         // Update edge thicknesses
                         let sorted_weights = self.cache.state_data.get(&self.store).sorted_weights.clone();
                         graph_view::update_edge_thicknesses(
-                            self.store.state_graph.get_mut(),
+                            self.store.state.graph.get_mut(),
                             sorted_weights,
                         );
 
@@ -977,7 +972,7 @@ impl State {
 
                         // Graph takes most of available space, leaving room for controls
                         ui.add(
-                            &mut StateGraphView::new(self.store.state_graph.get_mut())
+                            &mut StateGraphView::new(self.store.state.graph.get_mut())
                                 .with_interactions(&settings_interaction)
                                 .with_navigations(&settings_navigation)
                                 .with_styles(&settings_style),
@@ -1099,7 +1094,7 @@ impl State {
 
                     // Add Destination button
                     if ui.button("Add Value").clicked() {
-                        let node_count = self.store.observable_graph
+                        let node_count = self.store.observable.graph
                             .get()
                             .nodes_iter()
                             .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Destination)
@@ -1115,7 +1110,7 @@ impl State {
                         .show(ui, |ui| {
                             // Collect Destination nodes
                             let dest_nodes: Vec<_> = self
-                                .store.observable_graph
+                                .store.observable.graph
                                 .get()
                                 .nodes_iter()
                                 .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Destination)
@@ -1124,14 +1119,14 @@ impl State {
 
                             for (node_idx, node_name) in dest_nodes {
                                 let is_selected = self
-                                    .store.observable_graph
+                                    .store.observable.graph
                                     .get()
                                     .node(node_idx)
                                     .map(|n| n.selected())
                                     .unwrap_or(false);
                                 let all_nodes: Vec<_> = self
                                     .store
-                                    .observable_graph
+                                    .observable.graph
                                     .get()
                                     .nodes_iter()
                                     .map(|(idx, _)| idx)
@@ -1189,7 +1184,7 @@ impl State {
                                 if is_selected {
                                     let (incoming, _outgoing) =
                                         Self::get_connections(
-                                            self.store.observable_graph.get(),
+                                            self.store.observable.graph.get(),
                                             node_idx,
                                         );
                                     Self::connections_widget(ui, incoming, vec![]);
@@ -1319,21 +1314,21 @@ impl State {
                         label_gap: tab_settings.visuals.label_gap,
                         label_font: tab_settings.visuals.label_font_size,
                     };
-                    if self.store.bipartite_visuals.get() != &new_visuals {
-                        self.store.bipartite_visuals.set(new_visuals);
+                    if self.store.observable.bipartite_visuals.get() != &new_visuals {
+                        self.store.observable.bipartite_visuals.set(new_visuals);
                     }
-                    if self.store.label_visibility.get() != &tab_settings.visuals.show_labels {
-                        self.store.label_visibility.set(tab_settings.visuals.show_labels);
+                    if self.store.observable.label_visibility.get() != &tab_settings.visuals.show_labels {
+                        self.store.observable.label_visibility.set(tab_settings.visuals.show_labels);
                     }
 
                     // Sync visual params from Store to node_shapes globals
-                    let visuals = self.store.bipartite_visuals.get();
+                    let visuals = self.store.observable.bipartite_visuals.get();
                     node_shapes::set_bipartite_visual_params(
                         visuals.radius,
                         visuals.label_gap,
                         visuals.label_font,
                     );
-                    node_shapes::set_label_visibility(*self.store.label_visibility.get());
+                    node_shapes::set_label_visibility(*self.store.observable.label_visibility.get());
 
                     graph_view::set_edge_thickness_bounds(
                         tab_settings.edges.min_width,
@@ -1341,15 +1336,10 @@ impl State {
                     );
 
                     // Reset layout if graph or visual params changed
-                    let observable_version = self.store.observable_graph.version();
-                    let visual_version = self.store.bipartite_visuals.version();
-                    let label_version = self.store.label_visibility.version();
-                    let key = (observable_version, visual_version, label_version);
-                    let visuals = *self.store.bipartite_visuals.get();
-                    let label_visibility = *self.store.label_visibility.get();
+                    let visuals = *self.store.observable.bipartite_visuals.get();
+                    let label_visibility = *self.store.observable.label_visibility.get();
 
-                    self.store.observable_layout_reset.run_if_version_changed(
-                        key,
+                    self.store.observable.run_if_layout_changed(
                         || {
                             let spacing = layout_bipartite::BipartiteSpacingConfig {
                                 node_gap: tab_settings.layout.node_gap,
@@ -1369,7 +1359,7 @@ impl State {
                     let sorted_weights =
                         self.cache.observable_data.get(&self.store).sorted_weights.clone();
                     graph_view::update_edge_thicknesses(
-                        self.store.observable_graph.get_mut(),
+                        self.store.observable.graph.get_mut(),
                         sorted_weights,
                     );
 
@@ -1394,7 +1384,7 @@ impl State {
                         |ui| {
                             ui.add(
                                 &mut ObservableGraphView::new(
-                                    self.store.observable_graph.get_mut(),
+                                    self.store.observable.graph.get_mut(),
                                 )
                                 .with_interactions(
                                     &settings_interaction,
@@ -1662,21 +1652,21 @@ impl State {
                                 label_gap: tab_settings.visuals.label_gap,
                                 label_font: tab_settings.visuals.label_font_size,
                             };
-                            if self.store.circular_visuals.get() != &new_visuals {
-                                self.store.circular_visuals.set(new_visuals);
+                            if self.store.observed.circular_visuals.get() != &new_visuals {
+                                self.store.observed.circular_visuals.set(new_visuals);
                             }
-                            if self.store.label_visibility.get() != &tab_settings.visuals.show_labels {
-                                self.store.label_visibility.set(tab_settings.visuals.show_labels);
+                            if self.store.observed.label_visibility.get() != &tab_settings.visuals.show_labels {
+                                self.store.observed.label_visibility.set(tab_settings.visuals.show_labels);
                             }
 
                             // Sync visual params from Store to node_shapes globals
-                            let visuals = self.store.circular_visuals.get();
+                            let visuals = self.store.observed.circular_visuals.get();
                             node_shapes::set_circular_visual_params(
                                 visuals.radius,
                                 visuals.label_gap,
                                 visuals.label_font,
                             );
-                            node_shapes::set_label_visibility(*self.store.label_visibility.get());
+                            node_shapes::set_label_visibility(*self.store.observed.label_visibility.get());
 
                             graph_view::set_edge_thickness_bounds(
                                 tab_settings.edges.min_width,
@@ -1701,16 +1691,13 @@ impl State {
                                 self.cache.observed_data.get_mut(&self.store);
                             let order = observed_data.order.clone();
                             let base_radius = tab_settings.layout.base_radius;
-                            let visual_version = self.store.circular_visuals.version();
-                            let label_version = self.store.label_visibility.version();
-                            let key = (observed_version, visual_version, label_version);
-                            let visuals = *self.store.circular_visuals.get();
-                            let label_visibility = *self.store.label_visibility.get();
+                            let visuals = *self.store.observed.circular_visuals.get();
+                            let label_visibility = *self.store.observed.label_visibility.get();
 
                             self.store
-                                .observed_layout_reset
-                                .run_if_version_changed(
-                                    key,
+                                .observed
+                                .run_if_layout_changed(
+                                    observed_version,
                                     || {
                                         let spacing = SpacingConfig::default().with_fixed_radius(base_radius);
                                         layout_circular::set_pending_layout(order.clone(), spacing, visuals, label_visibility);
@@ -1804,7 +1791,7 @@ impl State {
             ui.label("Weight:");
             let current_weight = self
                 .store
-                .state_graph
+                .state.graph
                 .get()
                 .node(node_idx)
                 .map(|n| n.payload().weight)

@@ -52,7 +52,7 @@ impl<K: PartialEq + Clone> LayoutReset<K> {
 
     /// Run the provided function if the external version has changed
     /// Tracks version from Versioned or Memoized objects
-    pub fn run_if_version_changed<F>(
+    pub fn run_if_layout_changed<F>(
         &mut self,
         current_key: K,
         mut f: F,
@@ -68,6 +68,31 @@ impl<K: PartialEq + Clone> LayoutReset<K> {
             self.last_acked = Some(current_key);
         }
     }
+}
+
+// ============================================================================
+// Version Keys - Combine all versioned data for change tracking
+// ============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StateVersionKey {
+    pub graph: u64,
+    pub circular_visuals: u64,
+    pub label_visibility: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObservableVersionKey {
+    pub graph: u64,
+    pub bipartite_visuals: u64,
+    pub label_visibility: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObservedVersionKey {
+    pub graph: u64,
+    pub circular_visuals: u64,
+    pub label_visibility: u64,
 }
 
 #[derive(Clone)]
@@ -131,35 +156,199 @@ impl StringEditor {
     }
 }
 
+// ============================================================================
+// State Graph Store
+// ============================================================================
+
+#[derive(Clone)]
+pub struct StateGraphStore {
+    pub graph: Versioned<StateGraphDisplay>,
+    pub circular_visuals: Versioned<VisualParams>,
+    pub label_visibility: Versioned<bool>,
+    pub validation_events: Versioned<Vec<String>>,
+    layout_reset: LayoutReset<StateVersionKey>,
+}
+
+impl StateGraphStore {
+    pub fn new(graph: StateGraphDisplay) -> Self {
+        Self {
+            graph: Versioned::new(graph),
+            circular_visuals: Versioned::new(VisualParams::default()),
+            label_visibility: Versioned::new(true),
+            validation_events: Versioned::new(Vec::new()),
+            layout_reset: LayoutReset::new(),
+        }
+    }
+
+    pub fn version_key(&self) -> StateVersionKey {
+        StateVersionKey {
+            graph: self.graph.version(),
+            circular_visuals: self.circular_visuals.version(),
+            label_visibility: self.label_visibility.version(),
+        }
+    }
+
+    pub fn run_if_layout_changed<F>(&mut self, f: F)
+    where
+        F: FnMut(),
+    {
+        let key = self.version_key();
+        self.layout_reset.run_if_layout_changed(key, f);
+    }
+
+    pub fn push_validation_error(&mut self, message: impl Into<String>) {
+        const MAX_ERRORS: usize = 50;
+        let mut events = self.validation_events.get().clone();
+        events.push(message.into());
+        if events.len() > MAX_ERRORS {
+            events.drain(..events.len() - MAX_ERRORS);
+        }
+        self.validation_events.set(events);
+    }
+
+    pub fn validation_event_messages(&self) -> &[String] {
+        self.validation_events.get()
+    }
+}
+
+// ============================================================================
+// Observable Graph Store
+// ============================================================================
+
+#[derive(Clone)]
+pub struct ObservableGraphStore {
+    pub graph: Versioned<ObservableGraphDisplay>,
+    pub bipartite_visuals: Versioned<VisualParams>,
+    pub label_visibility: Versioned<bool>,
+    pub validation_events: Versioned<Vec<String>>,
+    layout_reset: LayoutReset<ObservableVersionKey>,
+}
+
+impl ObservableGraphStore {
+    pub fn new(graph: ObservableGraphDisplay) -> Self {
+        Self {
+            graph: Versioned::new(graph),
+            bipartite_visuals: Versioned::new(VisualParams {
+                radius: 5.0,
+                label_gap: 8.0,
+                label_font: 13.0,
+            }),
+            label_visibility: Versioned::new(true),
+            validation_events: Versioned::new(Vec::new()),
+            layout_reset: LayoutReset::new(),
+        }
+    }
+
+    pub fn version_key(&self) -> ObservableVersionKey {
+        ObservableVersionKey {
+            graph: self.graph.version(),
+            bipartite_visuals: self.bipartite_visuals.version(),
+            label_visibility: self.label_visibility.version(),
+        }
+    }
+
+    pub fn run_if_layout_changed<F>(&mut self, f: F)
+    where
+        F: FnMut(),
+    {
+        let key = self.version_key();
+        self.layout_reset.run_if_layout_changed(key, f);
+    }
+
+    pub fn push_validation_error(&mut self, message: impl Into<String>) {
+        const MAX_ERRORS: usize = 50;
+        let mut events = self.validation_events.get().clone();
+        events.push(message.into());
+        if events.len() > MAX_ERRORS {
+            events.drain(..events.len() - MAX_ERRORS);
+        }
+        self.validation_events.set(events);
+    }
+
+    pub fn validation_event_messages(&self) -> &[String] {
+        self.validation_events.get()
+    }
+}
+
+// ============================================================================
+// Observed Graph Store
+// ============================================================================
+
+#[derive(Clone)]
+pub struct ObservedGraphStore {
+    pub circular_visuals: Versioned<VisualParams>,
+    pub label_visibility: Versioned<bool>,
+    layout_reset: LayoutReset<ObservedVersionKey>,
+    pub observed_graph_dirty: bool,
+}
+
+impl ObservedGraphStore {
+    pub fn new() -> Self {
+        Self {
+            circular_visuals: Versioned::new(VisualParams::default()),
+            label_visibility: Versioned::new(true),
+            layout_reset: LayoutReset::new(),
+            observed_graph_dirty: false,
+        }
+    }
+
+    /// Get version key combining observed graph version (passed in) with visuals
+    pub fn version_key(&self, observed_graph_version: u64) -> ObservedVersionKey {
+        ObservedVersionKey {
+            graph: observed_graph_version,
+            circular_visuals: self.circular_visuals.version(),
+            label_visibility: self.label_visibility.version(),
+        }
+    }
+
+    pub fn run_if_layout_changed<F>(
+        &mut self,
+        observed_graph_version: u64,
+        f: F,
+    )
+    where
+        F: FnMut(),
+    {
+        let key = self.version_key(observed_graph_version);
+        self.layout_reset.run_if_layout_changed(key, f);
+    }
+
+    pub fn mark_dirty(&mut self) {
+        self.observed_graph_dirty = true;
+    }
+
+    pub fn mark_fresh(&mut self) {
+        self.observed_graph_dirty = false;
+    }
+}
+
 #[derive(Clone)]
 pub struct Store {
-    pub state_graph: Versioned<StateGraphDisplay>,
-    pub observable_graph: Versioned<ObservableGraphDisplay>,
+    // Graph-specific stores
+    pub state: StateGraphStore,
+    pub observable: ObservableGraphStore,
+    pub observed: ObservedGraphStore,
+
+    // Global UI state (not graph-specific)
     pub mode: EditMode,
     pub prev_mode: EditMode,
     pub active_tab: ActiveTab,
     pub dragging_from: Option<(NodeIndex, egui::Pos2)>,
     pub drag_started: bool,
     pub layout_settings: LayoutSettings,
-    // Visual parameters (versioned for change tracking)
-    pub circular_visuals: Versioned<VisualParams>,
-    pub bipartite_visuals: Versioned<VisualParams>,
-    pub label_visibility: Versioned<bool>,
-    // Layout reset tracking (now tracks graph + visual versions)
-    pub state_layout_reset: LayoutReset<(u64, u64, u64)>,  // (graph_ver, circular_vis_ver, label_vis_ver)
-    pub observable_layout_reset: LayoutReset<(u64, u64, u64)>,  // (graph_ver, bipartite_vis_ver, label_vis_ver)
-    pub observed_layout_reset: LayoutReset<(u64, u64, u64)>,  // (graph_ver, circular_vis_ver, label_vis_ver)
-    pub observed_graph_dirty: bool,
+
+    // Heatmap editing state
     pub heatmap_hovered_cell: Option<(usize, usize)>,
     pub heatmap_editing_cell: Option<(usize, usize)>,
     pub heatmap_edit_buffer: String,
+
+    // Node editing state
     pub weight_editor: NumberEditor,
     pub label_editor: StringEditor,
     pub observed_node_selection: Option<(NodeIndex, bool)>,
+
+    // Global error state
     pub error_message: Option<String>,
-    pub state_validation_events: Vec<String>,
-    pub observable_validation_events: Vec<String>,
-    validation_events_version: u64,
 }
 
 impl Store {
@@ -170,25 +359,15 @@ impl Store {
         layout_settings: LayoutSettings,
     ) -> Self {
         Self {
-            state_graph: Versioned::new(state_graph),
-            observable_graph: Versioned::new(observable_graph),
+            state: StateGraphStore::new(state_graph),
+            observable: ObservableGraphStore::new(observable_graph),
+            observed: ObservedGraphStore::new(),
             mode: EditMode::NodeEditor,
             prev_mode: EditMode::NodeEditor,
             active_tab: ActiveTab::DynamicalSystem,
             dragging_from: None,
             drag_started: false,
             layout_settings,
-            circular_visuals: Versioned::new(VisualParams::default()),
-            bipartite_visuals: Versioned::new(VisualParams {
-                radius: 5.0,
-                label_gap: 8.0,
-                label_font: 13.0,
-            }),
-            label_visibility: Versioned::new(true),
-            state_layout_reset: LayoutReset::new(),
-            observable_layout_reset: LayoutReset::new(),
-            observed_layout_reset: LayoutReset::new(),
-            observed_graph_dirty: false,
             heatmap_hovered_cell: None,
             heatmap_editing_cell: None,
             heatmap_edit_buffer: String::new(),
@@ -196,33 +375,30 @@ impl Store {
             label_editor: StringEditor::new(),
             observed_node_selection: None,
             error_message: None,
-            state_validation_events: Vec::new(),
-            observable_validation_events: Vec::new(),
-            validation_events_version: 0,
         }
     }
 
     pub fn sync_source_nodes(&mut self) {
         let synced = sync_source_nodes_display(
-            self.state_graph.get(),
-            self.observable_graph.get(),
+            self.state.graph.get(),
+            self.observable.graph.get(),
         );
-        self.observable_graph.set(synced);
+        self.observable.graph.set(synced);
         // observable_layout_reset will auto-reset via version tracking
         self.mark_observed_graph_dirty();
     }
 
     pub fn recompute_observed_graph(&mut self) {
         // This is now handled by the cache
-        self.observed_graph_dirty = false;
+        self.observed.mark_fresh();
     }
 
     pub fn mark_observed_graph_dirty(&mut self) {
-        self.observed_graph_dirty = true;
+        self.observed.mark_dirty();
     }
 
     pub fn ensure_observed_graph_fresh(&mut self) {
-        if self.observed_graph_dirty {
+        if self.observed.observed_graph_dirty {
             self.recompute_observed_graph();
         }
     }
@@ -231,11 +407,11 @@ impl Store {
 
     // Uncached versions (used internally by cache)
     pub fn state_heatmap_uncached(&self) -> HeatmapData {
-        compute_generic_heatmap_data(self.state_graph.get())
+        compute_generic_heatmap_data(self.state.graph.get())
     }
 
     pub fn observable_heatmap_uncached(&self) -> HeatmapData {
-        compute_observable_heatmap_data(self.observable_graph.get())
+        compute_observable_heatmap_data(self.observable.graph.get())
     }
 
     pub fn observed_heatmap_from_graph(
@@ -246,12 +422,12 @@ impl Store {
     }
 
     pub fn state_sorted_weights_uncached(&self) -> Vec<f32> {
-        collect_sorted_weights_from_display(self.state_graph.get())
+        collect_sorted_weights_from_display(self.state.graph.get())
     }
 
     pub fn observable_sorted_weights_uncached(&self) -> Vec<f32> {
         collect_sorted_weights_from_display(
-            self.observable_graph.get(),
+            self.observable.graph.get(),
         )
     }
 
@@ -259,11 +435,11 @@ impl Store {
     // This eliminates redundant recalculation of the entire observed graph
 
     pub fn state_node_weight_stats(&self) -> Vec<(String, f32)> {
-        collect_state_node_weights(self.state_graph.get())
+        collect_state_node_weights(self.state.graph.get())
     }
 
     pub fn state_node_name(&self, node_idx: NodeIndex) -> String {
-        self.state_graph
+        self.state.graph
             .get()
             .g()
             .node_weight(node_idx)
@@ -272,18 +448,17 @@ impl Store {
     }
 
     pub fn validation_event_messages_state(&self) -> &[String] {
-        &self.state_validation_events
+        self.state.validation_event_messages()
     }
 
     pub fn validation_event_messages_observable(&self) -> &[String] {
-        &self.observable_validation_events
+        self.observable.validation_event_messages()
     }
 
-    pub fn validation_error_key(&self) -> (u64, u64, u64) {
+    pub fn validation_error_key(&self) -> (u64, u64) {
         (
-            self.state_graph.version(),
-            self.observable_graph.version(),
-            self.validation_events_version,
+            self.state.validation_events.version(),
+            self.observable.validation_events.version(),
         )
     }
 
@@ -291,15 +466,7 @@ impl Store {
         &mut self,
         message: impl Into<String>,
     ) {
-        const MAX_ERRORS: usize = 50;
-        self.state_validation_events.push(message.into());
-        if self.state_validation_events.len() > MAX_ERRORS {
-            self.state_validation_events.drain(
-                ..self.state_validation_events.len() - MAX_ERRORS,
-            );
-        }
-        self.validation_events_version =
-            self.validation_events_version.wrapping_add(1);
+        self.state.push_validation_error(message);
     }
 }
 
