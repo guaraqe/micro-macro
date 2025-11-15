@@ -914,11 +914,6 @@ impl State {
                         node_shapes::set_label_visibility(
                             tab_settings.visuals.show_labels,
                         );
-                        layout_circular::set_active_spacing(
-                            SpacingConfig::default().with_fixed_radius(
-                                tab_settings.layout.base_radius,
-                            ),
-                        );
                         graph_view::set_edge_thickness_bounds(
                             tab_settings.edges.min_width,
                             tab_settings.edges.max_width,
@@ -929,9 +924,13 @@ impl State {
 
                         // Reset layout if state graph version changed
                         let state_version = self.store.state_graph.version();
+                        let order = self.cache.state_data.get(&self.store).order.clone();
+                        let base_radius = tab_settings.layout.base_radius;
                         self.store.state_layout_reset.run_if_version_changed(
                             state_version,
                             || {
+                                let spacing = SpacingConfig::default().with_fixed_radius(base_radius);
+                                layout_circular::set_pending_layout(order.clone(), spacing);
                                 reset_layout::<LayoutStateCircular>(ui, None);
                             },
                         );
@@ -1302,12 +1301,6 @@ impl State {
                     node_shapes::set_label_visibility(
                         tab_settings.visuals.show_labels,
                     );
-                    layout_bipartite::set_active_spacing(
-                        layout_bipartite::BipartiteSpacingConfig {
-                            node_gap: tab_settings.layout.node_gap,
-                            layer_gap: tab_settings.layout.layer_gap,
-                        },
-                    );
                     graph_view::set_edge_thickness_bounds(
                         tab_settings.edges.min_width,
                         tab_settings.edges.max_width,
@@ -1318,6 +1311,11 @@ impl State {
                     self.store.observable_layout_reset.run_if_version_changed(
                         observable_version,
                         || {
+                            let spacing = layout_bipartite::BipartiteSpacingConfig {
+                                node_gap: tab_settings.layout.node_gap,
+                                layer_gap: tab_settings.layout.layer_gap,
+                            };
+                            layout_bipartite::set_pending_spacing(spacing);
                             reset_layout::<LayoutStateBipartite>(ui, None);
                         },
                     );
@@ -1626,11 +1624,6 @@ impl State {
                             node_shapes::set_label_visibility(
                                 tab_settings.visuals.show_labels,
                             );
-                            layout_circular::set_active_spacing(
-                                SpacingConfig::default().with_fixed_radius(
-                                    tab_settings.layout.base_radius,
-                                ),
-                            );
                             graph_view::set_edge_thickness_bounds(
                                 tab_settings.edges.min_width,
                                 tab_settings.edges.max_width,
@@ -1652,15 +1645,17 @@ impl State {
                                 self.cache.observed_data.version();
                             let observed_data =
                                 self.cache.observed_data.get_mut(&self.store);
+                            let order = observed_data.order.clone();
+                            let base_radius = tab_settings.layout.base_radius;
 
                             self.store
                                 .observed_layout_reset
                                 .run_if_version_changed(
                                     observed_version,
                                     || {
-                                        reset_layout::<LayoutStateCircular>(
-                                            ui, None,
-                                        );
+                                        let spacing = SpacingConfig::default().with_fixed_radius(base_radius);
+                                        layout_circular::set_pending_layout(order.clone(), spacing);
+                                        reset_layout::<LayoutStateCircular>(ui, None);
                                     },
                                 );
 

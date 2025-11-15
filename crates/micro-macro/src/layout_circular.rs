@@ -1,3 +1,4 @@
+use crate::cache::Order;
 use eframe::egui;
 use egui_graphs::{
     DisplayEdge, DisplayNode, Graph, Layout, LayoutState,
@@ -9,15 +10,33 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::sync::RwLock;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+// Global storage for layout configuration (set before reset_layout)
+static PENDING_ORDER: Lazy<RwLock<Option<Order>>> = Lazy::new(|| RwLock::new(None));
+static PENDING_SPACING: Lazy<RwLock<Option<SpacingConfig>>> = Lazy::new(|| RwLock::new(None));
+
+pub fn set_pending_layout(order: Order, spacing: SpacingConfig) {
+    *PENDING_ORDER.write().unwrap() = Some(order);
+    *PENDING_SPACING.write().unwrap() = Some(spacing);
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayoutStateCircular {
-    applied: bool,
+    pub order: Order,
+    pub spacing: SpacingConfig,
+}
+
+impl Default for LayoutStateCircular {
+    fn default() -> Self {
+        let order = PENDING_ORDER.write().unwrap().take().unwrap_or_default();
+        let spacing = PENDING_SPACING.write().unwrap().take().unwrap_or_default();
+        Self { order, spacing }
+    }
 }
 
 impl LayoutState for LayoutStateCircular {}
 
 /// Configuration for spacing/radius of the circular layout
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SpacingConfig {
     /// Base radius when there are few nodes
     pub base_radius: f32,
@@ -44,63 +63,11 @@ impl Default for SpacingConfig {
     }
 }
 
-static ACTIVE_SPACING: Lazy<RwLock<SpacingConfig>> =
-    Lazy::new(|| RwLock::new(SpacingConfig::default()));
-
-pub fn set_active_spacing(config: SpacingConfig) {
-    *ACTIVE_SPACING
-        .write()
-        .expect("failed to write circular spacing") = config;
-}
-
-fn active_spacing() -> SpacingConfig {
-    *ACTIVE_SPACING
-        .read()
-        .expect("failed to read circular spacing")
-}
-
-/// Sort order for circular layout nodes
-#[allow(dead_code)]
-#[derive(Debug, Clone, Default)]
-pub enum SortOrder {
-    /// Alphabetical by label (ascending)
-    #[default]
-    Alphabetical,
-    /// Reverse alphabetical by label (descending)
-    ReverseAlphabetical,
-    /// No sorting - preserve insertion order
-    None,
-}
-
-/// Circular layout with configurable sorting and spacing
+/// Circular layout with configurable spacing
 #[derive(Debug, Clone, Default)]
 pub struct LayoutCircular {
     state: LayoutStateCircular,
-    sort_order: SortOrder,
-    spacing: SpacingConfig,
-}
-
-#[allow(dead_code)]
-impl LayoutCircular {
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_sort_order(mut self, sort_order: SortOrder) -> Self {
-        self.sort_order = sort_order;
-        self
-    }
-
-    pub fn without_sorting(mut self) -> Self {
-        self.sort_order = SortOrder::None;
-        self
-    }
-
-    pub fn with_spacing(mut self, spacing: SpacingConfig) -> Self {
-        self.spacing = spacing;
-        self
-    }
+    applied: bool,
 }
 
 impl Layout<LayoutStateCircular> for LayoutCircular {
@@ -109,8 +76,7 @@ impl Layout<LayoutStateCircular> for LayoutCircular {
     ) -> impl Layout<LayoutStateCircular> {
         Self {
             state,
-            sort_order: SortOrder::default(),
-            spacing: active_spacing(),
+            applied: false,
         }
     }
 
@@ -127,31 +93,13 @@ impl Layout<LayoutStateCircular> for LayoutCircular {
         De: DisplayEdge<N, E, Ty, Ix, Dn>,
     {
         // Only apply layout once
-        if self.state.applied {
+        if self.applied {
             return;
         }
-        self.spacing = active_spacing();
 
-        // Collect all nodes with their indices and labels
-        let mut nodes: Vec<_> = g
-            .nodes_iter()
-            .map(|(idx, node)| (idx, node.label().to_string()))
-            .collect();
-
-        // Sort according to the configured sort order
-        match self.sort_order {
-            SortOrder::Alphabetical => {
-                nodes.sort_by(|a, b| a.1.cmp(&b.1));
-            }
-            SortOrder::ReverseAlphabetical => {
-                nodes.sort_by(|a, b| b.1.cmp(&a.1));
-            }
-            SortOrder::None => {
-                // Keep insertion order - no sorting
-            }
-        }
-
-        let node_count = nodes.len();
+        // Use the order from state
+        let node_order = &self.state.order.0;
+        let node_count = node_order.len();
         if node_count == 0 {
             return;
         }
@@ -161,16 +109,17 @@ impl Layout<LayoutStateCircular> for LayoutCircular {
         let center_x = rect.center().x;
         let center_y = rect.center().y;
 
-        // Calculate radius using configuration
-        let radius = if let Some(fixed) = self.spacing.fixed_radius {
+        // Calculate radius using configuration from state
+        let spacing = &self.state.spacing;
+        let radius = if let Some(fixed) = spacing.fixed_radius {
             fixed
         } else {
-            self.spacing.base_radius
-                + (node_count as f32) * self.spacing.radius_per_node
+            spacing.base_radius
+                + (node_count as f32) * spacing.radius_per_node
         };
 
-        // Place nodes in a circle
-        for (i, (node_idx, _label)) in nodes.iter().enumerate() {
+        // Place nodes in a circle according to the order
+        for (i, node_idx) in node_order.iter().enumerate() {
             // Start at top (-π/2) and go clockwise
             let angle = -std::f32::consts::PI / 2.0
                 + (i as f32) * 2.0 * std::f32::consts::PI
@@ -179,12 +128,14 @@ impl Layout<LayoutStateCircular> for LayoutCircular {
             let x = center_x + radius * angle.cos();
             let y = center_y + radius * angle.sin();
 
-            if let Some(node) = g.node_mut(*node_idx) {
+            // Convert NodeIndex to the generic Ix type
+            let idx = petgraph::stable_graph::NodeIndex::<Ix>::new(node_idx.index());
+            if let Some(node) = g.node_mut(idx) {
                 node.set_location(egui::Pos2::new(x, y));
             }
         }
 
-        self.state.applied = true;
+        self.applied = true;
     }
 
     fn state(&self) -> LayoutStateCircular {

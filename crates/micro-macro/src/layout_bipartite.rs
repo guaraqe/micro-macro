@@ -12,15 +12,29 @@ use std::sync::RwLock;
 
 use crate::graph_state::{ObservableNode, ObservableNodeType};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+// Global storage for layout configuration (set before reset_layout)
+static PENDING_SPACING: Lazy<RwLock<Option<BipartiteSpacingConfig>>> = Lazy::new(|| RwLock::new(None));
+
+pub fn set_pending_spacing(spacing: BipartiteSpacingConfig) {
+    *PENDING_SPACING.write().unwrap() = Some(spacing);
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayoutStateBipartite {
-    applied: bool,
+    pub spacing: BipartiteSpacingConfig,
+}
+
+impl Default for LayoutStateBipartite {
+    fn default() -> Self {
+        let spacing = PENDING_SPACING.write().unwrap().take().unwrap_or_default();
+        Self { spacing }
+    }
 }
 
 impl LayoutState for LayoutStateBipartite {}
 
 /// Configuration for spacing in the bipartite layout
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct BipartiteSpacingConfig {
     /// Vertical spacing between nodes within a column
     pub node_gap: f32,
@@ -37,42 +51,11 @@ impl Default for BipartiteSpacingConfig {
     }
 }
 
-static ACTIVE_SPACING: Lazy<RwLock<BipartiteSpacingConfig>> =
-    Lazy::new(|| RwLock::new(BipartiteSpacingConfig::default()));
-
-pub fn set_active_spacing(config: BipartiteSpacingConfig) {
-    *ACTIVE_SPACING
-        .write()
-        .expect("failed to write bipartite spacing") = config;
-}
-
-fn active_spacing() -> BipartiteSpacingConfig {
-    *ACTIVE_SPACING
-        .read()
-        .expect("failed to read bipartite spacing")
-}
-
 /// Bipartite layout with Source nodes on left, Destination nodes on right
 #[derive(Debug, Clone, Default)]
 pub struct LayoutBipartite {
     state: LayoutStateBipartite,
-    spacing: BipartiteSpacingConfig,
-}
-
-impl LayoutBipartite {
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    #[allow(dead_code)]
-    pub fn with_spacing(
-        mut self,
-        spacing: BipartiteSpacingConfig,
-    ) -> Self {
-        self.spacing = spacing;
-        self
-    }
+    applied: bool,
 }
 
 impl Layout<LayoutStateBipartite> for LayoutBipartite {
@@ -81,7 +64,7 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
     ) -> impl Layout<LayoutStateBipartite> {
         Self {
             state,
-            spacing: active_spacing(),
+            applied: false,
         }
     }
 
@@ -98,10 +81,9 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
         De: DisplayEdge<N, E, Ty, Ix, Dn>,
     {
         // Only apply layout once
-        if self.state.applied {
+        if self.applied {
             return;
         }
-        self.spacing = active_spacing();
 
         // Separate Source and Destination nodes based on node_type field
         //
@@ -141,7 +123,8 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
         let center_x = rect.center().x;
         let center_y = rect.center().y;
 
-        let half_layer = (self.spacing.layer_gap.max(40.0)) / 2.0;
+        let spacing = &self.state.spacing;
+        let half_layer = (spacing.layer_gap.max(40.0)) / 2.0;
         let source_x = center_x - half_layer;
         let dest_x = center_x + half_layer;
 
@@ -150,7 +133,7 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
             &source_nodes,
             source_x,
             center_y,
-            self.spacing.node_gap.max(5.0),
+            spacing.node_gap.max(5.0),
         );
 
         place_column(
@@ -158,10 +141,10 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
             &dest_nodes,
             dest_x,
             center_y,
-            self.spacing.node_gap.max(5.0),
+            spacing.node_gap.max(5.0),
         );
 
-        self.state.applied = true;
+        self.applied = true;
     }
 
     fn state(&self) -> LayoutStateBipartite {

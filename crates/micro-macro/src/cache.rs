@@ -2,7 +2,7 @@ use crate::graph_state::{
     ObservableNodeType, calculate_observed_graph,
     compute_input_statistics, compute_output_statistics,
 };
-use crate::graph_view::ObservedGraphDisplay;
+use crate::graph_view::{GraphDisplay, ObservedGraphDisplay};
 use crate::heatmap::HeatmapData;
 use crate::store::Store;
 use crate::versioned::Memoized;
@@ -13,7 +13,28 @@ use petgraph::{
     stable_graph::NodeIndex,
     visit::{EdgeRef, IntoEdgeReferences},
 };
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+
+/// Node ordering for circular layout
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Order(pub Vec<NodeIndex>);
+
+impl Order {
+    /// Create an alphabetical order from a graph
+    pub fn alphabetical<N, D>(graph: &GraphDisplay<N, D>) -> Self
+    where
+        N: Clone,
+        D: egui_graphs::DisplayNode<N, f32, petgraph::Directed, petgraph::graph::DefaultIx>,
+    {
+        let mut nodes: Vec<_> = graph
+            .nodes_iter()
+            .map(|(idx, node)| (idx, node.label().to_string()))
+            .collect();
+        nodes.sort_by(|a, b| a.1.cmp(&b.1));
+        Order(nodes.into_iter().map(|(idx, _)| idx).collect())
+    }
+}
 
 pub struct ProbabilityChart {
     pub labels: HashMap<NodeIndex, String>,
@@ -52,6 +73,7 @@ impl ProbabilityChart {
 
 /// Combined state data that is calculated together to ensure consistency
 pub struct StateData {
+    pub order: Order,
     pub heatmap: HeatmapData,
     pub sorted_weights: Vec<f32>,
     pub weight_distribution: ProbabilityChart,
@@ -68,6 +90,7 @@ pub struct ObservableData {
 
 /// Combined observed data that is calculated together to ensure consistency
 pub struct ObservedData {
+    pub order: Order,
     pub graph: ObservedGraphDisplay,
     pub heatmap: HeatmapData,
     pub sorted_weights: Vec<f32>,
@@ -96,11 +119,11 @@ impl Cache {
         let state_data = Memoized::new(
             |s: &Store| s.state_graph.version(),
             |s: &Store| {
+                let state_graph = s.state_graph.get();
+                let order = Order::alphabetical(state_graph);
                 let heatmap = s.state_heatmap_uncached();
                 let sorted_weights =
                     s.state_sorted_weights_uncached();
-
-                let state_graph = s.state_graph.get();
                 let node_count = state_graph.node_count();
                 let node_labels: HashMap<NodeIndex, String> =
                     state_graph
@@ -205,6 +228,7 @@ impl Cache {
                 );
 
                 StateData {
+                    order,
                     heatmap,
                     sorted_weights,
                     weight_distribution,
@@ -241,6 +265,7 @@ impl Cache {
                     s.state_graph.get(),
                     s.observable_graph.get(),
                 );
+                let order = Order::alphabetical(&graph);
                 let observed_labels: HashMap<NodeIndex, String> =
                     graph
                         .nodes_iter()
@@ -414,6 +439,7 @@ impl Cache {
                 );
 
                 ObservedData {
+                    order,
                     graph,
                     heatmap,
                     sorted_weights: weights,
