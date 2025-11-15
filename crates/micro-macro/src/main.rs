@@ -204,10 +204,27 @@ impl State {
                     ui.strong("State Graph Validation Issues");
                     ui.add_space(4.0);
                     for error in errors {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(170, 30, 30),
-                            format!("• {}", error),
-                        );
+                        let node_idx = match error {
+                            cache::StateValidationIssue::NoOutgoingEdges { node, .. } => *node,
+                            cache::StateValidationIssue::NoIncomingEdges { node, .. } => *node,
+                        };
+
+                        let text = egui::RichText::new(format!("• {}", error))
+                            .color(egui::Color32::from_rgb(170, 30, 30));
+
+                        let button = egui::Button::new(text)
+                            .fill(egui::Color32::TRANSPARENT)
+                            .frame(false);
+
+                        if ui.add(button).clicked() {
+                            self.dispatch(actions::Action::SelectStateNode {
+                                node_idx,
+                                selected: true,
+                            });
+                            self.dispatch(actions::Action::SetActiveTab {
+                                tab: store::ActiveTab::DynamicalSystem,
+                            });
+                        }
                     }
                 });
             });
@@ -234,10 +251,27 @@ impl State {
                     ui.strong("Observable Graph Validation Issues");
                     ui.add_space(4.0);
                     for error in errors {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(170, 30, 30),
-                            format!("• {}", error),
-                        );
+                        let node_idx = match error {
+                            cache::ObservableValidationIssue::SourceNoOutgoingEdges { node, .. } => *node,
+                            cache::ObservableValidationIssue::DestinationNoIncomingEdges { node, .. } => *node,
+                        };
+
+                        let text = egui::RichText::new(format!("• {}", error))
+                            .color(egui::Color32::from_rgb(170, 30, 30));
+
+                        let button = egui::Button::new(text)
+                            .fill(egui::Color32::TRANSPARENT)
+                            .frame(false);
+
+                        if ui.add(button).clicked() {
+                            self.dispatch(actions::Action::SelectObservableNode {
+                                node_idx,
+                                selected: true,
+                            });
+                            self.dispatch(actions::Action::SetActiveTab {
+                                tab: store::ActiveTab::ObservableEditor,
+                            });
+                        }
                     }
                 });
             });

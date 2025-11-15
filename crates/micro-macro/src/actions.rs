@@ -198,11 +198,25 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             vec![]
         }
         Action::SelectStateNode { node_idx, selected } => {
-            {
-                if let Some(node) =
-                    store.state.graph.get_mut().node_mut(node_idx)
-                {
-                    node.set_selected(selected);
+            if selected {
+                // Collect all node indices first to avoid borrow conflicts
+                let graph = store.state.graph.get_mut();
+                let all_indices: Vec<_> = graph.g().node_indices().collect();
+
+                // Deselect all other nodes first
+                for idx in all_indices {
+                    if idx != node_idx && let Some(node) = graph.node_mut(idx) {
+                        node.set_selected(false);
+                    }
+                }
+                // Select the target node
+                if let Some(node) = graph.node_mut(node_idx) {
+                    node.set_selected(true);
+                }
+            } else {
+                // Just deselect the target node
+                if let Some(node) = store.state.graph.get_mut().node_mut(node_idx) {
+                    node.set_selected(false);
                 }
             }
             vec![]
@@ -317,10 +331,26 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             vec![]
         }
         Action::SelectObservableNode { node_idx, selected } => {
-            if let Some(node) =
-                store.observable.graph.get_mut().node_mut(node_idx)
-            {
-                node.set_selected(selected);
+            if selected {
+                // Collect all node indices first to avoid borrow conflicts
+                let graph = store.observable.graph.get_mut();
+                let all_indices: Vec<_> = graph.g().node_indices().collect();
+
+                // Deselect all other nodes first
+                for idx in all_indices {
+                    if idx != node_idx && let Some(node) = graph.node_mut(idx) {
+                        node.set_selected(false);
+                    }
+                }
+                // Select the target node
+                if let Some(node) = graph.node_mut(node_idx) {
+                    node.set_selected(true);
+                }
+            } else {
+                // Just deselect the target node
+                if let Some(node) = store.observable.graph.get_mut().node_mut(node_idx) {
+                    node.set_selected(false);
+                }
             }
             vec![]
         }

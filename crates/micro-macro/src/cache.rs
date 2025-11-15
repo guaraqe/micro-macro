@@ -18,8 +18,8 @@ use std::collections::HashMap;
 /// Validation issues for state graph
 #[derive(Debug, Clone)]
 pub enum StateValidationIssue {
-    NoOutgoingEdges { _node: NodeIndex, name: String },
-    NoIncomingEdges { _node: NodeIndex, name: String },
+    NoOutgoingEdges { node: NodeIndex, name: String },
+    NoIncomingEdges { node: NodeIndex, name: String },
 }
 
 impl std::fmt::Display for StateValidationIssue {
@@ -38,8 +38,8 @@ impl std::fmt::Display for StateValidationIssue {
 /// Validation issues for observable graph
 #[derive(Debug, Clone)]
 pub enum ObservableValidationIssue {
-    SourceNoOutgoingEdges { _node: NodeIndex, name: String },
-    DestinationNoIncomingEdges { _node: NodeIndex, name: String },
+    SourceNoOutgoingEdges { node: NodeIndex, name: String },
+    DestinationNoIncomingEdges { node: NodeIndex, name: String },
 }
 
 impl std::fmt::Display for ObservableValidationIssue {
@@ -158,7 +158,7 @@ pub fn validate_state_graph(
         let mut outgoing = stable.edges(node_idx);
         if outgoing.next().is_none() {
             errors.push(StateValidationIssue::NoOutgoingEdges {
-                _node: node_idx,
+                node: node_idx,
                 name: node_name.clone(),
             });
         }
@@ -167,7 +167,7 @@ pub fn validate_state_graph(
             stable.neighbors_directed(node_idx, Direction::Incoming);
         if incoming.next().is_none() {
             errors.push(StateValidationIssue::NoIncomingEdges {
-                _node: node_idx,
+                node: node_idx,
                 name: node_name,
             });
         }
@@ -191,7 +191,7 @@ pub fn validate_observable_graph(
                 if outgoing.next().is_none() {
                     errors.push(
                         ObservableValidationIssue::SourceNoOutgoingEdges {
-                            _node: node_idx,
+                            node: node_idx,
                             name: node_name,
                         },
                     );
@@ -203,7 +203,7 @@ pub fn validate_observable_graph(
                 if incoming.next().is_none() {
                     errors.push(
                         ObservableValidationIssue::DestinationNoIncomingEdges {
-                            _node: node_idx,
+                            node: node_idx,
                             name: node_name,
                         },
                     );
