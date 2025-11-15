@@ -143,6 +143,7 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
     match action {
         // State Graph Node Actions
         Action::AddStateNode { name, weight } => {
+            // Add node to state graph
             let node_idx =
                 store.state.graph.get_mut().add_node(StateNode {
                     name: name.clone(),
@@ -151,21 +152,83 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             if let Some(node) =
                 store.state.graph.get_mut().node_mut(node_idx)
             {
+                node.set_label(name.clone());
+            }
+
+            // Add corresponding Source node to observable graph
+            let source_idx = store.observable.graph.get_mut().add_node(
+                ObservableNode {
+                    name: name.clone(),
+                    node_type: ObservableNodeType::Source,
+                    state_node_idx: Some(node_idx),
+                },
+            );
+            if let Some(node) =
+                store.observable.graph.get_mut().node_mut(source_idx)
+            {
                 node.set_label(name);
             }
+
             vec![]
         }
         Action::RemoveStateNode { node_idx } => {
+            // Remove node from state graph
             store.state.graph.get_mut().remove_node(node_idx);
+
+            // Find and remove corresponding Source node from observable graph
+            let source_node_to_remove = store
+                .observable.graph
+                .get()
+                .g()
+                .node_indices()
+                .find(|&idx| {
+                    if let Some(node) = store.observable.graph.get().node(idx) {
+                        node.payload().node_type == ObservableNodeType::Source
+                            && node.payload().state_node_idx == Some(node_idx)
+                    } else {
+                        false
+                    }
+                });
+
+            if let Some(source_idx) = source_node_to_remove {
+                store.observable.graph.get_mut().remove_node(source_idx);
+            }
+
             vec![]
         }
         Action::RenameStateNode { node_idx, new_name } => {
+            // Rename node in state graph
             if let Some(node) =
                 store.state.graph.get_mut().node_mut(node_idx)
             {
                 node.payload_mut().name = new_name.clone();
-                node.set_label(new_name);
+                node.set_label(new_name.clone());
             }
+
+            // Find and rename corresponding Source node in observable graph
+            let source_node_idx = store
+                .observable.graph
+                .get()
+                .g()
+                .node_indices()
+                .find(|&idx| {
+                    if let Some(node) = store.observable.graph.get().node(idx) {
+                        node.payload().node_type == ObservableNodeType::Source
+                            && node.payload().state_node_idx == Some(node_idx)
+                    } else {
+                        false
+                    }
+                });
+
+            if let Some(source_idx) = source_node_idx {
+                if let Some(node) =
+                    store.observable.graph.get_mut().node_mut(source_idx)
+                {
+                    node.payload_mut().name = new_name.clone();
+                    node.set_label(new_name);
+                }
+            }
+
             vec![]
         }
         Action::UpdateStateNodeWeightEditor { node_idx, value } => {

@@ -761,7 +761,7 @@ impl State {
                 if ui.button("Add Node").clicked() {
                     // Dispatch action instead of directly modifying state
                     let node_count = self.store.state.graph.get().node_count();
-                    let default_name = format!("Node {}", node_count);
+                    let default_name = format!("State {}", node_count);
                     self.dispatch(actions::Action::AddStateNode {
                         name: default_name,
                         weight: 1.0,
