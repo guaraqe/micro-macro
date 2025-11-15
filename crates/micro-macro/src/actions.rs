@@ -156,13 +156,14 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             }
 
             // Add corresponding Source node to observable graph
-            let source_idx = store.observable.graph.get_mut().add_node(
-                ObservableNode {
-                    name: name.clone(),
-                    node_type: ObservableNodeType::Source,
-                    state_node_idx: Some(node_idx),
-                },
-            );
+            let source_idx =
+                store.observable.graph.get_mut().add_node(
+                    ObservableNode {
+                        name: name.clone(),
+                        node_type: ObservableNodeType::Source,
+                        state_node_idx: Some(node_idx),
+                    },
+                );
             if let Some(node) =
                 store.observable.graph.get_mut().node_mut(source_idx)
             {
@@ -176,22 +177,28 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             store.state.graph.get_mut().remove_node(node_idx);
 
             // Find and remove corresponding Source node from observable graph
-            let source_node_to_remove = store
-                .observable.graph
-                .get()
-                .g()
-                .node_indices()
-                .find(|&idx| {
-                    if let Some(node) = store.observable.graph.get().node(idx) {
-                        node.payload().node_type == ObservableNodeType::Source
-                            && node.payload().state_node_idx == Some(node_idx)
-                    } else {
-                        false
-                    }
-                });
+            let source_node_to_remove =
+                store.observable.graph.get().g().node_indices().find(
+                    |&idx| {
+                        if let Some(node) =
+                            store.observable.graph.get().node(idx)
+                        {
+                            node.payload().node_type
+                                == ObservableNodeType::Source
+                                && node.payload().state_node_idx
+                                    == Some(node_idx)
+                        } else {
+                            false
+                        }
+                    },
+                );
 
             if let Some(source_idx) = source_node_to_remove {
-                store.observable.graph.get_mut().remove_node(source_idx);
+                store
+                    .observable
+                    .graph
+                    .get_mut()
+                    .remove_node(source_idx);
             }
 
             vec![]
@@ -206,23 +213,28 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             }
 
             // Find and rename corresponding Source node in observable graph
-            let source_node_idx = store
-                .observable.graph
-                .get()
-                .g()
-                .node_indices()
-                .find(|&idx| {
-                    if let Some(node) = store.observable.graph.get().node(idx) {
-                        node.payload().node_type == ObservableNodeType::Source
-                            && node.payload().state_node_idx == Some(node_idx)
-                    } else {
-                        false
-                    }
-                });
+            let source_node_idx =
+                store.observable.graph.get().g().node_indices().find(
+                    |&idx| {
+                        if let Some(node) =
+                            store.observable.graph.get().node(idx)
+                        {
+                            node.payload().node_type
+                                == ObservableNodeType::Source
+                                && node.payload().state_node_idx
+                                    == Some(node_idx)
+                        } else {
+                            false
+                        }
+                    },
+                );
 
             if let Some(source_idx) = source_node_idx {
-                if let Some(node) =
-                    store.observable.graph.get_mut().node_mut(source_idx)
+                if let Some(node) = store
+                    .observable
+                    .graph
+                    .get_mut()
+                    .node_mut(source_idx)
                 {
                     node.payload_mut().name = new_name.clone();
                     node.set_label(new_name);
@@ -254,11 +266,14 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             if selected {
                 // Collect all node indices first to avoid borrow conflicts
                 let graph = store.state.graph.get_mut();
-                let all_indices: Vec<_> = graph.g().node_indices().collect();
+                let all_indices: Vec<_> =
+                    graph.g().node_indices().collect();
 
                 // Deselect all other nodes first
                 for idx in all_indices {
-                    if idx != node_idx && let Some(node) = graph.node_mut(idx) {
+                    if idx != node_idx
+                        && let Some(node) = graph.node_mut(idx)
+                    {
                         node.set_selected(false);
                     }
                 }
@@ -268,7 +283,9 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                 }
             } else {
                 // Just deselect the target node
-                if let Some(node) = store.state.graph.get_mut().node_mut(node_idx) {
+                if let Some(node) =
+                    store.state.graph.get_mut().node_mut(node_idx)
+                {
                     node.set_selected(false);
                 }
             }
@@ -282,7 +299,8 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             weight,
         } => {
             if store
-                .state.graph
+                .state
+                .graph
                 .get()
                 .g()
                 .find_edge(source_idx, target_idx)
@@ -310,7 +328,8 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
         } => {
             if new_weight == 0.0 {
                 if let Some(edge_idx) = store
-                    .state.graph
+                    .state
+                    .graph
                     .get()
                     .g()
                     .find_edge(source_idx, target_idx)
@@ -318,7 +337,8 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                     store.state.graph.get_mut().remove_edge(edge_idx);
                 }
             } else if let Some(edge_idx) = store
-                .state.graph
+                .state
+                .graph
                 .get()
                 .g()
                 .find_edge(source_idx, target_idx)
@@ -382,11 +402,14 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             if selected {
                 // Collect all node indices first to avoid borrow conflicts
                 let graph = store.observable.graph.get_mut();
-                let all_indices: Vec<_> = graph.g().node_indices().collect();
+                let all_indices: Vec<_> =
+                    graph.g().node_indices().collect();
 
                 // Deselect all other nodes first
                 for idx in all_indices {
-                    if idx != node_idx && let Some(node) = graph.node_mut(idx) {
+                    if idx != node_idx
+                        && let Some(node) = graph.node_mut(idx)
+                    {
                         node.set_selected(false);
                     }
                 }
@@ -396,7 +419,12 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                 }
             } else {
                 // Just deselect the target node
-                if let Some(node) = store.observable.graph.get_mut().node_mut(node_idx) {
+                if let Some(node) = store
+                    .observable
+                    .graph
+                    .get_mut()
+                    .node_mut(node_idx)
+                {
                     node.set_selected(false);
                 }
             }
@@ -445,24 +473,28 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
         } => {
             if new_weight == 0.0 {
                 if let Some(edge_idx) = store
-                    .observable.graph
+                    .observable
+                    .graph
                     .get()
                     .g()
                     .find_edge(source_idx, target_idx)
                 {
                     store
-                        .observable.graph
+                        .observable
+                        .graph
                         .get_mut()
                         .remove_edge(edge_idx);
                 }
             } else if let Some(edge_idx) = store
-                .observable.graph
+                .observable
+                .graph
                 .get()
                 .g()
                 .find_edge(source_idx, target_idx)
             {
                 if let Some(edge) = store
-                    .observable.graph
+                    .observable
+                    .graph
                     .get_mut()
                     .edge_mut(edge_idx)
                 {
@@ -493,11 +525,13 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             store.mode = mode;
             if store.mode != EditMode::EdgeEditor {
                 store
-                    .state.graph
+                    .state
+                    .graph
                     .get_mut()
                     .set_selected_edges(Vec::new());
                 store
-                    .observable.graph
+                    .observable
+                    .graph
                     .get_mut()
                     .set_selected_edges(Vec::new());
             }
@@ -532,14 +566,16 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
         }
         Action::ClearEdgeSelections => {
             store
-                .state.graph
+                .state
+                .graph
                 .get_mut()
                 .set_selected_edges(Vec::new());
             vec![]
         }
         Action::ClearObservableEdgeSelections => {
             store
-                .observable.graph
+                .observable
+                .graph
                 .get_mut()
                 .set_selected_edges(Vec::new());
             vec![]

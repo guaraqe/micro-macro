@@ -13,8 +13,10 @@ use std::fmt::Debug;
 use std::sync::RwLock;
 
 // Global storage for layout configuration (set before reset_layout)
-static PENDING_SPACING: Lazy<RwLock<Option<BipartiteSpacingConfig>>> = Lazy::new(|| RwLock::new(None));
-static PENDING_VISUALS: Lazy<RwLock<Option<(VisualParams, bool)>>> = Lazy::new(|| RwLock::new(None));
+static PENDING_SPACING: Lazy<RwLock<Option<BipartiteSpacingConfig>>> =
+    Lazy::new(|| RwLock::new(None));
+static PENDING_VISUALS: Lazy<RwLock<Option<(VisualParams, bool)>>> =
+    Lazy::new(|| RwLock::new(None));
 
 pub fn set_pending_layout(
     spacing: BipartiteSpacingConfig,
@@ -22,7 +24,8 @@ pub fn set_pending_layout(
     label_visibility: bool,
 ) {
     *PENDING_SPACING.write().unwrap() = Some(spacing);
-    *PENDING_VISUALS.write().unwrap() = Some((visuals, label_visibility));
+    *PENDING_VISUALS.write().unwrap() =
+        Some((visuals, label_visibility));
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,12 +37,13 @@ pub struct LayoutStateBipartite {
 
 impl Default for LayoutStateBipartite {
     fn default() -> Self {
-        let spacing = PENDING_SPACING.write().unwrap().take().unwrap_or_default();
-        let (visuals, label_visibility) = PENDING_VISUALS
+        let spacing = PENDING_SPACING
             .write()
             .unwrap()
             .take()
-            .unwrap_or((
+            .unwrap_or_default();
+        let (visuals, label_visibility) =
+            PENDING_VISUALS.write().unwrap().take().unwrap_or((
                 VisualParams {
                     radius: 5.0,
                     label_gap: 8.0,

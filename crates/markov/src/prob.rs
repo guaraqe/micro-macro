@@ -41,7 +41,7 @@ where
     }
 
     /// To vector
-    pub fn to_vector(&self) -> &Vector<X,N> {
+    pub fn to_vector(&self) -> &Vector<X, N> {
         &self.vector
     }
 

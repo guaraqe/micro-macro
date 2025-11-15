@@ -12,9 +12,12 @@ use std::fmt::Debug;
 use std::sync::RwLock;
 
 // Global storage for layout configuration (set before reset_layout)
-static PENDING_ORDER: Lazy<RwLock<Option<Order>>> = Lazy::new(|| RwLock::new(None));
-static PENDING_SPACING: Lazy<RwLock<Option<SpacingConfig>>> = Lazy::new(|| RwLock::new(None));
-static PENDING_VISUALS: Lazy<RwLock<Option<(VisualParams, bool)>>> = Lazy::new(|| RwLock::new(None));
+static PENDING_ORDER: Lazy<RwLock<Option<Order>>> =
+    Lazy::new(|| RwLock::new(None));
+static PENDING_SPACING: Lazy<RwLock<Option<SpacingConfig>>> =
+    Lazy::new(|| RwLock::new(None));
+static PENDING_VISUALS: Lazy<RwLock<Option<(VisualParams, bool)>>> =
+    Lazy::new(|| RwLock::new(None));
 
 pub fn set_pending_layout(
     order: Order,
@@ -24,7 +27,8 @@ pub fn set_pending_layout(
 ) {
     *PENDING_ORDER.write().unwrap() = Some(order);
     *PENDING_SPACING.write().unwrap() = Some(spacing);
-    *PENDING_VISUALS.write().unwrap() = Some((visuals, label_visibility));
+    *PENDING_VISUALS.write().unwrap() =
+        Some((visuals, label_visibility));
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,8 +41,13 @@ pub struct LayoutStateCircular {
 
 impl Default for LayoutStateCircular {
     fn default() -> Self {
-        let order = PENDING_ORDER.write().unwrap().take().unwrap_or_default();
-        let spacing = PENDING_SPACING.write().unwrap().take().unwrap_or_default();
+        let order =
+            PENDING_ORDER.write().unwrap().take().unwrap_or_default();
+        let spacing = PENDING_SPACING
+            .write()
+            .unwrap()
+            .take()
+            .unwrap_or_default();
         let (visuals, label_visibility) = PENDING_VISUALS
             .write()
             .unwrap()
@@ -149,7 +158,9 @@ impl Layout<LayoutStateCircular> for LayoutCircular {
             let y = center_y + radius * angle.sin();
 
             // Convert NodeIndex to the generic Ix type
-            let idx = petgraph::stable_graph::NodeIndex::<Ix>::new(node_idx.index());
+            let idx = petgraph::stable_graph::NodeIndex::<Ix>::new(
+                node_idx.index(),
+            );
             if let Some(node) = g.node_mut(idx) {
                 node.set_location(egui::Pos2::new(x, y));
             }

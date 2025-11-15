@@ -50,7 +50,8 @@ pub fn run(store: &mut Store, effect: Effect) {
                         &state_graph_raw,
                     );
                 store
-                    .state.graph
+                    .state
+                    .graph
                     .set(setup_state_graph_display(&state_graph_raw));
                 store.observable.graph.set(
                     setup_observable_graph_display(

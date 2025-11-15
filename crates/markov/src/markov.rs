@@ -3,7 +3,7 @@ use num_traits::Float;
 
 use crate::matrix::Matrix;
 use crate::prob::Prob;
-use crate::vector::{max_difference};
+use crate::vector::max_difference;
 
 /// Row-stochastic Markov kernel
 #[derive(Debug, Clone)]
@@ -46,7 +46,7 @@ where
     }
 
     /// To matrix
-    pub fn to_matrix(&self) -> &Matrix<X,Y,N> {
+    pub fn to_matrix(&self) -> &Matrix<X, Y, N> {
         &self.matrix
     }
 
@@ -132,19 +132,13 @@ where
     pub fn detailed_balance_deviation(
         &self,
         stationary: &Prob<X, N>,
-    ) -> Matrix<X,X,N>
-    {
-        let transition = self.matrix.map_rows(
-          &stationary.vector,
-          |v,p| v * p
-        );
+    ) -> Matrix<X, X, N> {
+        let transition =
+            self.matrix.map_rows(&stationary.vector, |v, p| v * p);
 
         let transpose = transition.transpose();
 
-        transition.binop(
-          &transpose,
-          |x,y| x - y
-          )
+        transition.binop(&transpose, |x, y| x - y)
     }
 
     pub fn detailed_balance_deviation_sum(
@@ -155,9 +149,12 @@ where
         N: Float + std::iter::Sum,
     {
         let matrix = self.detailed_balance_deviation(stationary);
-        matrix.values.iter().map(|(v,_)| v.abs() / N::from(2.0).unwrap()).sum()
+        matrix
+            .values
+            .iter()
+            .map(|(v, _)| v.abs() / N::from(2.0).unwrap())
+            .sum()
     }
-
 }
 
 // Implement Dot<Markov> for Prob: vector · matrix -> vector

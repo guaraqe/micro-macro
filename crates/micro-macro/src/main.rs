@@ -463,7 +463,8 @@ impl State {
         {
             let selected_edges: Vec<_> = self
                 .store
-                .state.graph
+                .state
+                .graph
                 .get()
                 .selected_edges()
                 .to_vec();
@@ -533,13 +534,15 @@ impl State {
                     // Check node types: only allow Source -> Destination
                     let source_type = self
                         .store
-                        .observable.graph
+                        .observable
+                        .graph
                         .get()
                         .node(source_node)
                         .map(|n| n.payload().node_type);
                     let target_type = self
                         .store
-                        .observable.graph
+                        .observable
+                        .graph
                         .get()
                         .node(target_node)
                         .map(|n| n.payload().node_type);
@@ -582,7 +585,8 @@ impl State {
         {
             let selected_edges: Vec<_> = self
                 .store
-                .observable.graph
+                .observable
+                .graph
                 .get()
                 .selected_edges()
                 .to_vec();
@@ -1889,7 +1893,8 @@ impl State {
             ui.label("Weight:");
             let current_weight = self
                 .store
-                .state.graph
+                .state
+                .graph
                 .get()
                 .node(node_idx)
                 .map(|n| n.payload().weight)

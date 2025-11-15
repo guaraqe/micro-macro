@@ -8,10 +8,7 @@ use crate::store::Store;
 use crate::versioned::Memoized;
 use markov::{Prob, Vector};
 use ndarray::linalg::Dot;
-use petgraph::{
-    Direction,
-    stable_graph::NodeIndex,
-};
+use petgraph::{Direction, stable_graph::NodeIndex};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -23,12 +20,19 @@ pub enum StateValidationIssue {
 }
 
 impl std::fmt::Display for StateValidationIssue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         match self {
-            StateValidationIssue::NoOutgoingEdges { name, .. } => {
+            StateValidationIssue::NoOutgoingEdges {
+                name, ..
+            } => {
                 write!(f, "{} has no outgoing edges", name)
             }
-            StateValidationIssue::NoIncomingEdges { name, .. } => {
+            StateValidationIssue::NoIncomingEdges {
+                name, ..
+            } => {
                 write!(f, "{} has no incoming edges", name)
             }
         }
@@ -43,7 +47,10 @@ pub enum ObservableValidationIssue {
 }
 
 impl std::fmt::Display for ObservableValidationIssue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         match self {
             ObservableValidationIssue::SourceNoOutgoingEdges { name, .. } => {
                 write!(f, "{} has no outgoing edges", name)
@@ -64,7 +71,12 @@ impl Order {
     pub fn alphabetical<N, D>(graph: &GraphDisplay<N, D>) -> Self
     where
         N: Clone,
-        D: egui_graphs::DisplayNode<N, f32, petgraph::Directed, petgraph::graph::DefaultIx>,
+        D: egui_graphs::DisplayNode<
+                N,
+                f32,
+                petgraph::Directed,
+                petgraph::graph::DefaultIx,
+            >,
     {
         let mut nodes: Vec<_> = graph
             .nodes_iter()
@@ -198,8 +210,10 @@ pub fn validate_observable_graph(
                 }
             }
             ObservableNodeType::Destination => {
-                let mut incoming =
-                    stable.neighbors_directed(node_idx, Direction::Incoming);
+                let mut incoming = stable.neighbors_directed(
+                    node_idx,
+                    Direction::Incoming,
+                );
                 if incoming.next().is_none() {
                     errors.push(
                         ObservableValidationIssue::DestinationNoIncomingEdges {
@@ -229,7 +243,8 @@ impl Cache {
                 let state_graph = s.state.graph.get();
 
                 // Validate state graph
-                let validation_errors = validate_state_graph(state_graph);
+                let validation_errors =
+                    validate_state_graph(state_graph);
 
                 let order = Order::alphabetical(state_graph);
                 let heatmap = s.state_heatmap_uncached();
@@ -262,17 +277,21 @@ impl Cache {
                             })
                             .collect();
 
-                    Prob::from_vector(Vector::from_assoc(weight_assoc))
-                        .unwrap_or_else(|_| {
-                            Prob::from_vector(Vector::from_assoc(
-                                vec![(NodeIndex::new(0), 1.0)],
-                            ))
-                            .unwrap()
-                        })
-                } else {
                     Prob::from_vector(Vector::from_assoc(
-                        vec![(NodeIndex::new(0), 1.0)],
+                        weight_assoc,
                     ))
+                    .unwrap_or_else(|_| {
+                        Prob::from_vector(Vector::from_assoc(vec![(
+                            NodeIndex::new(0),
+                            1.0,
+                        )]))
+                        .unwrap()
+                    })
+                } else {
+                    Prob::from_vector(Vector::from_assoc(vec![(
+                        NodeIndex::new(0),
+                        1.0,
+                    )]))
                     .unwrap()
                 };
 
@@ -317,9 +336,10 @@ impl Cache {
                     (None, None, None)
                 };
 
-                let equilibrium_distribution = equilibrium.map(|eq| {
-                    ProbabilityChart::new(eq, node_labels.clone())
-                });
+                let equilibrium_distribution =
+                    equilibrium.map(|eq| {
+                        ProbabilityChart::new(eq, node_labels.clone())
+                    });
 
                 StateData {
                     order,
@@ -340,7 +360,8 @@ impl Cache {
                 let observable_graph = s.observable.graph.get();
 
                 // Validate observable graph
-                let validation_errors = validate_observable_graph(observable_graph);
+                let validation_errors =
+                    validate_observable_graph(observable_graph);
 
                 let heatmap = s.observable_heatmap_uncached();
                 let sorted_weights =
@@ -366,9 +387,13 @@ impl Cache {
                 let observable_graph = s.observable.graph.get();
 
                 // Check validation status
-                let state_valid = validate_state_graph(state_graph).is_empty();
-                let observable_valid = validate_observable_graph(observable_graph).is_empty();
-                let validation_passed = state_valid && observable_valid;
+                let state_valid =
+                    validate_state_graph(state_graph).is_empty();
+                let observable_valid =
+                    validate_observable_graph(observable_graph)
+                        .is_empty();
+                let validation_passed =
+                    state_valid && observable_valid;
 
                 let graph = calculate_observed_graph(
                     state_graph,
@@ -402,9 +427,10 @@ impl Cache {
                 weights.insert(0, 0.0);
 
                 let prob_fallback = || {
-                    Prob::from_vector(Vector::from_assoc(
-                        vec![(NodeIndex::new(0), 1.0)],
-                    ))
+                    Prob::from_vector(Vector::from_assoc(vec![(
+                        NodeIndex::new(0),
+                        1.0,
+                    )]))
                     .unwrap()
                 };
 
@@ -522,13 +548,21 @@ impl Cache {
                     (None, None, None, None)
                 };
 
-                let equilibrium_from_state = equilibrium_from_state.map(|eq| {
-                    ProbabilityChart::new(eq, observed_labels.clone())
-                });
+                let equilibrium_from_state = equilibrium_from_state
+                    .map(|eq| {
+                        ProbabilityChart::new(
+                            eq,
+                            observed_labels.clone(),
+                        )
+                    });
 
-                let equilibrium_calculated = equilibrium_calculated.map(|eq| {
-                    ProbabilityChart::new(eq, observed_labels.clone())
-                });
+                let equilibrium_calculated = equilibrium_calculated
+                    .map(|eq| {
+                        ProbabilityChart::new(
+                            eq,
+                            observed_labels.clone(),
+                        )
+                    });
 
                 ObservedData {
                     order,

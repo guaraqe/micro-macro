@@ -347,9 +347,8 @@ pub fn compute_input_statistics(
         })
         .collect();
 
-    let state_markov = Markov::from_matrix(
-        Matrix::from_assoc(state_edges)
-    )?;
+    let state_markov =
+        Markov::from_matrix(Matrix::from_assoc(state_edges))?;
 
     // 4. Build observable_markov from observable edges (source -> destination)
     // Get edges from the underlying petgraph
@@ -362,9 +361,8 @@ pub fn compute_input_statistics(
             })
             .collect();
 
-    let observable_markov = Markov::from_matrix(
-        Matrix::from_assoc(observable_edges)
-    )?;
+    let observable_markov =
+        Markov::from_matrix(Matrix::from_assoc(observable_edges))?;
 
     Ok(InputStatistics {
         state_prob,
@@ -404,7 +402,12 @@ pub fn compute_observable_markov(
     let dest_nodes: Vec<NodeIndex> =
         (0..statistics.observable_markov.matrix.y_ix_map.len())
             .filter_map(|i| {
-                statistics.observable_markov.matrix.y_ix_map.value_of(i).cloned()
+                statistics
+                    .observable_markov
+                    .matrix
+                    .y_ix_map
+                    .value_of(i)
+                    .cloned()
             })
             .collect();
 
@@ -460,9 +463,8 @@ pub fn compute_observable_markov(
     }
 
     // Build the observable Markov matrix from triplets
-    let observable_transition = Markov::from_matrix(
-        Matrix::from_assoc(triplets)
-    )?;
+    let observable_transition =
+        Markov::from_matrix(Matrix::from_assoc(triplets))?;
 
     Ok(observable_transition)
 }

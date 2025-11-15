@@ -1,6 +1,6 @@
 use crate::graph_state::{
-    HasName, ObservableNodeType,
-    default_observable_graph, default_state_graph,
+    HasName, ObservableNodeType, default_observable_graph,
+    default_state_graph,
 };
 use crate::graph_view;
 use crate::graph_view::{
@@ -259,7 +259,10 @@ impl ObservedGraphStore {
     }
 
     /// Get version key combining observed graph version (passed in) with visuals
-    pub fn version_key(&self, observed_graph_version: u64) -> ObservedVersionKey {
+    pub fn version_key(
+        &self,
+        observed_graph_version: u64,
+    ) -> ObservedVersionKey {
         ObservedVersionKey {
             graph: observed_graph_version,
             circular_visuals: self.circular_visuals.version(),
@@ -271,8 +274,7 @@ impl ObservedGraphStore {
         &mut self,
         observed_graph_version: u64,
         f: F,
-    )
-    where
+    ) where
         F: FnMut(),
     {
         let key = self.version_key(observed_graph_version);

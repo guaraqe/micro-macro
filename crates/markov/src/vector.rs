@@ -48,7 +48,7 @@ where
         vals: impl IntoIterator<Item = &'a N>,
     ) -> Self
     where
-      N: 'a
+        N: 'a,
     {
         let mut values = Array1::zeros(ix_map.len());
 
@@ -56,7 +56,10 @@ where
             values[*r] = *v;
         }
 
-        Self { values, ix_map: ix_map.clone() }
+        Self {
+            values,
+            ix_map: ix_map.clone(),
+        }
     }
 
     /// Lenght.
@@ -136,11 +139,5 @@ where
 
     pairs
         .map(|(a, b)| (*a - *b).abs())
-        .fold(N::zero(), |acc, x| {
-            if x > acc {
-                x
-            } else {
-                acc
-            }
-        })
+        .fold(N::zero(), |acc, x| if x > acc { x } else { acc })
 }
