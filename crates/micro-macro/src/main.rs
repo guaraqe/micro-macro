@@ -766,7 +766,6 @@ impl State {
                         name: default_name,
                         weight: 1.0,
                     });
-                    // Related layout/sync work runs immediately inside apply_action
                 }
 
                 // Contents - node list
