@@ -9,6 +9,7 @@ use crate::graph_view::{
 };
 use crate::heatmap::HeatmapData;
 use crate::layout_settings::LayoutSettings;
+use crate::node_shapes::VisualParams;
 use crate::serialization;
 use crate::versioned::Versioned;
 use eframe::egui;
@@ -40,27 +41,31 @@ pub enum ActiveTab {
 #[derive(Clone)]
 /// Tracks when to reset layout based on external version changes
 /// (from Versioned or Memoized objects)
-pub struct LayoutReset {
-    last_acked: u64,
+pub struct LayoutReset<K = u64> {
+    last_acked: Option<K>,
 }
 
-impl LayoutReset {
+impl<K: PartialEq + Clone> LayoutReset<K> {
     pub fn new() -> Self {
-        Self { last_acked: 0 }
+        Self { last_acked: None }
     }
 
     /// Run the provided function if the external version has changed
     /// Tracks version from Versioned or Memoized objects
     pub fn run_if_version_changed<F>(
         &mut self,
-        current_version: u64,
+        current_key: K,
         mut f: F,
     ) where
         F: FnMut(),
     {
-        if current_version != self.last_acked {
+        let changed = match &self.last_acked {
+            Some(k) => *k != current_key,
+            None => true,
+        };
+        if changed {
             f();
-            self.last_acked = current_version;
+            self.last_acked = Some(current_key);
         }
     }
 }
@@ -136,9 +141,14 @@ pub struct Store {
     pub dragging_from: Option<(NodeIndex, egui::Pos2)>,
     pub drag_started: bool,
     pub layout_settings: LayoutSettings,
-    pub state_layout_reset: LayoutReset,
-    pub observable_layout_reset: LayoutReset,
-    pub observed_layout_reset: LayoutReset,
+    // Visual parameters (versioned for change tracking)
+    pub circular_visuals: Versioned<VisualParams>,
+    pub bipartite_visuals: Versioned<VisualParams>,
+    pub label_visibility: Versioned<bool>,
+    // Layout reset tracking (now tracks graph + visual versions)
+    pub state_layout_reset: LayoutReset<(u64, u64, u64)>,  // (graph_ver, circular_vis_ver, label_vis_ver)
+    pub observable_layout_reset: LayoutReset<(u64, u64, u64)>,  // (graph_ver, bipartite_vis_ver, label_vis_ver)
+    pub observed_layout_reset: LayoutReset<(u64, u64, u64)>,  // (graph_ver, circular_vis_ver, label_vis_ver)
     pub observed_graph_dirty: bool,
     pub heatmap_hovered_cell: Option<(usize, usize)>,
     pub heatmap_editing_cell: Option<(usize, usize)>,
@@ -168,6 +178,13 @@ impl Store {
             dragging_from: None,
             drag_started: false,
             layout_settings,
+            circular_visuals: Versioned::new(VisualParams::default()),
+            bipartite_visuals: Versioned::new(VisualParams {
+                radius: 5.0,
+                label_gap: 8.0,
+                label_font: 13.0,
+            }),
+            label_visibility: Versioned::new(true),
             state_layout_reset: LayoutReset::new(),
             observable_layout_reset: LayoutReset::new(),
             observed_layout_reset: LayoutReset::new(),

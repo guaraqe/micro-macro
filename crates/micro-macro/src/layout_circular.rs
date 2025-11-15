@@ -1,4 +1,5 @@
 use crate::cache::Order;
+use crate::node_shapes::VisualParams;
 use eframe::egui;
 use egui_graphs::{
     DisplayEdge, DisplayNode, Graph, Layout, LayoutState,
@@ -13,23 +14,42 @@ use std::sync::RwLock;
 // Global storage for layout configuration (set before reset_layout)
 static PENDING_ORDER: Lazy<RwLock<Option<Order>>> = Lazy::new(|| RwLock::new(None));
 static PENDING_SPACING: Lazy<RwLock<Option<SpacingConfig>>> = Lazy::new(|| RwLock::new(None));
+static PENDING_VISUALS: Lazy<RwLock<Option<(VisualParams, bool)>>> = Lazy::new(|| RwLock::new(None));
 
-pub fn set_pending_layout(order: Order, spacing: SpacingConfig) {
+pub fn set_pending_layout(
+    order: Order,
+    spacing: SpacingConfig,
+    visuals: VisualParams,
+    label_visibility: bool,
+) {
     *PENDING_ORDER.write().unwrap() = Some(order);
     *PENDING_SPACING.write().unwrap() = Some(spacing);
+    *PENDING_VISUALS.write().unwrap() = Some((visuals, label_visibility));
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayoutStateCircular {
     pub order: Order,
     pub spacing: SpacingConfig,
+    pub visuals: VisualParams,
+    pub label_visibility: bool,
 }
 
 impl Default for LayoutStateCircular {
     fn default() -> Self {
         let order = PENDING_ORDER.write().unwrap().take().unwrap_or_default();
         let spacing = PENDING_SPACING.write().unwrap().take().unwrap_or_default();
-        Self { order, spacing }
+        let (visuals, label_visibility) = PENDING_VISUALS
+            .write()
+            .unwrap()
+            .take()
+            .unwrap_or((VisualParams::default(), true));
+        Self {
+            order,
+            spacing,
+            visuals,
+            label_visibility,
+        }
     }
 }
 

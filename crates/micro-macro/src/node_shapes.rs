@@ -19,11 +19,22 @@ const BIPARTITE_LABEL_GAP: f32 = 8.0;
 const BIPARTITE_LABEL_FONT: f32 = 13.0;
 
 static LABEL_VISIBILITY: AtomicBool = AtomicBool::new(true);
-#[derive(Clone, Copy)]
-struct VisualParams {
-    radius: f32,
-    label_gap: f32,
-    label_font: f32,
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VisualParams {
+    pub radius: f32,
+    pub label_gap: f32,
+    pub label_font: f32,
+}
+
+impl Default for VisualParams {
+    fn default() -> Self {
+        Self {
+            radius: CIRCULAR_RADIUS,
+            label_gap: CIRCULAR_LABEL_GAP,
+            label_font: CIRCULAR_LABEL_FONT,
+        }
+    }
 }
 
 static CIRCULAR_VISUALS: Lazy<RwLock<VisualParams>> =

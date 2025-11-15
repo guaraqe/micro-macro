@@ -906,14 +906,28 @@ impl State {
                             .layout_settings
                             .dynamical_system
                             .clone();
+                        // Update visual parameters if they changed
+                        let new_visuals = node_shapes::VisualParams {
+                            radius: tab_settings.visuals.node_radius,
+                            label_gap: tab_settings.visuals.label_gap,
+                            label_font: tab_settings.visuals.label_font_size,
+                        };
+                        if self.store.circular_visuals.get() != &new_visuals {
+                            self.store.circular_visuals.set(new_visuals);
+                        }
+                        if self.store.label_visibility.get() != &tab_settings.visuals.show_labels {
+                            self.store.label_visibility.set(tab_settings.visuals.show_labels);
+                        }
+
+                        // Sync visual params from Store to node_shapes globals
+                        let visuals = self.store.circular_visuals.get();
                         node_shapes::set_circular_visual_params(
-                            tab_settings.visuals.node_radius,
-                            tab_settings.visuals.label_gap,
-                            tab_settings.visuals.label_font_size,
+                            visuals.radius,
+                            visuals.label_gap,
+                            visuals.label_font,
                         );
-                        node_shapes::set_label_visibility(
-                            tab_settings.visuals.show_labels,
-                        );
+                        node_shapes::set_label_visibility(*self.store.label_visibility.get());
+
                         graph_view::set_edge_thickness_bounds(
                             tab_settings.edges.min_width,
                             tab_settings.edges.max_width,
@@ -922,15 +936,21 @@ impl State {
                             tab_settings.layout.loop_radius,
                         );
 
-                        // Reset layout if state graph version changed
+                        // Reset layout if graph or visual params changed
                         let state_version = self.store.state_graph.version();
+                        let visual_version = self.store.circular_visuals.version();
+                        let label_version = self.store.label_visibility.version();
+                        let key = (state_version, visual_version, label_version);
                         let order = self.cache.state_data.get(&self.store).order.clone();
                         let base_radius = tab_settings.layout.base_radius;
+                        let visuals = *self.store.circular_visuals.get();
+                        let label_visibility = *self.store.label_visibility.get();
+
                         self.store.state_layout_reset.run_if_version_changed(
-                            state_version,
+                            key,
                             || {
                                 let spacing = SpacingConfig::default().with_fixed_radius(base_radius);
-                                layout_circular::set_pending_layout(order.clone(), spacing);
+                                layout_circular::set_pending_layout(order.clone(), spacing, visuals, label_visibility);
                                 reset_layout::<LayoutStateCircular>(ui, None);
                             },
                         );
@@ -1293,29 +1313,49 @@ impl State {
                         .layout_settings
                         .observable_editor
                         .clone();
+                    // Update visual parameters if they changed
+                    let new_visuals = node_shapes::VisualParams {
+                        radius: tab_settings.visuals.node_radius,
+                        label_gap: tab_settings.visuals.label_gap,
+                        label_font: tab_settings.visuals.label_font_size,
+                    };
+                    if self.store.bipartite_visuals.get() != &new_visuals {
+                        self.store.bipartite_visuals.set(new_visuals);
+                    }
+                    if self.store.label_visibility.get() != &tab_settings.visuals.show_labels {
+                        self.store.label_visibility.set(tab_settings.visuals.show_labels);
+                    }
+
+                    // Sync visual params from Store to node_shapes globals
+                    let visuals = self.store.bipartite_visuals.get();
                     node_shapes::set_bipartite_visual_params(
-                        tab_settings.visuals.node_radius,
-                        tab_settings.visuals.label_gap,
-                        tab_settings.visuals.label_font_size,
+                        visuals.radius,
+                        visuals.label_gap,
+                        visuals.label_font,
                     );
-                    node_shapes::set_label_visibility(
-                        tab_settings.visuals.show_labels,
-                    );
+                    node_shapes::set_label_visibility(*self.store.label_visibility.get());
+
                     graph_view::set_edge_thickness_bounds(
                         tab_settings.edges.min_width,
                         tab_settings.edges.max_width,
                     );
 
-                    // Reset layout if observable graph version changed
+                    // Reset layout if graph or visual params changed
                     let observable_version = self.store.observable_graph.version();
+                    let visual_version = self.store.bipartite_visuals.version();
+                    let label_version = self.store.label_visibility.version();
+                    let key = (observable_version, visual_version, label_version);
+                    let visuals = *self.store.bipartite_visuals.get();
+                    let label_visibility = *self.store.label_visibility.get();
+
                     self.store.observable_layout_reset.run_if_version_changed(
-                        observable_version,
+                        key,
                         || {
                             let spacing = layout_bipartite::BipartiteSpacingConfig {
                                 node_gap: tab_settings.layout.node_gap,
                                 layer_gap: tab_settings.layout.layer_gap,
                             };
-                            layout_bipartite::set_pending_spacing(spacing);
+                            layout_bipartite::set_pending_layout(spacing, visuals, label_visibility);
                             reset_layout::<LayoutStateBipartite>(ui, None);
                         },
                     );
@@ -1616,14 +1656,28 @@ impl State {
                                 .layout_settings
                                 .observed_dynamics
                                 .clone();
+                            // Update visual parameters if they changed
+                            let new_visuals = node_shapes::VisualParams {
+                                radius: tab_settings.visuals.node_radius,
+                                label_gap: tab_settings.visuals.label_gap,
+                                label_font: tab_settings.visuals.label_font_size,
+                            };
+                            if self.store.circular_visuals.get() != &new_visuals {
+                                self.store.circular_visuals.set(new_visuals);
+                            }
+                            if self.store.label_visibility.get() != &tab_settings.visuals.show_labels {
+                                self.store.label_visibility.set(tab_settings.visuals.show_labels);
+                            }
+
+                            // Sync visual params from Store to node_shapes globals
+                            let visuals = self.store.circular_visuals.get();
                             node_shapes::set_circular_visual_params(
-                                tab_settings.visuals.node_radius,
-                                tab_settings.visuals.label_gap,
-                                tab_settings.visuals.label_font_size,
+                                visuals.radius,
+                                visuals.label_gap,
+                                visuals.label_font,
                             );
-                            node_shapes::set_label_visibility(
-                                tab_settings.visuals.show_labels,
-                            );
+                            node_shapes::set_label_visibility(*self.store.label_visibility.get());
+
                             graph_view::set_edge_thickness_bounds(
                                 tab_settings.edges.min_width,
                                 tab_settings.edges.max_width,
@@ -1647,14 +1701,19 @@ impl State {
                                 self.cache.observed_data.get_mut(&self.store);
                             let order = observed_data.order.clone();
                             let base_radius = tab_settings.layout.base_radius;
+                            let visual_version = self.store.circular_visuals.version();
+                            let label_version = self.store.label_visibility.version();
+                            let key = (observed_version, visual_version, label_version);
+                            let visuals = *self.store.circular_visuals.get();
+                            let label_visibility = *self.store.label_visibility.get();
 
                             self.store
                                 .observed_layout_reset
                                 .run_if_version_changed(
-                                    observed_version,
+                                    key,
                                     || {
                                         let spacing = SpacingConfig::default().with_fixed_radius(base_radius);
-                                        layout_circular::set_pending_layout(order.clone(), spacing);
+                                        layout_circular::set_pending_layout(order.clone(), spacing, visuals, label_visibility);
                                         reset_layout::<LayoutStateCircular>(ui, None);
                                     },
                                 );

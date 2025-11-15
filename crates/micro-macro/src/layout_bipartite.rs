@@ -1,3 +1,5 @@
+use crate::graph_state::{ObservableNode, ObservableNodeType};
+use crate::node_shapes::VisualParams;
 use eframe::egui;
 use egui_graphs::{
     DisplayEdge, DisplayNode, Graph, Layout, LayoutState,
@@ -10,24 +12,46 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::sync::RwLock;
 
-use crate::graph_state::{ObservableNode, ObservableNodeType};
-
 // Global storage for layout configuration (set before reset_layout)
 static PENDING_SPACING: Lazy<RwLock<Option<BipartiteSpacingConfig>>> = Lazy::new(|| RwLock::new(None));
+static PENDING_VISUALS: Lazy<RwLock<Option<(VisualParams, bool)>>> = Lazy::new(|| RwLock::new(None));
 
-pub fn set_pending_spacing(spacing: BipartiteSpacingConfig) {
+pub fn set_pending_layout(
+    spacing: BipartiteSpacingConfig,
+    visuals: VisualParams,
+    label_visibility: bool,
+) {
     *PENDING_SPACING.write().unwrap() = Some(spacing);
+    *PENDING_VISUALS.write().unwrap() = Some((visuals, label_visibility));
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayoutStateBipartite {
     pub spacing: BipartiteSpacingConfig,
+    pub visuals: VisualParams,
+    pub label_visibility: bool,
 }
 
 impl Default for LayoutStateBipartite {
     fn default() -> Self {
         let spacing = PENDING_SPACING.write().unwrap().take().unwrap_or_default();
-        Self { spacing }
+        let (visuals, label_visibility) = PENDING_VISUALS
+            .write()
+            .unwrap()
+            .take()
+            .unwrap_or((
+                VisualParams {
+                    radius: 5.0,
+                    label_gap: 8.0,
+                    label_font: 13.0,
+                },
+                true,
+            ));
+        Self {
+            spacing,
+            visuals,
+            label_visibility,
+        }
     }
 }
 
