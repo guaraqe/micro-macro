@@ -430,7 +430,7 @@ pub fn compute_observable_markov(
             .ok_or(StatisticsError::EmptyStateGraph)?; // Column should exist
 
         // Compute pF_y = p ⊙ F_y (element-wise multiplication)
-        let pf_y = p_vec.mul(&f_y);
+        let pf_y = &p_vec * &f_y;
 
         // Compute denominator: p · F_y
         let denominator = p_vec.dot(&f_y);

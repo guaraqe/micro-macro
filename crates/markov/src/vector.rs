@@ -1,8 +1,13 @@
-use ndarray::{linalg::Dot, Array1};
+use ndarray::{linalg::Dot, Array1, ScalarOperand};
 use num_traits::Float;
 use std::collections::BTreeMap;
+use std::ops::{Add, AddAssign, Div, Mul, Sub};
 
 use crate::ix_map::IxMap;
+
+//##########################################################
+// Struct
+//##########################################################
 
 /// Vector with a bidirectional map for labels X.
 #[derive(Debug, Clone)]
@@ -10,6 +15,10 @@ pub struct Vector<X, N> {
     pub values: Array1<N>,
     pub ix_map: IxMap<X>,
 }
+
+//##########################################################
+// Impls
+//##########################################################
 
 impl<X, N> Vector<X, N>
 where
@@ -19,7 +28,7 @@ where
     // Build from an association list
     pub fn from_assoc(assoc: impl IntoIterator<Item = (X, N)>) -> Self
     where
-        N: std::ops::AddAssign,
+        N: AddAssign,
     {
         let mut map: BTreeMap<X, N> = BTreeMap::new();
 
@@ -80,15 +89,6 @@ where
             .copied()
     }
 
-    /// Element-wise multiplication with another vector.
-    pub fn mul(&self, other: &Vector<X, N>) -> Vector<X, N> {
-        let values = &self.values * &other.values;
-        Vector {
-            values,
-            ix_map: self.ix_map.clone(),
-        }
-    }
-
     // Map each value, mutably
     pub fn mapv_inplace<F>(&mut self, f: F)
     where
@@ -116,16 +116,23 @@ where
                 .map(|x| (x.clone(), self.values[i]))
         })
     }
-}
 
-impl<X, N> Dot<Vector<X, N>> for Vector<X, N>
-where
-    X: Ord,
-    N: Float + ndarray::ScalarOperand,
-{
-    type Output = N;
-    fn dot(&self, rhs: &Vector<X, N>) -> N {
-        self.values.dot(&rhs.values)
+    pub fn norm(&self) -> N
+    where
+        N: Float + std::iter::Sum,
+    {
+        self.values.iter().map(|x| *x * *x).sum::<N>().sqrt()
+    }
+
+    pub fn normalize(&mut self)
+    where
+        N: Float + std::iter::Sum,
+    {
+        let norm = self.norm();
+        if norm == N::zero() {
+            return;
+        }
+        self.mapv_inplace(|x| x / norm)
     }
 }
 
@@ -140,4 +147,159 @@ where
     pairs
         .map(|(a, b)| (*a - *b).abs())
         .fold(N::zero(), |acc, x| if x > acc { x } else { acc })
+}
+
+pub fn orthonormalize<X, N>(
+    vectors: Vec<Vector<X, N>>,
+) -> Vec<Vector<X, N>>
+where
+    X: Clone + Ord,
+    N: Clone + Float + std::iter::Sum + ndarray::ScalarOperand,
+{
+    let mut bases: Vec<Vector<X, N>> = Vec::new();
+    for vector in vectors.iter() {
+        let mut result: Vector<X, N> = vector.clone();
+        for base in bases.iter() {
+            let proj: N = result.dot(base);
+            result = &result - &(base * proj);
+        }
+        result.normalize();
+        bases.push(result);
+    }
+    bases
+}
+
+pub fn rank<X, N>(vectors: Vec<Vector<X, N>>) -> usize
+where
+    X: Clone + Ord,
+    N: Clone + Float + std::iter::Sum + ndarray::ScalarOperand,
+{
+    let mut rank = 0;
+    let bases = orthonormalize(vectors);
+    for base in bases.iter() {
+        if base.norm() > N::from(1e-10).unwrap() {
+            rank += 1;
+        }
+    }
+    rank
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_orthonormalize_full() {
+        let v1 = Vector::from_assoc(vec![(0, 5.0), (1, 0.0)]);
+        let v2 = Vector::from_assoc(vec![(0, 4.0), (1, 3.0)]);
+        let result = orthonormalize(vec![v1, v2]);
+
+        let expected0 = Vector::from_assoc(vec![(0, 1.0), (1, 0.0)]);
+        let expected1 = Vector::from_assoc(vec![(0, 0.0), (1, 1.0)]);
+
+        assert!(max_difference(&result[0], &expected0) < 1e-10);
+        assert!(max_difference(&result[1], &expected1) < 1e-10);
+        assert_eq!(rank(result),2);
+    }
+
+    #[test]
+    fn test_orthonormalize_not_full() {
+        let v1 = Vector::from_assoc(vec![(0, 5.0), (1, 0.0)]);
+        let v2 = Vector::from_assoc(vec![(0, 4.0), (1, 0.0)]);
+        let result = orthonormalize(vec![v1, v2]);
+
+        let expected0 = Vector::from_assoc(vec![(0, 1.0), (1, 0.0)]);
+        let expected1 = Vector::from_assoc(vec![(0, 0.0), (1, 0.0)]);
+
+        assert!(max_difference(&result[0], &expected0) < 1e-10);
+        assert!(max_difference(&result[1], &expected1) < 1e-10);
+        assert_eq!(rank(result),1);
+    }
+}
+
+//##########################################################
+// Traits
+//##########################################################
+
+impl<X, N> Dot<Vector<X, N>> for Vector<X, N>
+where
+    X: Ord,
+    N: Float + ndarray::ScalarOperand,
+{
+    type Output = N;
+    fn dot(&self, rhs: &Vector<X, N>) -> N {
+        self.values.dot(&rhs.values)
+    }
+}
+
+impl<'a, 'b, X, N> Add<&'b Vector<X, N>> for &'a Vector<X, N>
+where
+    X: Clone,
+    N: Float,
+{
+    type Output = Vector<X, N>;
+    fn add(self, rhs: &'b Vector<X, N>) -> Self::Output {
+        Vector {
+            ix_map: self.ix_map.clone(),
+            values: &self.values + &rhs.values,
+        }
+    }
+}
+
+impl<'a, 'b, X, N> Sub<&'b Vector<X, N>> for &'a Vector<X, N>
+where
+    X: Clone,
+    N: Float,
+{
+    type Output = Vector<X, N>;
+    fn sub(self, rhs: &'b Vector<X, N>) -> Self::Output {
+        Vector {
+            ix_map: self.ix_map.clone(),
+            values: &self.values - &rhs.values,
+        }
+    }
+}
+
+impl<'a, 'b, X, N> Mul<&'b Vector<X, N>> for &'a Vector<X, N>
+where
+    X: Clone,
+    N: Float,
+{
+    type Output = Vector<X, N>;
+    fn mul(self, rhs: &'b Vector<X, N>) -> Self::Output {
+        Vector {
+            ix_map: self.ix_map.clone(),
+            values: &self.values * &rhs.values,
+        }
+    }
+}
+
+impl<'a, X, N> Mul<N> for &'a Vector<X, N>
+where
+    X: Clone,
+    N: Float + ScalarOperand,
+{
+    type Output = Vector<X, N>;
+
+    fn mul(self, rhs: N) -> Self::Output {
+        Vector {
+            ix_map: self.ix_map.clone(),
+            values: &self.values * rhs,
+        }
+    }
+}
+
+impl<'a, X, N> Div<N> for &'a Vector<X, N>
+where
+    X: Clone,
+    N: Float + ScalarOperand,
+{
+    type Output = Vector<X, N>;
+
+    fn div(self, rhs: N) -> Self::Output {
+        Vector {
+            ix_map: self.ix_map.clone(),
+            values: &self.values / rhs,
+        }
+    }
 }
