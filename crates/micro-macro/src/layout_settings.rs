@@ -15,26 +15,17 @@ impl SliderRange {
 }
 
 // Visual ranges
-pub const NODE_RADIUS_RANGE: SliderRange =
-    SliderRange::new(2.0, 32.0, 0.5);
-pub const LABEL_GAP_RANGE: SliderRange =
-    SliderRange::new(2.0, 24.0, 0.5);
-pub const LABEL_FONT_RANGE: SliderRange =
-    SliderRange::new(8.0, 32.0, 1.0);
-pub const EDGE_THICKNESS_MIN_RANGE: SliderRange =
-    SliderRange::new(0.5, 6.0, 0.1);
-pub const EDGE_THICKNESS_MAX_RANGE: SliderRange =
-    SliderRange::new(1.0, 12.0, 0.1);
-pub const LOOP_RADIUS_RANGE: SliderRange =
-    SliderRange::new(0.5, 8.0, 0.1);
+pub const NODE_RADIUS_RANGE: SliderRange = SliderRange::new(2.0, 32.0, 0.5);
+pub const LABEL_GAP_RANGE: SliderRange = SliderRange::new(2.0, 24.0, 0.5);
+pub const LABEL_FONT_RANGE: SliderRange = SliderRange::new(8.0, 32.0, 1.0);
+pub const EDGE_THICKNESS_MIN_RANGE: SliderRange = SliderRange::new(0.5, 6.0, 0.1);
+pub const EDGE_THICKNESS_MAX_RANGE: SliderRange = SliderRange::new(1.0, 12.0, 0.1);
+pub const LOOP_RADIUS_RANGE: SliderRange = SliderRange::new(0.5, 8.0, 0.1);
 
 // Layout ranges
-pub const CIRCULAR_BASE_RADIUS_RANGE: SliderRange =
-    SliderRange::new(60.0, 400.0, 5.0);
-pub const BIPARTITE_LAYER_GAP_RANGE: SliderRange =
-    SliderRange::new(80.0, 500.0, 5.0);
-pub const BIPARTITE_NODE_GAP_RANGE: SliderRange =
-    SliderRange::new(20.0, 160.0, 2.0);
+pub const CIRCULAR_BASE_RADIUS_RANGE: SliderRange = SliderRange::new(60.0, 400.0, 5.0);
+pub const BIPARTITE_LAYER_GAP_RANGE: SliderRange = SliderRange::new(80.0, 500.0, 5.0);
+pub const BIPARTITE_NODE_GAP_RANGE: SliderRange = SliderRange::new(20.0, 160.0, 2.0);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayoutSettings {

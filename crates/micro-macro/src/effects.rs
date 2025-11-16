@@ -1,6 +1,6 @@
 use crate::graph_view::{
-    ObservableGraphDisplay, StateGraphDisplay,
-    setup_observable_graph_display, setup_state_graph_display,
+    ObservableGraphDisplay, StateGraphDisplay, setup_observable_graph_display,
+    setup_state_graph_display,
 };
 use crate::layout_settings;
 use crate::serialization;
@@ -26,38 +26,29 @@ pub fn run(store: &mut Store, effect: Effect) {
                 store.observable.graph.get(),
                 &store.layout_settings,
             );
-            if let Err(e) = serialization::save_to_file(&state, &path)
-            {
+            if let Err(e) = serialization::save_to_file(&state, &path) {
                 store.error_message = Some(e);
             }
         }
         Effect::LoadFromFile { path } => {
             let result = (|| -> Result<(), String> {
-                let raw = fs::read_to_string(&path).map_err(|e| {
-                    format!("Failed to read file: {e}")
-                })?;
+                let raw =
+                    fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {e}"))?;
                 let state: serialization::SerializableState =
-                    serde_json::from_str(&raw).map_err(|e| {
-                        format!("Failed to parse JSON: {e}")
-                    })?;
-                let state_graph_raw =
-                    serialization::serializable_to_graph(
-                        &state.dynamical_system,
-                    );
-                let observable_graph_raw =
-                    serialization::serializable_to_observable_graph(
-                        &state.observable,
-                        &state_graph_raw,
-                    );
+                    serde_json::from_str(&raw).map_err(|e| format!("Failed to parse JSON: {e}"))?;
+                let state_graph_raw = serialization::serializable_to_graph(&state.dynamical_system);
+                let observable_graph_raw = serialization::serializable_to_observable_graph(
+                    &state.observable,
+                    &state_graph_raw,
+                );
                 store
                     .state
                     .graph
                     .set(setup_state_graph_display(&state_graph_raw));
-                store.observable.graph.set(
-                    setup_observable_graph_display(
-                        &observable_graph_raw,
-                    ),
-                );
+                store
+                    .observable
+                    .graph
+                    .set(setup_observable_graph_display(&observable_graph_raw));
                 store.layout_settings = state.layout_settings;
                 Ok(())
             })();
@@ -74,12 +65,8 @@ fn serializable_state_from_graphs(
     layout_settings: &layout_settings::LayoutSettings,
 ) -> serialization::SerializableState {
     serialization::SerializableState {
-        dynamical_system: serialization::graph_to_serializable(
-            state_graph,
-        ),
-        observable: serialization::observable_graph_to_serializable(
-            observable_graph,
-        ),
+        dynamical_system: serialization::graph_to_serializable(state_graph),
+        observable: serialization::observable_graph_to_serializable(observable_graph),
         layout_settings: layout_settings.clone(),
     }
 }

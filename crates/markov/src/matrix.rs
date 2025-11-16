@@ -23,9 +23,7 @@ where
     X: Ord + Clone,
     Y: Ord + Clone,
 {
-    pub fn from_assoc(
-        assoc: impl IntoIterator<Item = (X, Y, f64)>,
-    ) -> Self {
+    pub fn from_assoc(assoc: impl IntoIterator<Item = (X, Y, f64)>) -> Self {
         let mut x_map: BTreeMap<X, Vec<(Y, f64)>> = BTreeMap::new();
 
         for (x, y, n) in assoc.into_iter() {
@@ -38,8 +36,7 @@ where
 
         for (i, (x, v)) in x_map.into_iter().enumerate() {
             x_keys.push(x.clone());
-            let x_value: Vec<(Y, usize, f64)> =
-                v.into_iter().map(|(y, n)| (y, i, n)).collect();
+            let x_value: Vec<(Y, usize, f64)> = v.into_iter().map(|(y, n)| (y, i, n)).collect();
             x_values.extend(x_value);
         }
 
@@ -55,8 +52,7 @@ where
 
         for (j, (y, v)) in y_map.into_iter().enumerate() {
             y_keys.push(y.clone());
-            let triple: Vec<(usize, usize, f64)> =
-                v.into_iter().map(|(i, n)| (i, j, n)).collect();
+            let triple: Vec<(usize, usize, f64)> = v.into_iter().map(|(i, n)| (i, j, n)).collect();
             triples.extend(triple);
         }
 
@@ -81,8 +77,7 @@ where
     /// Get a column as a Vector<X>.
     pub fn get_column(&self, col_index: &Y) -> Option<Vector<X>> {
         let ix = self.y_ix_map.index_of(col_index)?;
-        let vector =
-            get_csmat_column(&self.values, &self.x_ix_map, ix);
+        let vector = get_csmat_column(&self.values, &self.x_ix_map, ix);
         Some(vector)
     }
 
@@ -90,8 +85,7 @@ where
     pub fn get_columns(&self) -> Vec<Vector<X>> {
         let mut columns = Vec::new();
         for ix in 0..self.y_ix_map.len() {
-            let vector =
-                get_csmat_column(&self.values, &self.x_ix_map, ix);
+            let vector = get_csmat_column(&self.values, &self.x_ix_map, ix);
             columns.push(vector)
         }
         columns
@@ -101,9 +95,7 @@ where
         let mut row_sums = Array1::zeros(self.x_ix_map.len());
 
         for col in self.values.outer_iterator() {
-            for (&row, &val) in
-                col.indices().iter().zip(col.data().iter())
-            {
+            for (&row, &val) in col.indices().iter().zip(col.data().iter()) {
                 row_sums[row] += val;
             }
         }
@@ -115,11 +107,7 @@ where
     }
 
     // Applies (m_ij, v_i) -> f(m_ij, v_i)
-    pub fn map_rows<F: Fn(f64, f64) -> f64>(
-        &self,
-        vector: &Vector<X>,
-        f: F,
-    ) -> Matrix<X, Y> {
+    pub fn map_rows<F: Fn(f64, f64) -> f64>(&self, vector: &Vector<X>, f: F) -> Matrix<X, Y> {
         let mut mat = self.values.clone();
         for mut col in mat.outer_iterator_mut() {
             for (row, val) in col.iter_mut() {
@@ -142,37 +130,21 @@ where
         }
     }
 
-    pub fn binop<F: Fn(f64, f64) -> f64>(
-        &self,
-        other: &Matrix<X, Y>,
-        f: F,
-    ) -> Matrix<X, Y> {
+    pub fn binop<F: Fn(f64, f64) -> f64>(&self, other: &Matrix<X, Y>, f: F) -> Matrix<X, Y> {
         Matrix {
             x_ix_map: self.x_ix_map.clone(),
             y_ix_map: self.y_ix_map.clone(),
-            values: csmat_binop(
-                self.values.view(),
-                other.values.view(),
-                |x, y| f(*x, *y),
-            ),
+            values: csmat_binop(self.values.view(), other.values.view(), |x, y| f(*x, *y)),
         }
     }
 }
 
-fn get_csmat_column<X>(
-    matrix: &CsMat<f64>,
-    ix_map: &Rc<IxMap<X>>,
-    ix: usize,
-) -> Vector<X>
+fn get_csmat_column<X>(matrix: &CsMat<f64>, ix_map: &Rc<IxMap<X>>, ix: usize) -> Vector<X>
 where
     X: Ord + Clone,
 {
     let col_view = matrix.outer_view(ix).unwrap();
-    Vector::unsafe_from_assoc(
-        ix_map,
-        col_view.indices(),
-        col_view.data(),
-    )
+    Vector::unsafe_from_assoc(ix_map, col_view.indices(), col_view.data())
 }
 
 // Vector Dot Matrix

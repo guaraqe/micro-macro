@@ -1,15 +1,11 @@
-use crate::graph_state::{
-    HasName, ObservableNode, ObservedNode, StateNode,
-};
-use crate::layout_bipartite::{
-    LayoutBipartite, LayoutStateBipartite,
-};
+use crate::graph_state::{HasName, ObservableNode, ObservedNode, StateNode};
+use crate::layout_bipartite::{LayoutBipartite, LayoutStateBipartite};
 use crate::layout_circular::{LayoutCircular, LayoutStateCircular};
 use crate::node_shapes::{BipartiteNodeShape, CircularNodeShape};
 use eframe::egui::{self, Pos2, Shape, Vec2};
 use egui_graphs::{
-    DefaultEdgeShape, DisplayEdge, DisplayNode, DrawContext,
-    EdgeProps, Graph, GraphView, Node, node_size,
+    DefaultEdgeShape, DisplayEdge, DisplayNode, DrawContext, EdgeProps, Graph, GraphView, Node,
+    node_size,
 };
 use once_cell::sync::Lazy;
 use petgraph::graph::DefaultIx;
@@ -17,10 +13,8 @@ use petgraph::stable_graph::{IndexType, StableGraph};
 use petgraph::{Directed, EdgeType};
 use std::sync::RwLock;
 
-static EDGE_THICKNESS_BOUNDS: Lazy<RwLock<(f64, f64)>> =
-    Lazy::new(|| RwLock::new((1.0, 3.0)));
-static LOOP_RADIUS: Lazy<RwLock<f64>> =
-    Lazy::new(|| RwLock::new(3.0));
+static EDGE_THICKNESS_BOUNDS: Lazy<RwLock<(f64, f64)>> = Lazy::new(|| RwLock::new((1.0, 3.0)));
+static LOOP_RADIUS: Lazy<RwLock<f64>> = Lazy::new(|| RwLock::new(3.0));
 
 fn edge_thickness_bounds() -> (f64, f64) {
     *EDGE_THICKNESS_BOUNDS.read().unwrap()
@@ -51,12 +45,9 @@ pub fn set_loop_radius(radius: f64) {
 // Type aliases for graph types
 // ------------------------------------------------------------------
 
-pub type GraphDisplay<N, D> =
-    Graph<N, f64, Directed, DefaultIx, D, WeightedEdgeShape>;
+pub type GraphDisplay<N, D> = Graph<N, f64, Directed, DefaultIx, D, WeightedEdgeShape>;
 
-pub fn setup_graph_display<N, D>(
-    g: &StableGraph<N, f64>,
-) -> GraphDisplay<N, D>
+pub fn setup_graph_display<N, D>(g: &StableGraph<N, f64>) -> GraphDisplay<N, D>
 where
     N: Clone,
     N: HasName,
@@ -70,8 +61,7 @@ where
         }
     }
     // Clear labels for all edges, inneficient
-    let edge_indices: Vec<_> =
-        graph.edges_iter().map(|(idx, _)| idx).collect();
+    let edge_indices: Vec<_> = graph.edges_iter().map(|(idx, _)| idx).collect();
     for edge_idx in edge_indices {
         if let Some(edge) = graph.edge_mut(edge_idx) {
             edge.set_label(String::new());
@@ -80,9 +70,7 @@ where
     graph
 }
 
-pub fn setup_state_graph_display(
-    g: &StableGraph<StateNode, f64>,
-) -> StateGraphDisplay {
+pub fn setup_state_graph_display(g: &StableGraph<StateNode, f64>) -> StateGraphDisplay {
     setup_graph_display::<StateNode, CircularNodeShape>(g)
 }
 
@@ -92,21 +80,16 @@ pub fn setup_observable_graph_display(
     setup_graph_display::<ObservableNode, BipartiteNodeShape>(g)
 }
 
-pub fn setup_observed_graph_display(
-    g: &StableGraph<ObservedNode, f64>,
-) -> ObservedGraphDisplay {
+pub fn setup_observed_graph_display(g: &StableGraph<ObservedNode, f64>) -> ObservedGraphDisplay {
     setup_graph_display::<ObservedNode, CircularNodeShape>(g)
 }
 
 // Type aliases for the display graph types (with visualization properties)
-pub type StateGraphDisplay =
-    GraphDisplay<StateNode, CircularNodeShape>;
+pub type StateGraphDisplay = GraphDisplay<StateNode, CircularNodeShape>;
 
-pub type ObservableGraphDisplay =
-    GraphDisplay<ObservableNode, BipartiteNodeShape>;
+pub type ObservableGraphDisplay = GraphDisplay<ObservableNode, BipartiteNodeShape>;
 
-pub type ObservedGraphDisplay =
-    GraphDisplay<ObservedNode, CircularNodeShape>;
+pub type ObservedGraphDisplay = GraphDisplay<ObservedNode, CircularNodeShape>;
 
 // ------------------------------------------------------------------
 // Type aliases for graph views (with layout configurations)
@@ -163,10 +146,7 @@ pub type ObservedGraphView<'a> = GraphView<
 /// - If sorted_weights is empty, return 3.0 (middle thickness)
 /// - If only one weight in list, return 3.0 (middle thickness)
 /// - For duplicate weights, use averaged position
-fn calculate_edge_thickness(
-    weight: f64,
-    sorted_weights: &[f64],
-) -> f64 {
+fn calculate_edge_thickness(weight: f64, sorted_weights: &[f64]) -> f64 {
     let (min_width, max_width) = edge_thickness_bounds();
     if sorted_weights.is_empty() {
         return edge_thickness_default();
@@ -228,12 +208,8 @@ impl From<EdgeProps<f64>> for WeightedEdgeShape {
     }
 }
 
-impl<
-    N: Clone,
-    Ty: EdgeType,
-    Ix: IndexType,
-    D: DisplayNode<N, f64, Ty, Ix>,
-> DisplayEdge<N, f64, Ty, Ix, D> for WeightedEdgeShape
+impl<N: Clone, Ty: EdgeType, Ix: IndexType, D: DisplayNode<N, f64, Ty, Ix>>
+    DisplayEdge<N, f64, Ty, Ix, D> for WeightedEdgeShape
 {
     fn is_inside(
         &self,
@@ -261,14 +237,9 @@ impl<
     fn update(&mut self, state: &EdgeProps<f64>) {
         self.weight = state.payload;
         // Recalculate width using global weight distribution
-        self.default_impl.width = calculate_edge_thickness(
-            self.weight,
-            &self.sorted_weights,
-        ) as f32;
-        DisplayEdge::<N, f64, Ty, Ix, D>::update(
-            &mut self.default_impl,
-            state,
-        );
+        self.default_impl.width =
+            calculate_edge_thickness(self.weight, &self.sorted_weights) as f32;
+        DisplayEdge::<N, f64, Ty, Ix, D>::update(&mut self.default_impl, state);
     }
 
     fn extra_bounds(
@@ -284,12 +255,7 @@ impl<
 }
 
 impl WeightedEdgeShape {
-    fn rotate_loop_shapes<
-        N: Clone,
-        Ty: EdgeType,
-        Ix: IndexType,
-        D: DisplayNode<N, f64, Ty, Ix>,
-    >(
+    fn rotate_loop_shapes<N: Clone, Ty: EdgeType, Ix: IndexType, D: DisplayNode<N, f64, Ty, Ix>>(
         &self,
         node: &Node<N, f64, Ty, Ix, D>,
         ctx: &DrawContext,
@@ -297,10 +263,8 @@ impl WeightedEdgeShape {
     ) -> Vec<egui::Shape> {
         let graph_center = ctx.meta.graph_bounds().center();
         let node_center_canvas = node.location();
-        let node_center_screen =
-            ctx.meta.canvas_to_screen_pos(node_center_canvas);
-        let graph_center_screen =
-            ctx.meta.canvas_to_screen_pos(graph_center);
+        let node_center_screen = ctx.meta.canvas_to_screen_pos(node_center_canvas);
+        let graph_center_screen = ctx.meta.canvas_to_screen_pos(graph_center);
 
         let mut radial = node_center_screen - graph_center_screen;
         if radial.length_sq() < f32::EPSILON {
@@ -316,40 +280,26 @@ impl WeightedEdgeShape {
 
         shapes
             .into_iter()
-            .map(|shape| {
-                Self::rotate_shape_about(
-                    shape,
-                    node_center_screen,
-                    angle,
-                )
-            })
+            .map(|shape| Self::rotate_shape_about(shape, node_center_screen, angle))
             .collect()
     }
 
-    fn rotate_shape_about(
-        shape: Shape,
-        center: Pos2,
-        angle: f64,
-    ) -> Shape {
+    fn rotate_shape_about(shape: Shape, center: Pos2, angle: f64) -> Shape {
         match shape {
             Shape::CubicBezier(mut cubic) => {
                 for point in cubic.points.iter_mut() {
-                    *point =
-                        Self::rotate_point(*point, center, angle);
+                    *point = Self::rotate_point(*point, center, angle);
                 }
                 Shape::CubicBezier(cubic)
             }
             Shape::Text(mut text) => {
-                text.pos =
-                    Self::rotate_point(text.pos, center, angle);
+                text.pos = Self::rotate_point(text.pos, center, angle);
                 Shape::Text(text)
             }
             Shape::Vec(shapes) => Shape::Vec(
                 shapes
                     .into_iter()
-                    .map(|s| {
-                        Self::rotate_shape_about(s, center, angle)
-                    })
+                    .map(|s| Self::rotate_shape_about(s, center, angle))
                     .collect(),
             ),
             other => other,
@@ -366,10 +316,7 @@ impl WeightedEdgeShape {
         let (sin, cos) = angle.sin_cos();
         let sin = sin as f32;
         let cos = cos as f32;
-        Vec2::new(
-            vec.x * cos - vec.y * sin,
-            vec.x * sin + vec.y * cos,
-        )
+        Vec2::new(vec.x * cos - vec.y * sin, vec.x * sin + vec.y * cos)
     }
 
     fn signed_angle(from: Vec2, to: Vec2) -> f64 {
@@ -392,12 +339,7 @@ impl WeightedEdgeShape {
         }
     }
 
-    fn loop_extra_bounds<
-        N: Clone,
-        Ty: EdgeType,
-        Ix: IndexType,
-        D: DisplayNode<N, f64, Ty, Ix>,
-    >(
+    fn loop_extra_bounds<N: Clone, Ty: EdgeType, Ix: IndexType, D: DisplayNode<N, f64, Ty, Ix>>(
         &self,
         node: &Node<N, f64, Ty, Ix, D>,
     ) -> (Pos2, Pos2) {
@@ -406,10 +348,8 @@ impl WeightedEdgeShape {
         let loop_extent = radius * (loop_radius_value() as f32 + order);
         let max_offset = loop_extent + radius;
         let center = node.location();
-        let min =
-            Pos2::new(center.x - max_offset, center.y - max_offset);
-        let max =
-            Pos2::new(center.x + max_offset, center.y + max_offset);
+        let min = Pos2::new(center.x - max_offset, center.y - max_offset);
+        let max = Pos2::new(center.x + max_offset, center.y + max_offset);
         (min, max)
     }
 }
@@ -419,23 +359,19 @@ impl WeightedEdgeShape {
 /// This function:
 /// 1. Updates the sorted_weights field in each edge shape
 /// 2. Recalculates edge widths based on global weight distribution
-pub fn update_edge_thicknesses<N, D>(
-    graph: &mut GraphDisplay<N, D>,
-    sorted_weights: Vec<f64>,
-) where
+pub fn update_edge_thicknesses<N, D>(graph: &mut GraphDisplay<N, D>, sorted_weights: Vec<f64>)
+where
     N: Clone,
     D: DisplayNode<N, f64, Directed, DefaultIx>,
 {
     // Get all edge indices first (to avoid borrowing issues)
-    let edge_indices: Vec<_> =
-        graph.edges_iter().map(|(idx, _)| idx).collect();
+    let edge_indices: Vec<_> = graph.edges_iter().map(|(idx, _)| idx).collect();
 
     // Update each edge with the sorted weights
     for edge_idx in edge_indices {
         if let Some(edge) = graph.edge_mut(edge_idx) {
             // Update the sorted_weights field
-            edge.display_mut().sorted_weights =
-                sorted_weights.clone();
+            edge.display_mut().sorted_weights = sorted_weights.clone();
 
             // Recalculate width
             let weight = edge.display().weight;

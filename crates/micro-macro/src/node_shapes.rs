@@ -37,33 +37,27 @@ impl Default for VisualParams {
     }
 }
 
-static CIRCULAR_VISUALS: Lazy<RwLock<VisualParams>> =
-    Lazy::new(|| {
-        RwLock::new(VisualParams {
-            radius: CIRCULAR_RADIUS,
-            label_gap: CIRCULAR_LABEL_GAP,
-            label_font: CIRCULAR_LABEL_FONT,
-        })
-    });
+static CIRCULAR_VISUALS: Lazy<RwLock<VisualParams>> = Lazy::new(|| {
+    RwLock::new(VisualParams {
+        radius: CIRCULAR_RADIUS,
+        label_gap: CIRCULAR_LABEL_GAP,
+        label_font: CIRCULAR_LABEL_FONT,
+    })
+});
 
-static BIPARTITE_VISUALS: Lazy<RwLock<VisualParams>> =
-    Lazy::new(|| {
-        RwLock::new(VisualParams {
-            radius: BIPARTITE_RADIUS,
-            label_gap: BIPARTITE_LABEL_GAP,
-            label_font: BIPARTITE_LABEL_FONT,
-        })
-    });
+static BIPARTITE_VISUALS: Lazy<RwLock<VisualParams>> = Lazy::new(|| {
+    RwLock::new(VisualParams {
+        radius: BIPARTITE_RADIUS,
+        label_gap: BIPARTITE_LABEL_GAP,
+        label_font: BIPARTITE_LABEL_FONT,
+    })
+});
 
 pub fn set_label_visibility(always: bool) {
     LABEL_VISIBILITY.store(always, Ordering::Relaxed);
 }
 
-pub fn set_circular_visual_params(
-    radius: f64,
-    label_gap: f64,
-    label_font: f64,
-) {
+pub fn set_circular_visual_params(radius: f64, label_gap: f64, label_font: f64) {
     let mut guard = CIRCULAR_VISUALS.write().unwrap();
     *guard = VisualParams {
         radius,
@@ -72,11 +66,7 @@ pub fn set_circular_visual_params(
     };
 }
 
-pub fn set_bipartite_visual_params(
-    radius: f64,
-    label_gap: f64,
-    label_font: f64,
-) {
+pub fn set_bipartite_visual_params(radius: f64, label_gap: f64, label_font: f64) {
     let mut guard = BIPARTITE_VISUALS.write().unwrap();
     *guard = VisualParams {
         radius,
@@ -114,13 +104,10 @@ fn label_top_left_for_direction(
 
     let radius_screen = ctx.meta.canvas_to_screen_size(radius as f32);
     let gap_screen = ctx.meta.canvas_to_screen_size(gap as f32);
-    let support = 0.5
-        * (direction.x.abs() * galley.size().x
-            + direction.y.abs() * galley.size().y);
+    let support = 0.5 * (direction.x.abs() * galley.size().x + direction.y.abs() * galley.size().y);
 
     let node_screen = ctx.meta.canvas_to_screen_pos(node_pos);
-    let center_screen = node_screen
-        + direction * (radius_screen + gap_screen + support);
+    let center_screen = node_screen + direction * (radius_screen + gap_screen + support);
 
     Pos2::new(
         center_screen.x - galley.size().x / 2.0,
@@ -161,8 +148,8 @@ impl<N: Clone> From<NodeProps<N>> for CircularNodeShape {
     }
 }
 
-impl<N: Clone, E: Clone, Ty: EdgeType, Ix: IndexType>
-    DisplayNode<N, E, Ty, Ix> for CircularNodeShape
+impl<N: Clone, E: Clone, Ty: EdgeType, Ix: IndexType> DisplayNode<N, E, Ty, Ix>
+    for CircularNodeShape
 {
     fn closest_boundary_point(&self, dir: Vec2) -> Pos2 {
         self.pos + dir.normalized() * (self.radius as f32)
@@ -172,8 +159,7 @@ impl<N: Clone, E: Clone, Ty: EdgeType, Ix: IndexType>
         self.refresh_visuals();
         let mut res = Vec::with_capacity(2);
         let center_screen = ctx.meta.canvas_to_screen_pos(self.pos);
-        let radius_screen =
-            ctx.meta.canvas_to_screen_size(self.radius as f32);
+        let radius_screen = ctx.meta.canvas_to_screen_size(self.radius as f32);
         let color = self.effective_color(ctx);
         let stroke = self.effective_stroke();
 
@@ -221,18 +207,14 @@ impl CircularNodeShape {
     }
 
     fn should_show_label(&self) -> bool {
-        labels_always()
-            || self.selected
-            || self.dragged
-            || self.hovered
+        labels_always() || self.selected || self.dragged || self.hovered
     }
 
     fn effective_color(&self, ctx: &DrawContext) -> Color32 {
         if let Some(c) = self.color {
             return c;
         }
-        let visuals = if self.selected || self.dragged || self.hovered
-        {
+        let visuals = if self.selected || self.dragged || self.hovered {
             ctx.ctx.style().visuals.widgets.active
         } else {
             ctx.ctx.style().visuals.widgets.inactive
@@ -248,11 +230,7 @@ impl CircularNodeShape {
         }
     }
 
-    fn label_galley(
-        &self,
-        ctx: &DrawContext,
-        color: Color32,
-    ) -> std::sync::Arc<egui::Galley> {
+    fn label_galley(&self, ctx: &DrawContext, color: Color32) -> std::sync::Arc<egui::Galley> {
         ctx.ctx.fonts_mut(|f| {
             f.layout_no_wrap(
                 self.label_text.clone(),
@@ -262,11 +240,7 @@ impl CircularNodeShape {
         })
     }
 
-    fn circular_label_pos(
-        &self,
-        ctx: &DrawContext,
-        galley: &std::sync::Arc<egui::Galley>,
-    ) -> Pos2 {
+    fn circular_label_pos(&self, ctx: &DrawContext, galley: &std::sync::Arc<egui::Galley>) -> Pos2 {
         let graph_center = ctx.meta.graph_bounds().center();
         label_top_left_for_direction(
             ctx,
@@ -329,8 +303,8 @@ impl From<NodeProps<ObservableNode>> for BipartiteNodeShape {
     }
 }
 
-impl<E: Clone, Ty: EdgeType, Ix: IndexType>
-    DisplayNode<ObservableNode, E, Ty, Ix> for BipartiteNodeShape
+impl<E: Clone, Ty: EdgeType, Ix: IndexType> DisplayNode<ObservableNode, E, Ty, Ix>
+    for BipartiteNodeShape
 {
     fn closest_boundary_point(&self, dir: Vec2) -> Pos2 {
         self.pos + dir.normalized() * (self.radius as f32)
@@ -340,8 +314,7 @@ impl<E: Clone, Ty: EdgeType, Ix: IndexType>
         self.refresh_visuals();
         let mut res = Vec::with_capacity(2);
         let center_screen = ctx.meta.canvas_to_screen_pos(self.pos);
-        let radius_screen =
-            ctx.meta.canvas_to_screen_size(self.radius as f32);
+        let radius_screen = ctx.meta.canvas_to_screen_size(self.radius as f32);
         let color = self.effective_color(ctx);
         let stroke = self.effective_stroke();
 
@@ -390,18 +363,14 @@ impl BipartiteNodeShape {
     }
 
     fn should_show_label(&self) -> bool {
-        labels_always()
-            || self.selected
-            || self.dragged
-            || self.hovered
+        labels_always() || self.selected || self.dragged || self.hovered
     }
 
     fn effective_color(&self, ctx: &DrawContext) -> Color32 {
         if let Some(c) = self.color {
             return c;
         }
-        let visuals = if self.selected || self.dragged || self.hovered
-        {
+        let visuals = if self.selected || self.dragged || self.hovered {
             ctx.ctx.style().visuals.widgets.active
         } else {
             ctx.ctx.style().visuals.widgets.inactive
@@ -417,11 +386,7 @@ impl BipartiteNodeShape {
         }
     }
 
-    fn label_galley(
-        &self,
-        ctx: &DrawContext,
-        color: Color32,
-    ) -> std::sync::Arc<egui::Galley> {
+    fn label_galley(&self, ctx: &DrawContext, color: Color32) -> std::sync::Arc<egui::Galley> {
         ctx.ctx.fonts_mut(|f| {
             f.layout_no_wrap(
                 self.label_text.clone(),
@@ -440,13 +405,6 @@ impl BipartiteNodeShape {
             LabelSide::Left => Vec2::new(-1.0, 0.0),
             LabelSide::Right => Vec2::new(1.0, 0.0),
         };
-        label_top_left_for_direction(
-            ctx,
-            self.pos,
-            dir,
-            galley,
-            self.radius,
-            self.label_gap,
-        )
+        label_top_left_for_direction(ctx, self.pos, dir, galley, self.radius, self.label_gap)
     }
 }

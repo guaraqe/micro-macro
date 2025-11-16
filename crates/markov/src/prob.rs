@@ -12,9 +12,7 @@ impl<X> Prob<X>
 where
     X: Ord + Clone,
 {
-    pub fn from_vector(
-        vector: Vector<X>,
-    ) -> Result<Self, BuildError> {
+    pub fn from_vector(vector: Vector<X>) -> Result<Self, BuildError> {
         if vector.is_empty() {
             return Err(BuildError::Empty);
         }
@@ -59,13 +57,7 @@ where
     pub fn entropy(&self) -> f64 {
         self.vector
             .values()
-            .map(|&p| {
-                if p > 0.0 {
-                    -(p * p.ln())
-                } else {
-                    0.0
-                }
-            })
+            .map(|&p| if p > 0.0 { -(p * p.ln()) } else { 0.0 })
             .fold(0.0, |acc, x| acc + x)
     }
 

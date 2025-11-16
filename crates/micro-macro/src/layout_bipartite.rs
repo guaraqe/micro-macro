@@ -1,9 +1,7 @@
 use crate::graph_state::{ObservableNode, ObservableNodeType};
 use crate::node_shapes::VisualParams;
 use eframe::egui;
-use egui_graphs::{
-    DisplayEdge, DisplayNode, Graph, Layout, LayoutState,
-};
+use egui_graphs::{DisplayEdge, DisplayNode, Graph, Layout, LayoutState};
 use once_cell::sync::Lazy;
 use petgraph::EdgeType;
 use petgraph::graph::IndexType;
@@ -24,8 +22,7 @@ pub fn set_pending_layout(
     label_visibility: bool,
 ) {
     *PENDING_SPACING.write().unwrap() = Some(spacing);
-    *PENDING_VISUALS.write().unwrap() =
-        Some((visuals, label_visibility));
+    *PENDING_VISUALS.write().unwrap() = Some((visuals, label_visibility));
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,20 +34,15 @@ pub struct LayoutStateBipartite {
 
 impl Default for LayoutStateBipartite {
     fn default() -> Self {
-        let spacing = PENDING_SPACING
-            .write()
-            .unwrap()
-            .take()
-            .unwrap_or_default();
-        let (visuals, label_visibility) =
-            PENDING_VISUALS.write().unwrap().take().unwrap_or((
-                VisualParams {
-                    radius: 5.0,
-                    label_gap: 8.0,
-                    label_font: 13.0,
-                },
-                true,
-            ));
+        let spacing = PENDING_SPACING.write().unwrap().take().unwrap_or_default();
+        let (visuals, label_visibility) = PENDING_VISUALS.write().unwrap().take().unwrap_or((
+            VisualParams {
+                radius: 5.0,
+                label_gap: 8.0,
+                label_font: 13.0,
+            },
+            true,
+        ));
         Self {
             spacing,
             visuals,
@@ -87,20 +79,15 @@ pub struct LayoutBipartite {
 }
 
 impl Layout<LayoutStateBipartite> for LayoutBipartite {
-    fn from_state(
-        state: LayoutStateBipartite,
-    ) -> impl Layout<LayoutStateBipartite> {
+    fn from_state(state: LayoutStateBipartite) -> impl Layout<LayoutStateBipartite> {
         Self {
             state,
             applied: false,
         }
     }
 
-    fn next<N, E, Ty, Ix, Dn, De>(
-        &mut self,
-        g: &mut Graph<N, E, Ty, Ix, Dn, De>,
-        ui: &egui::Ui,
-    ) where
+    fn next<N, E, Ty, Ix, Dn, De>(&mut self, g: &mut Graph<N, E, Ty, Ix, Dn, De>, ui: &egui::Ui)
+    where
         N: Clone,
         E: Clone,
         Ty: EdgeType,
@@ -129,17 +116,11 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
             let payload = node.payload();
 
             // SAFETY: This layout is only instantiated with N = ObservableNode via ObservableGraphView
-            let node_data = unsafe {
-                &*(payload as *const N as *const ObservableNode)
-            };
+            let node_data = unsafe { &*(payload as *const N as *const ObservableNode) };
 
             match node_data.node_type {
-                ObservableNodeType::Source => {
-                    source_nodes.push((idx, label))
-                }
-                ObservableNodeType::Destination => {
-                    dest_nodes.push((idx, label))
-                }
+                ObservableNodeType::Source => source_nodes.push((idx, label)),
+                ObservableNodeType::Destination => dest_nodes.push((idx, label)),
             }
         }
 

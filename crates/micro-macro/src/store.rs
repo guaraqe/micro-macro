@@ -1,6 +1,5 @@
 use crate::graph_state::{
-    HasName, ObservableNodeType, default_observable_graph,
-    default_state_graph,
+    HasName, ObservableNodeType, default_observable_graph, default_state_graph,
 };
 use crate::graph_view;
 use crate::graph_view::{
@@ -52,11 +51,8 @@ impl<K: PartialEq + Clone> LayoutReset<K> {
 
     /// Run the provided function if the external version has changed
     /// Tracks version from Versioned or Memoized objects
-    pub fn run_if_layout_changed<F>(
-        &mut self,
-        current_key: K,
-        mut f: F,
-    ) where
+    pub fn run_if_layout_changed<F>(&mut self, current_key: K, mut f: F)
+    where
         F: FnMut(),
     {
         let changed = match &self.last_acked {
@@ -121,9 +117,7 @@ impl NumberEditor {
         self.value = value;
     }
 
-    pub fn parse(
-        &mut self,
-    ) -> Result<f64, std::num::ParseFloatError> {
+    pub fn parse(&mut self) -> Result<f64, std::num::ParseFloatError> {
         self.value.parse::<f64>()
     }
 }
@@ -259,10 +253,7 @@ impl ObservedGraphStore {
     }
 
     /// Get version key combining observed graph version (passed in) with visuals
-    pub fn version_key(
-        &self,
-        observed_graph_version: u64,
-    ) -> ObservedVersionKey {
+    pub fn version_key(&self, observed_graph_version: u64) -> ObservedVersionKey {
         ObservedVersionKey {
             graph: observed_graph_version,
             circular_visuals: self.circular_visuals.version(),
@@ -270,11 +261,8 @@ impl ObservedGraphStore {
         }
     }
 
-    pub fn run_if_layout_changed<F>(
-        &mut self,
-        observed_graph_version: u64,
-        f: F,
-    ) where
+    pub fn run_if_layout_changed<F>(&mut self, observed_graph_version: u64, f: F)
+    where
         F: FnMut(),
     {
         let key = self.version_key(observed_graph_version);
@@ -359,9 +347,7 @@ impl Store {
     }
 
     pub fn observable_sorted_weights_uncached(&self) -> Vec<f64> {
-        collect_sorted_weights_from_display(
-            self.observable.graph.get(),
-        )
+        collect_sorted_weights_from_display(self.observable.graph.get())
     }
 
     // observed_sorted_weights_uncached removed - now collected directly from cached observed_graph
@@ -372,9 +358,7 @@ impl Store {
     }
 }
 
-fn compute_generic_heatmap_data<N, D>(
-    graph: &graph_view::GraphDisplay<N, D>,
-) -> HeatmapData
+fn compute_generic_heatmap_data<N, D>(graph: &graph_view::GraphDisplay<N, D>) -> HeatmapData
 where
     N: Clone + HasName,
     D: DisplayNode<N, f64, Directed, DefaultIx>,
@@ -388,8 +372,7 @@ where
         return (vec![], vec![], vec![], vec![], vec![]);
     }
 
-    let labels: Vec<String> =
-        nodes.iter().map(|(_, name)| name.clone()).collect();
+    let labels: Vec<String> = nodes.iter().map(|(_, name)| name.clone()).collect();
     let node_count = labels.len();
 
     let mut index_map = HashMap::new();
@@ -397,8 +380,7 @@ where
         index_map.insert(*idx, pos);
     }
 
-    let node_indices: Vec<NodeIndex> =
-        nodes.iter().map(|(idx, _)| *idx).collect();
+    let node_indices: Vec<NodeIndex> = nodes.iter().map(|(idx, _)| *idx).collect();
 
     let mut matrix = vec![vec![None; node_count]; node_count];
     let stable_g = graph.g();
@@ -422,22 +404,15 @@ where
     )
 }
 
-fn compute_observable_heatmap_data(
-    graph: &ObservableGraphDisplay,
-) -> HeatmapData {
+fn compute_observable_heatmap_data(graph: &ObservableGraphDisplay) -> HeatmapData {
     let mut source_nodes: Vec<_> = graph
         .nodes_iter()
-        .filter(|(_, node)| {
-            node.payload().node_type == ObservableNodeType::Source
-        })
+        .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Source)
         .map(|(idx, node)| (idx, node.payload().name.clone()))
         .collect();
     let mut dest_nodes: Vec<_> = graph
         .nodes_iter()
-        .filter(|(_, node)| {
-            node.payload().node_type
-                == ObservableNodeType::Destination
-        })
+        .filter(|(_, node)| node.payload().node_type == ObservableNodeType::Destination)
         .map(|(idx, node)| (idx, node.payload().name.clone()))
         .collect();
     source_nodes.sort_by(|a, b| a.1.cmp(&b.1));
@@ -447,10 +422,8 @@ fn compute_observable_heatmap_data(
         return (vec![], vec![], vec![], vec![], vec![]);
     }
 
-    let x_labels: Vec<String> =
-        dest_nodes.iter().map(|(_, name)| name.clone()).collect();
-    let y_labels: Vec<String> =
-        source_nodes.iter().map(|(_, name)| name.clone()).collect();
+    let x_labels: Vec<String> = dest_nodes.iter().map(|(_, name)| name.clone()).collect();
+    let y_labels: Vec<String> = source_nodes.iter().map(|(_, name)| name.clone()).collect();
 
     let mut source_index_map = HashMap::new();
     for (y_pos, (idx, _)) in source_nodes.iter().enumerate() {
@@ -462,10 +435,8 @@ fn compute_observable_heatmap_data(
         dest_index_map.insert(*idx, x_pos);
     }
 
-    let x_node_indices: Vec<NodeIndex> =
-        dest_nodes.iter().map(|(idx, _)| *idx).collect();
-    let y_node_indices: Vec<NodeIndex> =
-        source_nodes.iter().map(|(idx, _)| *idx).collect();
+    let x_node_indices: Vec<NodeIndex> = dest_nodes.iter().map(|(idx, _)| *idx).collect();
+    let y_node_indices: Vec<NodeIndex> = source_nodes.iter().map(|(idx, _)| *idx).collect();
 
     let mut matrix = vec![vec![None; x_labels.len()]; y_labels.len()];
     let stable_g = graph.g();
@@ -484,9 +455,7 @@ fn compute_observable_heatmap_data(
     (x_labels, y_labels, matrix, x_node_indices, y_node_indices)
 }
 
-fn collect_sorted_weights_from_display<N, D>(
-    graph: &graph_view::GraphDisplay<N, D>,
-) -> Vec<f64>
+fn collect_sorted_weights_from_display<N, D>(graph: &graph_view::GraphDisplay<N, D>) -> Vec<f64>
 where
     N: Clone,
     D: DisplayNode<N, f64, Directed, DefaultIx>,
@@ -495,16 +464,12 @@ where
         .edges_iter()
         .map(|(_, edge)| *edge.payload())
         .collect();
-    weights.sort_by(|a, b| {
-        a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    weights.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     weights.insert(0, 0.0);
     weights
 }
 
-fn collect_state_node_weights(
-    graph: &StateGraphDisplay,
-) -> Vec<(String, f64)> {
+fn collect_state_node_weights(graph: &StateGraphDisplay) -> Vec<(String, f64)> {
     let mut pairs: Vec<(String, f64)> = graph
         .nodes_iter()
         .map(|(_, node)| {
@@ -527,18 +492,11 @@ fn collect_state_node_weights(
 
 pub fn load_graphs_from_path(
     path: &Path,
-) -> Result<
-    (StateGraphDisplay, ObservableGraphDisplay, LayoutSettings),
-    String,
-> {
+) -> Result<(StateGraphDisplay, ObservableGraphDisplay, LayoutSettings), String> {
     let state = serialization::load_from_file(path)?;
-    let state_graph =
-        serialization::serializable_to_graph(&state.dynamical_system);
+    let state_graph = serialization::serializable_to_graph(&state.dynamical_system);
     let observable_graph =
-        serialization::serializable_to_observable_graph(
-            &state.observable,
-            &state_graph,
-        );
+        serialization::serializable_to_observable_graph(&state.observable, &state_graph);
 
     Ok((
         setup_state_graph_display(&state_graph),
@@ -547,11 +505,10 @@ pub fn load_graphs_from_path(
     ))
 }
 
-pub fn load_or_create_default_state()
--> (StateGraphDisplay, ObservableGraphDisplay, LayoutSettings) {
+pub fn load_or_create_default_state() -> (StateGraphDisplay, ObservableGraphDisplay, LayoutSettings)
+{
     if Path::new(STATE_FILE).exists()
-        && let Ok(graphs) =
-            load_graphs_from_path(Path::new(STATE_FILE))
+        && let Ok(graphs) = load_graphs_from_path(Path::new(STATE_FILE))
     {
         return graphs;
     }

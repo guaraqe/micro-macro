@@ -1,10 +1,6 @@
 use crate::effects::Effect;
-use crate::graph_state::{
-    ObservableNode, ObservableNodeType, StateNode,
-};
-use crate::layout_settings::{
-    BipartiteTabLayoutSettings, CircularTabLayoutSettings,
-};
+use crate::graph_state::{ObservableNode, ObservableNodeType, StateNode};
+use crate::layout_settings::{BipartiteTabLayoutSettings, CircularTabLayoutSettings};
 use crate::store::{ActiveTab, EditMode, Store};
 use eframe::egui;
 use petgraph::stable_graph::{EdgeIndex, NodeIndex};
@@ -71,10 +67,7 @@ pub enum Action {
     /// Remove a Destination node from the observable graph
     RemoveObservableDestinationNode { node_idx: NodeIndex },
     /// Update the label editor for an observable Destination node
-    UpdateObservableDestinationNodeLabelEditor {
-        node_idx: NodeIndex,
-        value: String,
-    },
+    UpdateObservableDestinationNodeLabelEditor { node_idx: NodeIndex, value: String },
     /// Rename an observable Destination node
     RenameObservableDestinationNode {
         node_idx: NodeIndex,
@@ -144,29 +137,21 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
         // State Graph Node Actions
         Action::AddStateNode { name, weight } => {
             // Add node to state graph
-            let node_idx =
-                store.state.graph.get_mut().add_node(StateNode {
-                    name: name.clone(),
-                    weight,
-                });
-            if let Some(node) =
-                store.state.graph.get_mut().node_mut(node_idx)
-            {
+            let node_idx = store.state.graph.get_mut().add_node(StateNode {
+                name: name.clone(),
+                weight,
+            });
+            if let Some(node) = store.state.graph.get_mut().node_mut(node_idx) {
                 node.set_label(name.clone());
             }
 
             // Add corresponding Source node to observable graph
-            let source_idx =
-                store.observable.graph.get_mut().add_node(
-                    ObservableNode {
-                        name: name.clone(),
-                        node_type: ObservableNodeType::Source,
-                        state_node_idx: Some(node_idx),
-                    },
-                );
-            if let Some(node) =
-                store.observable.graph.get_mut().node_mut(source_idx)
-            {
+            let source_idx = store.observable.graph.get_mut().add_node(ObservableNode {
+                name: name.clone(),
+                node_type: ObservableNodeType::Source,
+                state_node_idx: Some(node_idx),
+            });
+            if let Some(node) = store.observable.graph.get_mut().node_mut(source_idx) {
                 node.set_label(name);
             }
 
@@ -178,67 +163,56 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
 
             // Find and remove corresponding Source node from observable graph
             let source_node_to_remove =
-                store.observable.graph.get().g().node_indices().find(
-                    |&idx| {
-                        if let Some(node) =
-                            store.observable.graph.get().node(idx)
-                        {
-                            node.payload().node_type
-                                == ObservableNodeType::Source
-                                && node.payload().state_node_idx
-                                    == Some(node_idx)
-                        } else {
-                            false
-                        }
-                    },
-                );
-
-            if let Some(source_idx) = source_node_to_remove {
                 store
                     .observable
                     .graph
-                    .get_mut()
-                    .remove_node(source_idx);
+                    .get()
+                    .g()
+                    .node_indices()
+                    .find(|&idx| {
+                        if let Some(node) = store.observable.graph.get().node(idx) {
+                            node.payload().node_type == ObservableNodeType::Source
+                                && node.payload().state_node_idx == Some(node_idx)
+                        } else {
+                            false
+                        }
+                    });
+
+            if let Some(source_idx) = source_node_to_remove {
+                store.observable.graph.get_mut().remove_node(source_idx);
             }
 
             vec![]
         }
         Action::RenameStateNode { node_idx, new_name } => {
             // Rename node in state graph
-            if let Some(node) =
-                store.state.graph.get_mut().node_mut(node_idx)
-            {
+            if let Some(node) = store.state.graph.get_mut().node_mut(node_idx) {
                 node.payload_mut().name = new_name.clone();
                 node.set_label(new_name.clone());
             }
 
             // Find and rename corresponding Source node in observable graph
-            let source_node_idx =
-                store.observable.graph.get().g().node_indices().find(
-                    |&idx| {
-                        if let Some(node) =
-                            store.observable.graph.get().node(idx)
-                        {
-                            node.payload().node_type
-                                == ObservableNodeType::Source
-                                && node.payload().state_node_idx
-                                    == Some(node_idx)
-                        } else {
-                            false
-                        }
-                    },
-                );
+            let source_node_idx = store
+                .observable
+                .graph
+                .get()
+                .g()
+                .node_indices()
+                .find(|&idx| {
+                    if let Some(node) = store.observable.graph.get().node(idx) {
+                        node.payload().node_type == ObservableNodeType::Source
+                            && node.payload().state_node_idx == Some(node_idx)
+                    } else {
+                        false
+                    }
+                });
 
             if let Some(source_idx) = source_node_idx
-                && let Some(node) = store
-                    .observable
-                    .graph
-                    .get_mut()
-                    .node_mut(source_idx)
-                {
-                    node.payload_mut().name = new_name.clone();
-                    node.set_label(new_name);
-                }
+                && let Some(node) = store.observable.graph.get_mut().node_mut(source_idx)
+            {
+                node.payload_mut().name = new_name.clone();
+                node.set_label(new_name);
+            }
 
             vec![]
         }
@@ -250,9 +224,7 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             node_idx,
             new_weight,
         } => {
-            if let Some(node) =
-                store.state.graph.get_mut().node_mut(node_idx)
-            {
+            if let Some(node) = store.state.graph.get_mut().node_mut(node_idx) {
                 node.payload_mut().weight = new_weight;
             }
             vec![]
@@ -265,8 +237,7 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             if selected {
                 // Collect all node indices first to avoid borrow conflicts
                 let graph = store.state.graph.get_mut();
-                let all_indices: Vec<_> =
-                    graph.g().node_indices().collect();
+                let all_indices: Vec<_> = graph.g().node_indices().collect();
 
                 // Deselect all other nodes first
                 for idx in all_indices {
@@ -282,9 +253,7 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                 }
             } else {
                 // Just deselect the target node
-                if let Some(node) =
-                    store.state.graph.get_mut().node_mut(node_idx)
-                {
+                if let Some(node) = store.state.graph.get_mut().node_mut(node_idx) {
                     node.set_selected(false);
                 }
             }
@@ -342,9 +311,7 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                 .g()
                 .find_edge(source_idx, target_idx)
             {
-                if let Some(edge) =
-                    store.state.graph.get_mut().edge_mut(edge_idx)
-                {
+                if let Some(edge) = store.state.graph.get_mut().edge_mut(edge_idx) {
                     *edge.payload_mut() = new_weight;
                 }
             } else {
@@ -360,16 +327,12 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
 
         // Observable Graph Actions
         Action::AddObservableDestinationNode { name } => {
-            let node_idx = store.observable.graph.get_mut().add_node(
-                ObservableNode {
-                    name: name.clone(),
-                    node_type: ObservableNodeType::Destination,
-                    state_node_idx: None,
-                },
-            );
-            if let Some(node) =
-                store.observable.graph.get_mut().node_mut(node_idx)
-            {
+            let node_idx = store.observable.graph.get_mut().add_node(ObservableNode {
+                name: name.clone(),
+                node_type: ObservableNodeType::Destination,
+                state_node_idx: None,
+            });
+            if let Some(node) = store.observable.graph.get_mut().node_mut(node_idx) {
                 node.set_label(name);
             }
             vec![]
@@ -378,20 +341,12 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             store.observable.graph.get_mut().remove_node(node_idx);
             vec![]
         }
-        Action::UpdateObservableDestinationNodeLabelEditor {
-            node_idx,
-            value,
-        } => {
+        Action::UpdateObservableDestinationNodeLabelEditor { node_idx, value } => {
             store.label_editor.focus(node_idx, value);
             vec![]
         }
-        Action::RenameObservableDestinationNode {
-            node_idx,
-            new_name,
-        } => {
-            if let Some(node) =
-                store.observable.graph.get_mut().node_mut(node_idx)
-            {
+        Action::RenameObservableDestinationNode { node_idx, new_name } => {
+            if let Some(node) = store.observable.graph.get_mut().node_mut(node_idx) {
                 node.payload_mut().name = new_name.clone();
                 node.set_label(new_name);
             }
@@ -401,8 +356,7 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             if selected {
                 // Collect all node indices first to avoid borrow conflicts
                 let graph = store.observable.graph.get_mut();
-                let all_indices: Vec<_> =
-                    graph.g().node_indices().collect();
+                let all_indices: Vec<_> = graph.g().node_indices().collect();
 
                 // Deselect all other nodes first
                 for idx in all_indices {
@@ -418,12 +372,7 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                 }
             } else {
                 // Just deselect the target node
-                if let Some(node) = store
-                    .observable
-                    .graph
-                    .get_mut()
-                    .node_mut(node_idx)
-                {
+                if let Some(node) = store.observable.graph.get_mut().node_mut(node_idx) {
                     node.set_selected(false);
                 }
             }
@@ -432,8 +381,7 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
         Action::SelectObservedNode { node_idx, selected } => {
             // Store the selection request to be applied to cached graph
             // The cache will handle this through its own mechanism
-            store.observed_node_selection =
-                Some((node_idx, selected));
+            store.observed_node_selection = Some((node_idx, selected));
             vec![]
         }
 
@@ -443,14 +391,10 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             target_idx,
             weight,
         } => {
-            if let Some(source_node) =
-                store.observable.graph.get().node(source_idx)
-                && source_node.payload().node_type
-                    == ObservableNodeType::Source
-                && let Some(target_node) =
-                    store.observable.graph.get().node(target_idx)
-                && target_node.payload().node_type
-                    == ObservableNodeType::Destination
+            if let Some(source_node) = store.observable.graph.get().node(source_idx)
+                && source_node.payload().node_type == ObservableNodeType::Source
+                && let Some(target_node) = store.observable.graph.get().node(target_idx)
+                && target_node.payload().node_type == ObservableNodeType::Destination
             {
                 store.observable.graph.get_mut().add_edge_with_label(
                     source_idx,
@@ -478,11 +422,7 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                     .g()
                     .find_edge(source_idx, target_idx)
                 {
-                    store
-                        .observable
-                        .graph
-                        .get_mut()
-                        .remove_edge(edge_idx);
+                    store.observable.graph.get_mut().remove_edge(edge_idx);
                 }
             } else if let Some(edge_idx) = store
                 .observable
@@ -491,22 +431,13 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                 .g()
                 .find_edge(source_idx, target_idx)
             {
-                if let Some(edge) = store
-                    .observable
-                    .graph
-                    .get_mut()
-                    .edge_mut(edge_idx)
-                {
+                if let Some(edge) = store.observable.graph.get_mut().edge_mut(edge_idx) {
                     *edge.payload_mut() = new_weight;
                 }
-            } else if let Some(source_node) =
-                store.observable.graph.get().node(source_idx)
-                && source_node.payload().node_type
-                    == ObservableNodeType::Source
-                && let Some(target_node) =
-                    store.observable.graph.get().node(target_idx)
-                && target_node.payload().node_type
-                    == ObservableNodeType::Destination
+            } else if let Some(source_node) = store.observable.graph.get().node(source_idx)
+                && source_node.payload().node_type == ObservableNodeType::Source
+                && let Some(target_node) = store.observable.graph.get().node(target_idx)
+                && target_node.payload().node_type == ObservableNodeType::Destination
             {
                 store.observable.graph.get_mut().add_edge_with_label(
                     source_idx,
@@ -523,11 +454,7 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
             store.prev_mode = store.mode;
             store.mode = mode;
             if store.mode != EditMode::EdgeEditor {
-                store
-                    .state
-                    .graph
-                    .get_mut()
-                    .set_selected_edges(Vec::new());
+                store.state.graph.get_mut().set_selected_edges(Vec::new());
                 store
                     .observable
                     .graph
@@ -543,32 +470,19 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
         Action::UpdateLayoutSetting { tab, change } => {
             match tab {
                 ActiveTab::DynamicalSystem => {
-                    apply_circular_setting(
-                        &mut store.layout_settings.dynamical_system,
-                        change,
-                    );
+                    apply_circular_setting(&mut store.layout_settings.dynamical_system, change);
                 }
                 ActiveTab::ObservedDynamics => {
-                    apply_circular_setting(
-                        &mut store.layout_settings.observed_dynamics,
-                        change,
-                    );
+                    apply_circular_setting(&mut store.layout_settings.observed_dynamics, change);
                 }
                 ActiveTab::ObservableEditor => {
-                    apply_bipartite_setting(
-                        &mut store.layout_settings.observable_editor,
-                        change,
-                    );
+                    apply_bipartite_setting(&mut store.layout_settings.observable_editor, change);
                 }
             }
             vec![]
         }
         Action::ClearEdgeSelections => {
-            store
-                .state
-                .graph
-                .get_mut()
-                .set_selected_edges(Vec::new());
+            store.state.graph.get_mut().set_selected_edges(Vec::new());
             vec![]
         }
         Action::ClearObservableEdgeSelections => {
@@ -617,10 +531,7 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
     }
 }
 
-fn apply_circular_setting(
-    settings: &mut CircularTabLayoutSettings,
-    change: LayoutSettingChange,
-) {
+fn apply_circular_setting(settings: &mut CircularTabLayoutSettings, change: LayoutSettingChange) {
     match change {
         LayoutSettingChange::NodeRadius(value) => {
             settings.visuals.node_radius = value;
@@ -635,12 +546,10 @@ fn apply_circular_setting(
             settings.visuals.show_labels = value;
         }
         LayoutSettingChange::EdgeMinWidth(value) => {
-            settings.edges.min_width =
-                value.min(settings.edges.max_width);
+            settings.edges.min_width = value.min(settings.edges.max_width);
         }
         LayoutSettingChange::EdgeMaxWidth(value) => {
-            settings.edges.max_width =
-                value.max(settings.edges.min_width);
+            settings.edges.max_width = value.max(settings.edges.min_width);
         }
         LayoutSettingChange::CircularBaseRadius(value) => {
             settings.layout.base_radius = value;
@@ -652,10 +561,7 @@ fn apply_circular_setting(
     }
 }
 
-fn apply_bipartite_setting(
-    settings: &mut BipartiteTabLayoutSettings,
-    change: LayoutSettingChange,
-) {
+fn apply_bipartite_setting(settings: &mut BipartiteTabLayoutSettings, change: LayoutSettingChange) {
     match change {
         LayoutSettingChange::NodeRadius(value) => {
             settings.visuals.node_radius = value;
@@ -670,12 +576,10 @@ fn apply_bipartite_setting(
             settings.visuals.show_labels = value;
         }
         LayoutSettingChange::EdgeMinWidth(value) => {
-            settings.edges.min_width =
-                value.min(settings.edges.max_width);
+            settings.edges.min_width = value.min(settings.edges.max_width);
         }
         LayoutSettingChange::EdgeMaxWidth(value) => {
-            settings.edges.max_width =
-                value.max(settings.edges.min_width);
+            settings.edges.max_width = value.max(settings.edges.min_width);
         }
         LayoutSettingChange::BipartiteLayerGap(value) => {
             settings.layout.layer_gap = value;

@@ -28,8 +28,7 @@ pub struct EditingState {
 
 /// Convert a normalized value [0.0, 1.0] to a Viridis color
 fn viridis(t: f64) -> egui::Color32 {
-    let c =
-        colorous::VIRIDIS.eval_continuous(t.clamp(0.0, 1.0));
+    let c = colorous::VIRIDIS.eval_continuous(t.clamp(0.0, 1.0));
     egui::Color32::from_rgb(c.r, c.g, c.b)
 }
 
@@ -56,10 +55,7 @@ fn contrasting_text_color(bg: egui::Color32) -> egui::Color32 {
 /// Calculate color interpolation value based on weight position in sorted list
 /// Returns value between 0.0 and 1.0 for the Inferno color gradient
 /// Handles any weight value by finding where it fits in the sorted list
-fn calculate_color_position(
-    weight: f64,
-    sorted_weights: &[f64],
-) -> f64 {
+fn calculate_color_position(weight: f64, sorted_weights: &[f64]) -> f64 {
     if sorted_weights.is_empty() {
         return 0.5; // Middle color when no weights
     }
@@ -98,9 +94,7 @@ fn calculate_color_position(
         let mut last_idx = insert_pos;
 
         // Find first occurrence
-        while first_idx > 0
-            && (sorted_weights[first_idx - 1] - weight).abs() < 1e-6
-        {
+        while first_idx > 0 && (sorted_weights[first_idx - 1] - weight).abs() < 1e-6 {
             first_idx -= 1;
         }
 
@@ -122,19 +116,14 @@ fn calculate_color_position(
     let upper_weight = sorted_weights[upper_idx];
 
     // Linear interpolation of the index position
-    let ratio =
-        (weight - lower_weight) / (upper_weight - lower_weight);
+    let ratio = (weight - lower_weight) / (upper_weight - lower_weight);
     let interpolated_idx = lower_idx as f64 + ratio;
 
     interpolated_idx / (sorted_weights.len() - 1) as f64
 }
 
 /// Render a horizontal color scale showing the Inferno gradient with uniformly spaced weight values
-fn render_color_scale(
-    ui: &mut egui::Ui,
-    sorted_weights: &[f64],
-    scale_width: f32,
-) {
+fn render_color_scale(ui: &mut egui::Ui, sorted_weights: &[f64], scale_width: f32) {
     if sorted_weights.is_empty() {
         return;
     }
@@ -168,18 +157,14 @@ fn render_color_scale(
             let weight = min_weight + (t as f64) * (max_weight - min_weight);
 
             // Get color for this weight value by looking up position in sorted list
-            let color_t =
-                calculate_color_position(weight, sorted_weights);
+            let color_t = calculate_color_position(weight, sorted_weights);
             let color = viridis(color_t);
 
             // Top vertex
             mesh.colored_vertex(egui::pos2(x, rect_pos.y), color);
 
             // Bottom vertex
-            mesh.colored_vertex(
-                egui::pos2(x, rect_pos.y + COLOR_SCALE_HEIGHT),
-                color,
-            );
+            mesh.colored_vertex(egui::pos2(x, rect_pos.y + COLOR_SCALE_HEIGHT), color);
         }
 
         // Create triangle strip indices
@@ -196,10 +181,7 @@ fn render_color_scale(
         // Add tick marks and labels at 5 uniformly spaced weight positions
         let label_positions: [f32; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
 
-        ui.allocate_space(egui::Vec2::new(
-            scale_width,
-            COLOR_SCALE_LABEL_HEIGHT,
-        ));
+        ui.allocate_space(egui::Vec2::new(scale_width, COLOR_SCALE_LABEL_HEIGHT));
 
         for &pos in &label_positions {
             let x = rect_pos.x + pos * scale_width;
@@ -257,9 +239,7 @@ pub fn show_heatmap(
         .filter(|&w| w > 0.0)
         .collect();
 
-    sorted_weights.sort_by(|a, b| {
-        a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    sorted_weights.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     // Prepend 0.0 to the sorted list for color scaling
     sorted_weights.insert(0, 0.0);
@@ -269,8 +249,7 @@ pub fn show_heatmap(
     let label_height = 20.0;
     let label_width = 60.0;
 
-    let available_width =
-        available_rect.width() - label_width - spacing;
+    let available_width = available_rect.width() - label_width - spacing;
     let available_height = available_rect.height()
         - label_height
         - spacing
@@ -283,8 +262,7 @@ pub fn show_heatmap(
     let cell_height = available_height / y_labels.len() as f32;
     let cell_size = cell_width.min(cell_height).max(10.0);
 
-    let new_hovered_cell =
-        std::cell::RefCell::new(None::<(usize, usize)>);
+    let new_hovered_cell = std::cell::RefCell::new(None::<(usize, usize)>);
     let mut new_editing_cell = editing_state.editing_cell;
     let mut new_edit_buffer = editing_state.edit_buffer;
     let mut weight_change = None;
@@ -298,7 +276,9 @@ pub fn show_heatmap(
             ui.add_space(label_width);
 
             for (x_idx, label) in x_labels.iter().enumerate() {
-                let is_highlighted = prev_hovered_cell.map(|(hx, _)| hx == x_idx).unwrap_or(false);
+                let is_highlighted = prev_hovered_cell
+                    .map(|(hx, _)| hx == x_idx)
+                    .unwrap_or(false);
                 let text_color = if is_highlighted {
                     egui::Color32::from_rgb(255, 255, 255)
                 } else {
@@ -310,8 +290,8 @@ pub fn show_heatmap(
                     egui::Label::new(
                         egui::RichText::new(label.as_str())
                             .color(text_color)
-                            .size(10.0)
-                    )
+                            .size(10.0),
+                    ),
                 );
             }
         });
@@ -320,7 +300,9 @@ pub fn show_heatmap(
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
 
-                let is_y_highlighted = prev_hovered_cell.map(|(_, hy)| hy == y_idx).unwrap_or(false);
+                let is_y_highlighted = prev_hovered_cell
+                    .map(|(_, hy)| hy == y_idx)
+                    .unwrap_or(false);
                 let text_color = if is_y_highlighted {
                     egui::Color32::from_rgb(255, 255, 255)
                 } else {
@@ -332,8 +314,8 @@ pub fn show_heatmap(
                     egui::Label::new(
                         egui::RichText::new(y_labels[y_idx].as_str())
                             .color(text_color)
-                            .size(10.0)
-                    )
+                            .size(10.0),
+                    ),
                 );
 
                 for (x_idx, weight_opt) in matrix[y_idx].iter().enumerate() {
@@ -344,10 +326,7 @@ pub fn show_heatmap(
                         // treat None as zero weight drawn via Viridis.
                         let cell_color = {
                             let weight = weight_opt.unwrap_or(0.0);
-                            let t = calculate_color_position(
-                                weight,
-                                &sorted_weights,
-                            );
+                            let t = calculate_color_position(weight, &sorted_weights);
                             viridis(t)
                         };
 
@@ -358,11 +337,7 @@ pub fn show_heatmap(
                         );
 
                         // Draw background for editing cell
-                        ui.painter().rect_filled(
-                            rect,
-                            0.0,
-                            cell_color,
-                        );
+                        ui.painter().rect_filled(rect, 0.0, cell_color);
 
                         // Calculate centered position for text edit
                         let text_height = 14.0_f32.min(cell_size * 0.8); // Ensure text height fits in cell
@@ -373,18 +348,21 @@ pub fn show_heatmap(
                             egui::vec2((cell_size - 2.0 * padding).max(1.0), text_height.max(1.0)),
                         );
 
-                        let mut child_ui = ui.new_child(
-                            egui::UiBuilder::new()
-                                .max_rect(inner_rect)
-                                .layout(egui::Layout::centered_and_justified(egui::Direction::TopDown))
-                        );
+                        let mut child_ui =
+                            ui.new_child(egui::UiBuilder::new().max_rect(inner_rect).layout(
+                                egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                            ));
 
                         // Use style override to make text edit background transparent and remove borders
                         child_ui.style_mut().visuals.extreme_bg_color = egui::Color32::TRANSPARENT;
-                        child_ui.style_mut().visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
-                        child_ui.style_mut().visuals.widgets.hovered.bg_fill = egui::Color32::TRANSPARENT;
-                        child_ui.style_mut().visuals.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
-                        child_ui.style_mut().visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                        child_ui.style_mut().visuals.widgets.inactive.bg_fill =
+                            egui::Color32::TRANSPARENT;
+                        child_ui.style_mut().visuals.widgets.hovered.bg_fill =
+                            egui::Color32::TRANSPARENT;
+                        child_ui.style_mut().visuals.widgets.active.bg_fill =
+                            egui::Color32::TRANSPARENT;
+                        child_ui.style_mut().visuals.widgets.inactive.bg_stroke =
+                            egui::Stroke::NONE;
                         child_ui.style_mut().visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
                         child_ui.style_mut().visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
 
@@ -441,7 +419,9 @@ pub fn show_heatmap(
                                     .unwrap_or_default();
                             }
                             // Handle Escape key or clicking outside - cancel editing
-                            else if escape_pressed || (te_response.lost_focus() && !te_response.has_focus()) {
+                            else if escape_pressed
+                                || (te_response.lost_focus() && !te_response.has_focus())
+                            {
                                 new_editing_cell = None;
                                 new_edit_buffer.clear();
                             }
@@ -450,10 +430,7 @@ pub fn show_heatmap(
                         // Normal cell rendering; None draws as zero weight.
                         let cell_color = {
                             let weight = weight_opt.unwrap_or(0.0);
-                            let t = calculate_color_position(
-                                weight,
-                                &sorted_weights,
-                            );
+                            let t = calculate_color_position(weight, &sorted_weights);
                             viridis(t)
                         };
 
@@ -469,21 +446,15 @@ pub fn show_heatmap(
                         // Start editing on click
                         if response.clicked() {
                             new_editing_cell = Some((x_idx, y_idx));
-                            new_edit_buffer = weight_opt
-                                .map(|w| w.to_string())
-                                .unwrap_or_default();
+                            new_edit_buffer = weight_opt.map(|w| w.to_string()).unwrap_or_default();
                         }
 
                         let is_hovered = response.hovered();
                         let final_color = if is_hovered {
                             egui::Color32::from_rgb(
                                 cell_color.r().saturating_add(40),
-                                cell_color
-                                    .g()
-                                    .saturating_add(40),
-                                cell_color
-                                    .b()
-                                    .saturating_add(40),
+                                cell_color.g().saturating_add(40),
+                                cell_color.b().saturating_add(40),
                             )
                         } else {
                             cell_color
@@ -498,19 +469,20 @@ pub fn show_heatmap(
                         );
 
                         if let Some(weight) = weight_opt
-                            && *weight > 0.0 {
-                                let text = format!("{:.1}", weight);
-                                let font_id = egui::FontId::proportional(9.0);
-                                // Use contrasting text color based on background
-                                let text_color = contrasting_text_color(cell_color);
-                                ui.painter().text(
-                                    rect.center(),
-                                    egui::Align2::CENTER_CENTER,
-                                    text,
-                                    font_id,
-                                    text_color,
-                                );
-                            }
+                            && *weight > 0.0
+                        {
+                            let text = format!("{:.1}", weight);
+                            let font_id = egui::FontId::proportional(9.0);
+                            // Use contrasting text color based on background
+                            let text_color = contrasting_text_color(cell_color);
+                            ui.painter().text(
+                                rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                text,
+                                font_id,
+                                text_color,
+                            );
+                        }
                     }
                 }
             });

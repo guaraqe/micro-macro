@@ -43,10 +43,7 @@ impl<S, K, V> Memoized<S, K, V>
 where
     K: PartialEq,
 {
-    pub fn new(
-        get_key: impl Fn(&S) -> K + 'static,
-        calc: impl Fn(&S) -> V + 'static,
-    ) -> Self {
+    pub fn new(get_key: impl Fn(&S) -> K + 'static, calc: impl Fn(&S) -> V + 'static) -> Self {
         Self {
             version: 0,
             last_key: None,

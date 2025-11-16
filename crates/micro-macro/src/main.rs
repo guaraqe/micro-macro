@@ -14,39 +14,30 @@ mod store;
 mod versioned;
 
 use crate::layout_settings::{
-    BIPARTITE_LAYER_GAP_RANGE, BIPARTITE_NODE_GAP_RANGE,
-    CIRCULAR_BASE_RADIUS_RANGE, EDGE_THICKNESS_MAX_RANGE,
-    EDGE_THICKNESS_MIN_RANGE, LABEL_FONT_RANGE, LABEL_GAP_RANGE,
+    BIPARTITE_LAYER_GAP_RANGE, BIPARTITE_NODE_GAP_RANGE, CIRCULAR_BASE_RADIUS_RANGE,
+    EDGE_THICKNESS_MAX_RANGE, EDGE_THICKNESS_MIN_RANGE, LABEL_FONT_RANGE, LABEL_GAP_RANGE,
     LOOP_RADIUS_RANGE, NODE_RADIUS_RANGE,
 };
 use eframe::egui;
 use egui_extras::{Size, StripBuilder};
 use egui_graphs::{
-    DisplayNode, SettingsInteraction, SettingsNavigation,
-    SettingsStyle, reset_layout,
+    DisplayNode, SettingsInteraction, SettingsNavigation, SettingsStyle, reset_layout,
 };
-use graph_state::{
-    ObservableNodeType,
-    calculate_observed_graph_from_observable_display,
-};
+use graph_state::{ObservableNodeType, calculate_observed_graph_from_observable_display};
 use graph_view::{
-    ObservableGraphView, ObservedGraphView, StateGraphView,
-    set_loop_radius, setup_observed_graph_display,
+    ObservableGraphView, ObservedGraphView, StateGraphView, set_loop_radius,
+    setup_observed_graph_display,
 };
 use layout_bipartite::LayoutStateBipartite;
 use layout_circular::{LayoutStateCircular, SpacingConfig};
-use petgraph::{
-    Directed, graph::DefaultIx, stable_graph::NodeIndex,
-    visit::EdgeRef,
-};
+use petgraph::{Directed, graph::DefaultIx, stable_graph::NodeIndex, visit::EdgeRef};
 use state::State;
 use store::{ActiveTab, EditMode};
 
 // UI Constants
 const DRAG_THRESHOLD: f32 = 2.0;
 const EDGE_PREVIEW_STROKE_WIDTH: f32 = 2.0;
-const EDGE_PREVIEW_COLOR: egui::Color32 =
-    egui::Color32::from_rgb(100, 100, 255);
+const EDGE_PREVIEW_COLOR: egui::Color32 = egui::Color32::from_rgb(100, 100, 255);
 const GRAPH_FIT_PADDING: f32 = 0.75;
 
 // ------------------------------------------------------------------
@@ -64,22 +55,13 @@ fn main() -> eframe::Result<()> {
             // Set light theme
             cc.egui_ctx.set_visuals(egui::Visuals::light());
 
-            let (graph, observable_graph, layout_settings) =
-                store::load_or_create_default_state();
+            let (graph, observable_graph, layout_settings) = store::load_or_create_default_state();
 
             let observed_graph_raw =
-                calculate_observed_graph_from_observable_display(
-                    &observable_graph,
-                );
-            let observed_graph =
-                setup_observed_graph_display(&observed_graph_raw);
+                calculate_observed_graph_from_observable_display(&observable_graph);
+            let observed_graph = setup_observed_graph_display(&observed_graph_raw);
 
-            let store = store::Store::new(
-                graph,
-                observable_graph,
-                observed_graph,
-                layout_settings,
-            );
+            let store = store::Store::new(graph, observable_graph, observed_graph, layout_settings);
 
             Ok(Box::new(State::new(store)))
         }),
@@ -121,8 +103,7 @@ fn render_probability_chart(
     let mut sorted_data = data.clone();
     sorted_data.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let names: Vec<String> =
-        sorted_data.iter().map(|(name, _)| name.clone()).collect();
+    let names: Vec<String> = sorted_data.iter().map(|(name, _)| name.clone()).collect();
 
     let bars: Vec<egui_plot::Bar> = sorted_data
         .into_iter()
@@ -138,9 +119,7 @@ fn render_probability_chart(
     let chart = egui_plot::BarChart::new(plot_id, bars)
         .color(color)
         .highlight(true)
-        .element_formatter(Box::new(|bar, _chart| {
-            format!("{:.4}", bar.value)
-        }));
+        .element_formatter(Box::new(|bar, _chart| format!("{:.4}", bar.value)));
 
     egui_plot::Plot::new(plot_id)
         .height(height)
@@ -194,10 +173,7 @@ impl State {
 
         egui::Frame::new()
             .fill(egui::Color32::from_rgb(255, 230, 230))
-            .stroke(egui::Stroke::new(
-                1.0,
-                egui::Color32::from_rgb(200, 60, 60),
-            ))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(200, 60, 60)))
             .inner_margin(egui::Margin::symmetric(8, 8))
             .show(ui, |ui| {
                 ui.vertical(|ui| {
@@ -241,10 +217,7 @@ impl State {
 
         egui::Frame::new()
             .fill(egui::Color32::from_rgb(255, 230, 230))
-            .stroke(egui::Stroke::new(
-                1.0,
-                egui::Color32::from_rgb(200, 60, 60),
-            ))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(200, 60, 60)))
             .inner_margin(egui::Margin::symmetric(8, 8))
             .show(ui, |ui| {
                 ui.vertical(|ui| {
@@ -252,8 +225,14 @@ impl State {
                     ui.add_space(4.0);
                     for error in errors {
                         let node_idx = match error {
-                            cache::ObservableValidationIssue::SourceNoOutgoingEdges { node, .. } => *node,
-                            cache::ObservableValidationIssue::DestinationNoIncomingEdges { node, .. } => *node,
+                            cache::ObservableValidationIssue::SourceNoOutgoingEdges {
+                                node,
+                                ..
+                            } => *node,
+                            cache::ObservableValidationIssue::DestinationNoIncomingEdges {
+                                node,
+                                ..
+                            } => *node,
                         };
 
                         let text = egui::RichText::new(format!("• {}", error))
@@ -317,10 +296,7 @@ impl State {
     }
 
     // Returns interaction settings based on current mode
-    fn get_settings_interaction(
-        &self,
-        mode: EditMode,
-    ) -> SettingsInteraction {
+    fn get_settings_interaction(&self, mode: EditMode) -> SettingsInteraction {
         match mode {
             EditMode::NodeEditor => SettingsInteraction::new()
                 .with_dragging_enabled(false)
@@ -337,49 +313,26 @@ impl State {
 
     // Returns style settings: controls whether node labels are
     // always visible
-    fn get_settings_style(
-        &self,
-        labels_always: bool,
-    ) -> SettingsStyle {
+    fn get_settings_style(&self, labels_always: bool) -> SettingsStyle {
         SettingsStyle::new()
             .with_labels_always(labels_always)
-            .with_node_stroke_hook(
-                |selected,
-                 _dragged,
-                 _node_color,
-                 _current_stroke,
-                 _style| {
-                    if selected {
-                        // Red for selected nodes (light theme)
-                        egui::Stroke::new(
-                            4.0,
-                            egui::Color32::from_rgb(200, 60, 70),
-                        )
-                    } else {
-                        egui::Stroke::new(
-                            2.0,
-                            egui::Color32::from_rgb(80, 80, 80),
-                        )
-                    }
-                },
-            )
-            .with_edge_stroke_hook(
-                |selected, _order, current_stroke, _style| {
-                    // Use the width from current_stroke (which comes from WeightedEdgeShape)
-                    // but change color based on selection (light theme colors)
-                    if selected {
-                        egui::Stroke::new(
-                            current_stroke.width,
-                            egui::Color32::from_rgb(100, 100, 100),
-                        )
-                    } else {
-                        egui::Stroke::new(
-                            current_stroke.width,
-                            egui::Color32::from_rgb(140, 140, 140),
-                        )
-                    }
-                },
-            )
+            .with_node_stroke_hook(|selected, _dragged, _node_color, _current_stroke, _style| {
+                if selected {
+                    // Red for selected nodes (light theme)
+                    egui::Stroke::new(4.0, egui::Color32::from_rgb(200, 60, 70))
+                } else {
+                    egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 80, 80))
+                }
+            })
+            .with_edge_stroke_hook(|selected, _order, current_stroke, _style| {
+                // Use the width from current_stroke (which comes from WeightedEdgeShape)
+                // but change color based on selection (light theme colors)
+                if selected {
+                    egui::Stroke::new(current_stroke.width, egui::Color32::from_rgb(100, 100, 100))
+                } else {
+                    egui::Stroke::new(current_stroke.width, egui::Color32::from_rgb(140, 140, 140))
+                }
+            })
     }
 
     fn get_settings_navigation(&self) -> SettingsNavigation {
@@ -397,8 +350,7 @@ impl State {
     ) -> Option<(egui::Pos2, egui::Pos2)> {
         // Start potential drag from a node
         if pointer.primary_pressed()
-            && let Some(hovered) =
-                self.store.state.graph.get().hovered_node()
+            && let Some(hovered) = self.store.state.graph.get().hovered_node()
             && let Some(press_pos) = pointer.interact_pos()
         {
             self.store.dragging_from = Some((hovered, press_pos));
@@ -415,9 +367,7 @@ impl State {
 
         // Determine if preview arrow should be drawn
         let arrow_coords = if self.store.drag_started {
-            if let Some((_src_idx, from_pos)) =
-                self.store.dragging_from
-            {
+            if let Some((_src_idx, from_pos)) = self.store.dragging_from {
                 pointer.hover_pos().map(|to_pos| (from_pos, to_pos))
             } else {
                 None
@@ -428,14 +378,11 @@ impl State {
 
         // Handle mouse release - create edge if dragged
         if pointer.primary_released() {
-            if let Some((source_node, _pos)) =
-                self.store.dragging_from
+            if let Some((source_node, _pos)) = self.store.dragging_from
                 && self.store.drag_started
             {
                 // Drag completed - create edge if hovering different node
-                if let Some(target_node) =
-                    self.store.state.graph.get().hovered_node()
-                {
+                if let Some(target_node) = self.store.state.graph.get().hovered_node() {
                     self.dispatch(actions::Action::AddStateEdge {
                         source_idx: source_node,
                         target_idx: target_node,
@@ -447,9 +394,7 @@ impl State {
                 node_idx: None,
                 position: None,
             });
-            self.dispatch(actions::Action::SetDragStarted {
-                started: false,
-            });
+            self.dispatch(actions::Action::SetDragStarted { started: false });
         }
 
         arrow_coords
@@ -458,26 +403,16 @@ impl State {
     // Two-click edge deletion: first click selects, second click
     // deletes. Uses graph library's selection state.
     fn handle_edge_deletion(&mut self, pointer: &egui::PointerState) {
-        if pointer.primary_clicked()
-            && self.store.dragging_from.is_none()
-        {
-            let selected_edges: Vec<_> = self
-                .store
-                .state
-                .graph
-                .get()
-                .selected_edges()
-                .to_vec();
+        if pointer.primary_clicked() && self.store.dragging_from.is_none() {
+            let selected_edges: Vec<_> = self.store.state.graph.get().selected_edges().to_vec();
 
             // If exactly one edge is selected and clicked again, delete
             // it
             if selected_edges.len() == 1 {
                 let clicked_edge = selected_edges[0];
-                self.dispatch(
-                    actions::Action::RemoveStateEdgeByIndex {
-                        edge_idx: clicked_edge,
-                    },
-                );
+                self.dispatch(actions::Action::RemoveStateEdgeByIndex {
+                    edge_idx: clicked_edge,
+                });
             }
             // If no edges or different edge clicked, library handles
             // selection automatically
@@ -491,8 +426,7 @@ impl State {
     ) -> Option<(egui::Pos2, egui::Pos2)> {
         // Start potential drag from a node
         if pointer.primary_pressed()
-            && let Some(hovered) =
-                self.store.observable.graph.get().hovered_node()
+            && let Some(hovered) = self.store.observable.graph.get().hovered_node()
             && let Some(press_pos) = pointer.interact_pos()
         {
             self.store.dragging_from = Some((hovered, press_pos));
@@ -509,9 +443,7 @@ impl State {
 
         // Determine if preview arrow should be drawn
         let arrow_coords = if self.store.drag_started {
-            if let Some((_src_idx, from_pos)) =
-                self.store.dragging_from
-            {
+            if let Some((_src_idx, from_pos)) = self.store.dragging_from {
                 pointer.hover_pos().map(|to_pos| (from_pos, to_pos))
             } else {
                 None
@@ -522,13 +454,11 @@ impl State {
 
         // Handle mouse release - create edge if dragged
         if pointer.primary_released() {
-            if let Some((source_node, _pos)) =
-                self.store.dragging_from
+            if let Some((source_node, _pos)) = self.store.dragging_from
                 && self.store.drag_started
             {
                 // Drag completed - create edge if hovering different node
-                if let Some(target_node) =
-                    self.store.observable.graph.get().hovered_node()
+                if let Some(target_node) = self.store.observable.graph.get().hovered_node()
                     && source_node != target_node
                 {
                     // Check node types: only allow Source -> Destination
@@ -552,13 +482,11 @@ impl State {
                         Some(ObservableNodeType::Destination),
                     ) = (source_type, target_type)
                     {
-                        self.dispatch(
-                            actions::Action::AddObservableEdge {
-                                source_idx: source_node,
-                                target_idx: target_node,
-                                weight: 1.0,
-                            },
-                        );
+                        self.dispatch(actions::Action::AddObservableEdge {
+                            source_idx: source_node,
+                            target_idx: target_node,
+                            weight: 1.0,
+                        });
                     }
                     // Silently ignore invalid edge attempts (Dest->Source, Source->Source, Dest->Dest)
                 }
@@ -567,48 +495,30 @@ impl State {
                 node_idx: None,
                 position: None,
             });
-            self.dispatch(actions::Action::SetDragStarted {
-                started: false,
-            });
+            self.dispatch(actions::Action::SetDragStarted { started: false });
         }
 
         arrow_coords
     }
 
     // Edge deletion for observable graph
-    fn handle_observable_edge_deletion(
-        &mut self,
-        pointer: &egui::PointerState,
-    ) {
-        if pointer.primary_clicked()
-            && self.store.dragging_from.is_none()
-        {
-            let selected_edges: Vec<_> = self
-                .store
-                .observable
-                .graph
-                .get()
-                .selected_edges()
-                .to_vec();
+    fn handle_observable_edge_deletion(&mut self, pointer: &egui::PointerState) {
+        if pointer.primary_clicked() && self.store.dragging_from.is_none() {
+            let selected_edges: Vec<_> =
+                self.store.observable.graph.get().selected_edges().to_vec();
 
             if selected_edges.len() == 1 {
                 let clicked_edge = selected_edges[0];
-                self.dispatch(
-                    actions::Action::RemoveObservableEdgeByIndex {
-                        edge_idx: clicked_edge,
-                    },
-                );
+                self.dispatch(actions::Action::RemoveObservableEdgeByIndex {
+                    edge_idx: clicked_edge,
+                });
             }
         }
     }
 }
 
 impl eframe::App for State {
-    fn update(
-        &mut self,
-        ctx: &egui::Context,
-        _frame: &mut eframe::Frame,
-    ) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Flush action queue at the beginning of update
         self.flush_actions();
 
@@ -624,9 +534,7 @@ impl eframe::App for State {
                             .add_filter("JSON", &["json"])
                             .save_file()
                         {
-                            self.dispatch(
-                                actions::Action::SaveToFile { path },
-                            );
+                            self.dispatch(actions::Action::SaveToFile { path });
                         }
                     }
 
@@ -636,11 +544,7 @@ impl eframe::App for State {
                             .add_filter("JSON", &["json"])
                             .pick_file()
                         {
-                            self.dispatch(
-                                actions::Action::LoadFromFile {
-                                    path,
-                                },
-                            );
+                            self.dispatch(actions::Action::LoadFromFile { path });
                         }
                     }
                 });
@@ -669,9 +573,7 @@ impl eframe::App for State {
         });
 
         if active_tab != self.store.active_tab {
-            self.dispatch(actions::Action::SetActiveTab {
-                tab: active_tab,
-            });
+            self.dispatch(actions::Action::SetActiveTab { tab: active_tab });
         }
 
         // Detect Ctrl key to switch modes
@@ -684,23 +586,15 @@ impl eframe::App for State {
 
         let mut frame_mode = self.store.mode;
         if desired_mode != self.store.mode {
-            self.dispatch(actions::Action::SetEditMode {
-                mode: desired_mode,
-            });
+            self.dispatch(actions::Action::SetEditMode { mode: desired_mode });
             frame_mode = desired_mode;
         }
 
         // Render the appropriate view based on active tab
         match active_tab {
-            ActiveTab::DynamicalSystem => {
-                self.render_dynamical_system_tab(ctx, frame_mode)
-            }
-            ActiveTab::ObservableEditor => {
-                self.render_observable_editor_tab(ctx, frame_mode)
-            }
-            ActiveTab::ObservedDynamics => {
-                self.render_observed_dynamics_tab(ctx)
-            }
+            ActiveTab::DynamicalSystem => self.render_dynamical_system_tab(ctx, frame_mode),
+            ActiveTab::ObservableEditor => self.render_observable_editor_tab(ctx, frame_mode),
+            ActiveTab::ObservedDynamics => self.render_observed_dynamics_tab(ctx),
         }
 
         // Display error dialog if there's an error message
@@ -711,9 +605,7 @@ impl eframe::App for State {
                 .show(ctx, |ui| {
                     ui.label(&error);
                     if ui.button("OK").clicked() {
-                        self.dispatch(
-                            actions::Action::ClearErrorMessage,
-                        );
+                        self.dispatch(actions::Action::ClearErrorMessage);
                     }
                 });
         }
@@ -724,11 +616,7 @@ impl eframe::App for State {
 }
 
 impl State {
-    fn render_dynamical_system_tab(
-        &mut self,
-        ctx: &egui::Context,
-        mode: EditMode,
-    ) {
+    fn render_dynamical_system_tab(&mut self, ctx: &egui::Context, mode: EditMode) {
         // Left panel fixed at 25% of the screen width
         let screen_width = ctx.viewport_rect().width().max(1.0);
         let left_panel_width = screen_width * 0.25;
@@ -873,10 +761,7 @@ impl State {
 
         egui::TopBottomPanel::bottom("histogram_panel")
             .exact_height(histogram_height)
-            .frame(
-                egui::Frame::side_top_panel(&ctx.style())
-                    .inner_margin(8.0),
-            )
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
             .show(ctx, |ui| {
                 // Use StripBuilder for proper proportional layout in histogram strip
                 StripBuilder::new(ui)
@@ -887,12 +772,8 @@ impl State {
                         // Weight histogram
                         strip.cell(|ui| {
                             ui.vertical(|ui| {
-                                let state_data = self
-                                    .cache
-                                    .state_data
-                                    .get(&self.store);
-                                let plot_height =
-                                    ui.available_height() - 30.0;
+                                let state_data = self.cache.state_data.get(&self.store);
+                                let plot_height = ui.available_height() - 30.0;
 
                                 render_probability_chart(
                                     ui,
@@ -908,14 +789,12 @@ impl State {
                         // Equilibrium histogram
                         strip.cell(|ui| {
                             ui.vertical(|ui| {
-                                let state_data = self
-                                    .cache
-                                    .state_data
-                                    .get(&self.store);
+                                let state_data = self.cache.state_data.get(&self.store);
 
-                                if let Some(ref equilibrium_distribution) = state_data.equilibrium_distribution {
-                                    let plot_height =
-                                        ui.available_height() - 30.0;
+                                if let Some(ref equilibrium_distribution) =
+                                    state_data.equilibrium_distribution
+                                {
+                                    let plot_height = ui.available_height() - 30.0;
 
                                     render_probability_chart(
                                         ui,
@@ -936,21 +815,14 @@ impl State {
                         // Stats section
                         strip.cell(|ui| {
                             ui.label("Statistics");
-                            let state_data = self
-                                .cache
-                                .state_data
-                                .get(&self.store);
+                            let state_data = self.cache.state_data.get(&self.store);
 
-                            if let (Some(entropy_rate), Some(detailed_balance_deviation)) =
-                                (state_data.entropy_rate, state_data.detailed_balance_deviation) {
-                                ui.label(format!(
-                                    "Entropy rate: {:.4}",
-                                    entropy_rate
-                                ));
-                                ui.label(format!(
-                                    "Balance dev: {:.4}",
-                                    detailed_balance_deviation
-                                ));
+                            if let (Some(entropy_rate), Some(detailed_balance_deviation)) = (
+                                state_data.entropy_rate,
+                                state_data.detailed_balance_deviation,
+                            ) {
+                                ui.label(format!("Entropy rate: {:.4}", entropy_rate));
+                                ui.label(format!("Balance dev: {:.4}", detailed_balance_deviation));
                             } else {
                                 ui.label("Entropy rate: N/A");
                                 ui.label("Balance dev: N/A");
@@ -970,165 +842,174 @@ impl State {
                     .horizontal(|mut strip| {
                         // Left: Graph
                         strip.cell(|ui| {
-                        ui.heading("Graph");
-                        ui.separator();
+                            ui.heading("Graph");
+                            ui.separator();
 
-                        let tab_settings = self
-                            .store
-                            .layout_settings
-                            .dynamical_system
-                            .clone();
-                        // Update visual parameters if they changed
-                        let new_visuals = node_shapes::VisualParams {
-                            radius: tab_settings.visuals.node_radius,
-                            label_gap: tab_settings.visuals.label_gap,
-                            label_font: tab_settings.visuals.label_font_size,
-                        };
-                        if self.store.state.circular_visuals.get() != &new_visuals {
-                            self.store.state.circular_visuals.set(new_visuals);
-                        }
-                        if self.store.state.label_visibility.get() != &tab_settings.visuals.show_labels {
-                            self.store.state.label_visibility.set(tab_settings.visuals.show_labels);
-                        }
-
-                        // Sync visual params from Store to node_shapes globals
-                        let visuals = self.store.state.circular_visuals.get();
-                        node_shapes::set_circular_visual_params(
-                            visuals.radius,
-                            visuals.label_gap,
-                            visuals.label_font,
-                        );
-                        node_shapes::set_label_visibility(*self.store.state.label_visibility.get());
-
-                        graph_view::set_edge_thickness_bounds(
-                            tab_settings.edges.min_width,
-                            tab_settings.edges.max_width,
-                        );
-                        set_loop_radius(
-                            tab_settings.layout.loop_radius,
-                        );
-
-                        // Reset layout if graph or visual params changed
-                        let order = self.cache.state_data.get(&self.store).order.clone();
-                        let base_radius = tab_settings.layout.base_radius;
-                        let visuals = *self.store.state.circular_visuals.get();
-                        let label_visibility = *self.store.state.label_visibility.get();
-
-                        self.store.state.run_if_layout_changed(
-                            || {
-                                let spacing = SpacingConfig::default().with_fixed_radius(base_radius);
-                                layout_circular::set_pending_layout(order.clone(), spacing, visuals, label_visibility);
-                                reset_layout::<LayoutStateCircular>(ui, None);
-                            },
-                        );
-
-                        // Clear edge selections when not in EdgeEditor mode
-                        if mode == EditMode::NodeEditor {
-                            self.dispatch(actions::Action::ClearEdgeSelections);
-                        }
-
-                        // Update edge thicknesses
-                        let sorted_weights = self.cache.state_data.get(&self.store).sorted_weights.clone();
-                        graph_view::update_edge_thicknesses(
-                            self.store.state.graph.get_mut(),
-                            sorted_weights,
-                        );
-
-                        let settings_interaction = self.get_settings_interaction(mode);
-                        let settings_style = self
-                            .get_settings_style(
-                                tab_settings.visuals.show_labels,
-                            );
-                        let settings_navigation =
-                            self.get_settings_navigation();
-
-                        // Graph takes most of available space, leaving room for controls
-                        ui.add(
-                            &mut StateGraphView::new(self.store.state.graph.get_mut())
-                                .with_interactions(&settings_interaction)
-                                .with_navigations(&settings_navigation)
-                                .with_styles(&settings_style),
-                        );
-
-                        // Edge editing functionality
-                        if mode == EditMode::EdgeEditor {
-                            let pointer = ui.input(|i| i.pointer.clone());
-                            if let Some((from_pos, to_pos)) = self.handle_edge_creation(&pointer) {
-                                ui.painter().line_segment(
-                                    [from_pos, to_pos],
-                                    egui::Stroke::new(EDGE_PREVIEW_STROKE_WIDTH, EDGE_PREVIEW_COLOR),
-                                );
+                            let tab_settings = self.store.layout_settings.dynamical_system.clone();
+                            // Update visual parameters if they changed
+                            let new_visuals = node_shapes::VisualParams {
+                                radius: tab_settings.visuals.node_radius,
+                                label_gap: tab_settings.visuals.label_gap,
+                                label_font: tab_settings.visuals.label_font_size,
+                            };
+                            if self.store.state.circular_visuals.get() != &new_visuals {
+                                self.store.state.circular_visuals.set(new_visuals);
                             }
-                            self.handle_edge_deletion(&pointer);
-                        } else {
-                            self.dispatch(actions::Action::SetDraggingFrom {
-                                node_idx: None,
-                                position: None,
-                            });
-                            self.dispatch(actions::Action::SetDragStarted { started: false });
-                            self.dispatch(actions::Action::ClearEdgeSelections);
-                        }
+                            if self.store.state.label_visibility.get()
+                                != &tab_settings.visuals.show_labels
+                            {
+                                self.store
+                                    .state
+                                    .label_visibility
+                                    .set(tab_settings.visuals.show_labels);
+                            }
 
+                            // Sync visual params from Store to node_shapes globals
+                            let visuals = self.store.state.circular_visuals.get();
+                            node_shapes::set_circular_visual_params(
+                                visuals.radius,
+                                visuals.label_gap,
+                                visuals.label_font,
+                            );
+                            node_shapes::set_label_visibility(
+                                *self.store.state.label_visibility.get(),
+                            );
+
+                            graph_view::set_edge_thickness_bounds(
+                                tab_settings.edges.min_width,
+                                tab_settings.edges.max_width,
+                            );
+                            set_loop_radius(tab_settings.layout.loop_radius);
+
+                            // Reset layout if graph or visual params changed
+                            let order = self.cache.state_data.get(&self.store).order.clone();
+                            let base_radius = tab_settings.layout.base_radius;
+                            let visuals = *self.store.state.circular_visuals.get();
+                            let label_visibility = *self.store.state.label_visibility.get();
+
+                            self.store.state.run_if_layout_changed(|| {
+                                let spacing =
+                                    SpacingConfig::default().with_fixed_radius(base_radius);
+                                layout_circular::set_pending_layout(
+                                    order.clone(),
+                                    spacing,
+                                    visuals,
+                                    label_visibility,
+                                );
+                                reset_layout::<LayoutStateCircular>(ui, None);
+                            });
+
+                            // Clear edge selections when not in EdgeEditor mode
+                            if mode == EditMode::NodeEditor {
+                                self.dispatch(actions::Action::ClearEdgeSelections);
+                            }
+
+                            // Update edge thicknesses
+                            let sorted_weights = self
+                                .cache
+                                .state_data
+                                .get(&self.store)
+                                .sorted_weights
+                                .clone();
+                            graph_view::update_edge_thicknesses(
+                                self.store.state.graph.get_mut(),
+                                sorted_weights,
+                            );
+
+                            let settings_interaction = self.get_settings_interaction(mode);
+                            let settings_style =
+                                self.get_settings_style(tab_settings.visuals.show_labels);
+                            let settings_navigation = self.get_settings_navigation();
+
+                            // Graph takes most of available space, leaving room for controls
+                            ui.add(
+                                &mut StateGraphView::new(self.store.state.graph.get_mut())
+                                    .with_interactions(&settings_interaction)
+                                    .with_navigations(&settings_navigation)
+                                    .with_styles(&settings_style),
+                            );
+
+                            // Edge editing functionality
+                            if mode == EditMode::EdgeEditor {
+                                let pointer = ui.input(|i| i.pointer.clone());
+                                if let Some((from_pos, to_pos)) =
+                                    self.handle_edge_creation(&pointer)
+                                {
+                                    ui.painter().line_segment(
+                                        [from_pos, to_pos],
+                                        egui::Stroke::new(
+                                            EDGE_PREVIEW_STROKE_WIDTH,
+                                            EDGE_PREVIEW_COLOR,
+                                        ),
+                                    );
+                                }
+                                self.handle_edge_deletion(&pointer);
+                            } else {
+                                self.dispatch(actions::Action::SetDraggingFrom {
+                                    node_idx: None,
+                                    position: None,
+                                });
+                                self.dispatch(actions::Action::SetDragStarted { started: false });
+                                self.dispatch(actions::Action::ClearEdgeSelections);
+                            }
                         });
 
                         // Right: Heatmap
                         strip.cell(|ui| {
-                        ui.heading("Heatmap");
-                        ui.separator();
+                            ui.heading("Heatmap");
+                            ui.separator();
 
-                        // Build heatmap data
-                        let (x_labels, y_labels, matrix, x_node_indices, y_node_indices) =
-                            self.cache.state_data.get(&self.store).heatmap.clone();
+                            // Build heatmap data
+                            let (x_labels, y_labels, matrix, x_node_indices, y_node_indices) =
+                                self.cache.state_data.get(&self.store).heatmap.clone();
 
-                        let editing_state = heatmap::EditingState {
-                            editing_cell: self.store.heatmap_editing_cell,
-                            edit_buffer: self.store.heatmap_edit_buffer.clone(),
-                        };
+                            let editing_state = heatmap::EditingState {
+                                editing_cell: self.store.heatmap_editing_cell,
+                                edit_buffer: self.store.heatmap_edit_buffer.clone(),
+                            };
 
-                        let (new_hover, new_editing, weight_change) = heatmap::show_heatmap(
-                            ui,
-                            &x_labels,
-                            &y_labels,
-                            &matrix,
-                            &x_node_indices,
-                            &y_node_indices,
-                            self.store.heatmap_hovered_cell,
-                            editing_state,
-                        );
+                            let (new_hover, new_editing, weight_change) = heatmap::show_heatmap(
+                                ui,
+                                &x_labels,
+                                &y_labels,
+                                &matrix,
+                                &x_node_indices,
+                                &y_node_indices,
+                                self.store.heatmap_hovered_cell,
+                                editing_state,
+                            );
 
-                        if new_hover != self.store.heatmap_hovered_cell {
-                            self.dispatch(actions::Action::SetHeatmapHoveredCell { cell: new_hover });
-                        }
+                            if new_hover != self.store.heatmap_hovered_cell {
+                                self.dispatch(actions::Action::SetHeatmapHoveredCell {
+                                    cell: new_hover,
+                                });
+                            }
 
-                        if new_editing.editing_cell != self.store.heatmap_editing_cell {
-                            self.dispatch(actions::Action::SetHeatmapEditingCell {
-                                cell: new_editing.editing_cell,
-                            });
-                        }
+                            if new_editing.editing_cell != self.store.heatmap_editing_cell {
+                                self.dispatch(actions::Action::SetHeatmapEditingCell {
+                                    cell: new_editing.editing_cell,
+                                });
+                            }
 
-                        if new_editing.edit_buffer != self.store.heatmap_edit_buffer {
-                            self.dispatch(actions::Action::SetHeatmapEditBuffer {
-                                buffer: new_editing.edit_buffer,
-                            });
-                        }
+                            if new_editing.edit_buffer != self.store.heatmap_edit_buffer {
+                                self.dispatch(actions::Action::SetHeatmapEditBuffer {
+                                    buffer: new_editing.edit_buffer,
+                                });
+                            }
 
-                        if let Some(change) = weight_change {
-                            self.dispatch(actions::Action::UpdateStateEdgeWeightFromHeatmap {
-                                source_idx: change.source_idx,
-                                target_idx: change.target_idx,
-                                new_weight: change.new_weight,
-                            });
-                        }
+                            if let Some(change) = weight_change {
+                                self.dispatch(actions::Action::UpdateStateEdgeWeightFromHeatmap {
+                                    source_idx: change.source_idx,
+                                    target_idx: change.target_idx,
+                                    new_weight: change.new_weight,
+                                });
+                            }
                         });
                     });
             });
     }
 
-    fn render_observable_editor_tab(
-        &mut self,
-        ctx: &egui::Context,
-        mode: EditMode,
-    ) {
+    fn render_observable_editor_tab(&mut self, ctx: &egui::Context, mode: EditMode) {
         // Left panel fixed at 25% of the screen width to match the dynamical tab
         let screen_width = ctx.viewport_rect().width().max(1.0);
         let left_panel_width = screen_width * 0.25;
@@ -1271,49 +1152,29 @@ impl State {
         // Right panel: Heatmap
         egui::SidePanel::right("observable_right_panel")
             .exact_width(right_panel_width)
-            .frame(
-                egui::Frame::side_top_panel(&ctx.style())
-                    .inner_margin(8.0),
-            )
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
                     ui.heading("Observable Heatmap");
                     ui.separator();
 
                     // Contents - heatmap
-                    let available_height =
-                        ui.available_height() - 40.0;
+                    let available_height = ui.available_height() - 40.0;
                     ui.allocate_ui_with_layout(
-                        egui::Vec2::new(
-                            ui.available_width(),
-                            available_height,
-                        ),
+                        egui::Vec2::new(ui.available_width(), available_height),
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             // Build heatmap data for observable graph (sources as x-axis, destinations as y-axis)
-                            let (
-                                x_labels,
-                                y_labels,
-                                matrix,
-                                x_node_indices,
-                                y_node_indices,
-                            ) = self.cache.observable_data.get(&self.store).heatmap.clone();
+                            let (x_labels, y_labels, matrix, x_node_indices, y_node_indices) =
+                                self.cache.observable_data.get(&self.store).heatmap.clone();
 
                             // Display heatmap with editing support
-                            let editing_state =
-                                heatmap::EditingState {
-                                    editing_cell: self
-                                        .store.heatmap_editing_cell,
-                                    edit_buffer: self
-                                        .store.heatmap_edit_buffer
-                                        .clone(),
-                                };
+                            let editing_state = heatmap::EditingState {
+                                editing_cell: self.store.heatmap_editing_cell,
+                                edit_buffer: self.store.heatmap_edit_buffer.clone(),
+                            };
 
-                            let (
-                                new_hover,
-                                new_editing,
-                                weight_change,
-                            ) = heatmap::show_heatmap(
+                            let (new_hover, new_editing, weight_change) = heatmap::show_heatmap(
                                 ui,
                                 &x_labels,
                                 &y_labels,
@@ -1325,29 +1186,23 @@ impl State {
                             );
 
                             if new_hover != self.store.heatmap_hovered_cell {
-                                self.dispatch(
-                                    actions::Action::SetHeatmapHoveredCell {
-                                        cell: new_hover,
-                                    },
-                                );
+                                self.dispatch(actions::Action::SetHeatmapHoveredCell {
+                                    cell: new_hover,
+                                });
                             }
 
                             let editing_cell = new_editing.editing_cell;
                             if editing_cell != self.store.heatmap_editing_cell {
-                                self.dispatch(
-                                    actions::Action::SetHeatmapEditingCell {
-                                        cell: editing_cell,
-                                    },
-                                );
+                                self.dispatch(actions::Action::SetHeatmapEditingCell {
+                                    cell: editing_cell,
+                                });
                             }
 
                             let edit_buffer = new_editing.edit_buffer;
                             if edit_buffer != self.store.heatmap_edit_buffer {
-                                self.dispatch(
-                                    actions::Action::SetHeatmapEditBuffer {
-                                        buffer: edit_buffer,
-                                    },
-                                );
+                                self.dispatch(actions::Action::SetHeatmapEditBuffer {
+                                    buffer: edit_buffer,
+                                });
                             }
 
                             // Handle weight changes
@@ -1362,25 +1217,18 @@ impl State {
                             }
                         },
                     );
+                });
             });
-        });
 
         // Center panel: Bipartite graph visualization
         egui::CentralPanel::default()
-            .frame(
-                egui::Frame::central_panel(&ctx.style())
-                    .inner_margin(8.0),
-            )
+            .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(8.0))
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
                     ui.heading("Observable Mapping");
                     ui.separator();
 
-                    let tab_settings = self
-                        .store
-                        .layout_settings
-                        .observable_editor
-                        .clone();
+                    let tab_settings = self.store.layout_settings.observable_editor.clone();
                     // Update visual parameters if they changed
                     let new_visuals = node_shapes::VisualParams {
                         radius: tab_settings.visuals.node_radius,
@@ -1390,8 +1238,13 @@ impl State {
                     if self.store.observable.bipartite_visuals.get() != &new_visuals {
                         self.store.observable.bipartite_visuals.set(new_visuals);
                     }
-                    if self.store.observable.label_visibility.get() != &tab_settings.visuals.show_labels {
-                        self.store.observable.label_visibility.set(tab_settings.visuals.show_labels);
+                    if self.store.observable.label_visibility.get()
+                        != &tab_settings.visuals.show_labels
+                    {
+                        self.store
+                            .observable
+                            .label_visibility
+                            .set(tab_settings.visuals.show_labels);
                     }
 
                     // Sync visual params from Store to node_shapes globals
@@ -1401,7 +1254,9 @@ impl State {
                         visuals.label_gap,
                         visuals.label_font,
                     );
-                    node_shapes::set_label_visibility(*self.store.observable.label_visibility.get());
+                    node_shapes::set_label_visibility(
+                        *self.store.observable.label_visibility.get(),
+                    );
 
                     graph_view::set_edge_thickness_bounds(
                         tab_settings.edges.min_width,
@@ -1412,16 +1267,14 @@ impl State {
                     let visuals = *self.store.observable.bipartite_visuals.get();
                     let label_visibility = *self.store.observable.label_visibility.get();
 
-                    self.store.observable.run_if_layout_changed(
-                        || {
-                            let spacing = layout_bipartite::BipartiteSpacingConfig {
-                                node_gap: tab_settings.layout.node_gap,
-                                layer_gap: tab_settings.layout.layer_gap,
-                            };
-                            layout_bipartite::set_pending_layout(spacing, visuals, label_visibility);
-                            reset_layout::<LayoutStateBipartite>(ui, None);
-                        },
-                    );
+                    self.store.observable.run_if_layout_changed(|| {
+                        let spacing = layout_bipartite::BipartiteSpacingConfig {
+                            node_gap: tab_settings.layout.node_gap,
+                            layer_gap: tab_settings.layout.layer_gap,
+                        };
+                        layout_bipartite::set_pending_layout(spacing, visuals, label_visibility);
+                        reset_layout::<LayoutStateBipartite>(ui, None);
+                    });
 
                     // Clear edge selections when not in EdgeEditor mode
                     if mode == EditMode::NodeEditor {
@@ -1429,56 +1282,43 @@ impl State {
                     }
 
                     // Update edge thicknesses based on global weight distribution
-                    let sorted_weights =
-                        self.cache.observable_data.get(&self.store).sorted_weights.clone();
+                    let sorted_weights = self
+                        .cache
+                        .observable_data
+                        .get(&self.store)
+                        .sorted_weights
+                        .clone();
                     graph_view::update_edge_thicknesses(
                         self.store.observable.graph.get_mut(),
                         sorted_weights,
                     );
 
-                    let settings_interaction =
-                        self.get_settings_interaction(mode);
-                    let settings_style = self
-                        .get_settings_style(
-                            tab_settings.visuals.show_labels,
-                        );
-                    let settings_navigation =
-                        self.get_settings_navigation();
+                    let settings_interaction = self.get_settings_interaction(mode);
+                    let settings_style = self.get_settings_style(tab_settings.visuals.show_labels);
+                    let settings_navigation = self.get_settings_navigation();
 
                     // Allocate remaining space for the graph
-                    let available_height =
-                        ui.available_height() - 60.0;
+                    let available_height = ui.available_height() - 60.0;
                     ui.allocate_ui_with_layout(
-                        egui::Vec2::new(
-                            ui.available_width(),
-                            available_height,
-                        ),
+                        egui::Vec2::new(ui.available_width(), available_height),
                         egui::Layout::top_down(egui::Align::Center),
                         |ui| {
                             ui.add(
                                 &mut ObservableGraphView::new(
                                     self.store.observable.graph.get_mut(),
                                 )
-                                .with_interactions(
-                                    &settings_interaction,
-                                )
-                                .with_navigations(
-                                    &settings_navigation,
-                                )
+                                .with_interactions(&settings_interaction)
+                                .with_navigations(&settings_navigation)
                                 .with_styles(&settings_style),
                             );
 
                             // Edge editing functionality (only in Edge Editor mode)
-                            if mode == EditMode::EdgeEditor
-                            {
-                                let pointer =
-                                    ui.input(|i| i.pointer.clone());
+                            if mode == EditMode::EdgeEditor {
+                                let pointer = ui.input(|i| i.pointer.clone());
 
                                 // Handle edge creation and draw preview line if needed
-                                if let Some((from_pos, to_pos)) = self
-                                    .handle_observable_edge_creation(
-                                        &pointer,
-                                    )
+                                if let Some((from_pos, to_pos)) =
+                                    self.handle_observable_edge_creation(&pointer)
                                 {
                                     ui.painter().line_segment(
                                         [from_pos, to_pos],
@@ -1489,25 +1329,15 @@ impl State {
                                     );
                                 }
 
-                                self.handle_observable_edge_deletion(
-                                    &pointer,
-                                );
+                                self.handle_observable_edge_deletion(&pointer);
                             } else {
                                 // Reset dragging state and clear selections when not in Edge Editor mode
-                                self.dispatch(
-                                    actions::Action::SetDraggingFrom {
-                                        node_idx: None,
-                                        position: None,
-                                    },
-                                );
-                                self.dispatch(
-                                    actions::Action::SetDragStarted {
-                                        started: false,
-                                    },
-                                );
-                                self.dispatch(
-                                    actions::Action::ClearObservableEdgeSelections,
-                                );
+                                self.dispatch(actions::Action::SetDraggingFrom {
+                                    node_idx: None,
+                                    position: None,
+                                });
+                                self.dispatch(actions::Action::SetDragStarted { started: false });
+                                self.dispatch(actions::Action::ClearObservableEdgeSelections);
                             }
                         },
                     );
@@ -1535,23 +1365,24 @@ impl State {
                     .resizable(false)
                     .frame(egui::Frame::NONE)
                     .show_inside(panel_ui, |ui| {
-                        let state_validation_errors = self.cache.state_data.get(&self.store).validation_errors.clone();
-                        let observable_validation_errors = self.cache.observable_data.get(&self.store).validation_errors.clone();
+                        let state_validation_errors = self
+                            .cache
+                            .state_data
+                            .get(&self.store)
+                            .validation_errors
+                            .clone();
+                        let observable_validation_errors = self
+                            .cache
+                            .observable_data
+                            .get(&self.store)
+                            .validation_errors
+                            .clone();
 
-                        self.render_state_validation_panel(
-                            ui,
-                            &state_validation_errors,
-                        );
-                        self.render_observable_validation_panel(
-                            ui,
-                            &observable_validation_errors,
-                        );
+                        self.render_state_validation_panel(ui, &state_validation_errors);
+                        self.render_observable_validation_panel(ui, &observable_validation_errors);
 
                         ui.add_space(6.0);
-                        self.layout_settings_panel(
-                            ui,
-                            ActiveTab::ObservedDynamics,
-                        );
+                        self.layout_settings_panel(ui, ActiveTab::ObservedDynamics);
                     });
 
                 egui::CentralPanel::default()
@@ -1565,8 +1396,7 @@ impl State {
                             .max_height(list_height)
                             .show(ui, |ui| {
                                 let nodes: Vec<_> = {
-                                    let observed_data =
-                                        self.cache.observed_data.get(&self.store);
+                                    let observed_data = self.cache.observed_data.get(&self.store);
                                     observed_data
                                         .graph
                                         .nodes_iter()
@@ -1588,10 +1418,7 @@ impl State {
                                     let connection_data = if is_selected {
                                         let observed_data =
                                             self.cache.observed_data.get(&self.store);
-                                        Some(Self::get_connections(
-                                            &observed_data.graph,
-                                            node_idx,
-                                        ))
+                                        Some(Self::get_connections(&observed_data.graph, node_idx))
                                     } else {
                                         None
                                     };
@@ -1601,11 +1428,9 @@ impl State {
                                             ui,
                                             node_idx,
                                             is_selected,
-                                            |idx, selected| {
-                                                actions::Action::SelectObservedNode {
-                                                    node_idx: idx,
-                                                    selected,
-                                                }
+                                            |idx, selected| actions::Action::SelectObservedNode {
+                                                node_idx: idx,
+                                                selected,
                                             },
                                             all_nodes.clone(),
                                         );
@@ -1618,11 +1443,7 @@ impl State {
                                     });
 
                                     if let Some((incoming, outgoing)) = connection_data {
-                                        Self::connections_widget(
-                                            ui,
-                                            incoming,
-                                            outgoing,
-                                        );
+                                        Self::connections_widget(ui, incoming, outgoing);
                                     }
                                 }
                             });
@@ -1630,11 +1451,8 @@ impl State {
                         if let Some((node_idx, selected)) =
                             self.store.observed_node_selection.take()
                         {
-                            let observed_data =
-                                self.cache.observed_data.get_mut(&self.store);
-                            if let Some(node) =
-                                observed_data.graph.node_mut(node_idx)
-                            {
+                            let observed_data = self.cache.observed_data.get_mut(&self.store);
+                            if let Some(node) = observed_data.graph.node_mut(node_idx) {
                                 node.set_selected(selected);
                             }
                         }
@@ -1643,10 +1461,7 @@ impl State {
 
         egui::TopBottomPanel::bottom("observed_histogram_panel")
             .exact_height(histogram_height)
-            .frame(
-                egui::Frame::side_top_panel(&ctx.style())
-                    .inner_margin(8.0),
-            )
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(8.0))
             .show(ctx, |ui| {
                 let observed_data = self.cache.observed_data.get(&self.store);
                 StripBuilder::new(ui)
@@ -1671,7 +1486,9 @@ impl State {
 
                         strip.cell(|ui| {
                             ui.vertical(|ui| {
-                                if let Some(ref equilibrium_from_state) = observed_data.equilibrium_from_state {
+                                if let Some(ref equilibrium_from_state) =
+                                    observed_data.equilibrium_from_state
+                                {
                                     let plot_height = ui.available_height() - 30.0;
                                     render_probability_chart(
                                         ui,
@@ -1691,7 +1508,9 @@ impl State {
 
                         strip.cell(|ui| {
                             ui.vertical(|ui| {
-                                if let Some(ref equilibrium_calculated) = observed_data.equilibrium_calculated {
+                                if let Some(ref equilibrium_calculated) =
+                                    observed_data.equilibrium_calculated
+                                {
                                     let plot_height = ui.available_height() - 30.0;
                                     render_probability_chart(
                                         ui,
@@ -1710,12 +1529,11 @@ impl State {
                         });
                         strip.cell(|ui| {
                             ui.vertical(|ui| {
-                                if let (Some(entropy_rate), Some(detailed_balance_deviation)) =
-                                    (observed_data.entropy_rate, observed_data.detailed_balance_deviation) {
-                                    ui.label(format!(
-                                        "Entropy rate: {:.4}",
-                                        entropy_rate
-                                    ));
+                                if let (Some(entropy_rate), Some(detailed_balance_deviation)) = (
+                                    observed_data.entropy_rate,
+                                    observed_data.detailed_balance_deviation,
+                                ) {
+                                    ui.label(format!("Entropy rate: {:.4}", entropy_rate));
                                     ui.label(format!(
                                         "Detailed balance deviation: {:.4}",
                                         detailed_balance_deviation
@@ -1730,10 +1548,7 @@ impl State {
             });
 
         egui::CentralPanel::default()
-            .frame(
-                egui::Frame::central_panel(&ctx.style())
-                    .inner_margin(8.0),
-            )
+            .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(8.0))
             .show(ctx, |ui| {
                 StripBuilder::new(ui)
                     .size(Size::remainder())
@@ -1743,11 +1558,7 @@ impl State {
                             ui.heading("Observed Graph");
                             ui.separator();
 
-                            let tab_settings = self
-                                .store
-                                .layout_settings
-                                .observed_dynamics
-                                .clone();
+                            let tab_settings = self.store.layout_settings.observed_dynamics.clone();
                             // Update visual parameters if they changed
                             let new_visuals = node_shapes::VisualParams {
                                 radius: tab_settings.visuals.node_radius,
@@ -1757,8 +1568,13 @@ impl State {
                             if self.store.observed.circular_visuals.get() != &new_visuals {
                                 self.store.observed.circular_visuals.set(new_visuals);
                             }
-                            if self.store.observed.label_visibility.get() != &tab_settings.visuals.show_labels {
-                                self.store.observed.label_visibility.set(tab_settings.visuals.show_labels);
+                            if self.store.observed.label_visibility.get()
+                                != &tab_settings.visuals.show_labels
+                            {
+                                self.store
+                                    .observed
+                                    .label_visibility
+                                    .set(tab_settings.visuals.show_labels);
                             }
 
                             // Sync visual params from Store to node_shapes globals
@@ -1768,7 +1584,9 @@ impl State {
                                 visuals.label_gap,
                                 visuals.label_font,
                             );
-                            node_shapes::set_label_visibility(*self.store.observed.label_visibility.get());
+                            node_shapes::set_label_visibility(
+                                *self.store.observed.label_visibility.get(),
+                            );
 
                             graph_view::set_edge_thickness_bounds(
                                 tab_settings.edges.min_width,
@@ -1776,21 +1594,16 @@ impl State {
                             );
                             set_loop_radius(tab_settings.layout.loop_radius);
 
-                            let settings_interaction =
-                                SettingsInteraction::new()
-                                    .with_dragging_enabled(false)
-                                    .with_node_clicking_enabled(true)
-                                    .with_node_selection_enabled(true);
-                            let settings_style = self.get_settings_style(
-                                tab_settings.visuals.show_labels,
-                            );
-                            let settings_navigation =
-                                self.get_settings_navigation();
+                            let settings_interaction = SettingsInteraction::new()
+                                .with_dragging_enabled(false)
+                                .with_node_clicking_enabled(true)
+                                .with_node_selection_enabled(true);
+                            let settings_style =
+                                self.get_settings_style(tab_settings.visuals.show_labels);
+                            let settings_navigation = self.get_settings_navigation();
 
-                            let observed_version =
-                                self.cache.observed_data.version();
-                            let observed_data =
-                                self.cache.observed_data.get_mut(&self.store);
+                            let observed_version = self.cache.observed_data.version();
+                            let observed_data = self.cache.observed_data.get_mut(&self.store);
                             let order = observed_data.order.clone();
                             let base_radius = tab_settings.layout.base_radius;
                             let visuals = *self.store.observed.circular_visuals.get();
@@ -1798,62 +1611,44 @@ impl State {
 
                             self.store
                                 .observed
-                                .run_if_layout_changed(
-                                    observed_version,
-                                    || {
-                                        let spacing = SpacingConfig::default().with_fixed_radius(base_radius);
-                                        layout_circular::set_pending_layout(order.clone(), spacing, visuals, label_visibility);
-                                        reset_layout::<LayoutStateCircular>(ui, None);
-                                    },
-                                );
+                                .run_if_layout_changed(observed_version, || {
+                                    let spacing =
+                                        SpacingConfig::default().with_fixed_radius(base_radius);
+                                    layout_circular::set_pending_layout(
+                                        order.clone(),
+                                        spacing,
+                                        visuals,
+                                        label_visibility,
+                                    );
+                                    reset_layout::<LayoutStateCircular>(ui, None);
+                                });
 
                             graph_view::update_edge_thicknesses(
                                 &mut observed_data.graph,
                                 observed_data.sorted_weights.clone(),
                             );
 
-                            let available_height =
-                                ui.available_height() - 60.0;
+                            let available_height = ui.available_height() - 60.0;
                             ui.allocate_ui_with_layout(
-                                egui::Vec2::new(
-                                    ui.available_width(),
-                                    available_height,
-                                ),
+                                egui::Vec2::new(ui.available_width(), available_height),
                                 egui::Layout::top_down(egui::Align::Center),
                                 |ui| {
                                     ui.add(
-                                        &mut ObservedGraphView::new(
-                                            &mut observed_data.graph,
-                                        )
-                                        .with_interactions(
-                                            &settings_interaction,
-                                        )
-                                        .with_navigations(
-                                            &settings_navigation,
-                                        )
-                                        .with_styles(&settings_style),
+                                        &mut ObservedGraphView::new(&mut observed_data.graph)
+                                            .with_interactions(&settings_interaction)
+                                            .with_navigations(&settings_navigation)
+                                            .with_styles(&settings_style),
                                     );
                                 },
                             );
-
                         });
 
                         strip.cell(|ui| {
                             ui.heading("Observed Heatmap");
                             ui.separator();
 
-                            let (
-                                x_labels,
-                                y_labels,
-                                matrix,
-                                x_node_indices,
-                                y_node_indices,
-                            ) = self
-                                .cache
-                                .observed_data
-                                .get(&self.store)
-                                .heatmap
-                                .clone();
+                            let (x_labels, y_labels, matrix, x_node_indices, y_node_indices) =
+                                self.cache.observed_data.get(&self.store).heatmap.clone();
 
                             let editing_state = heatmap::EditingState {
                                 editing_cell: None,
@@ -1872,22 +1667,16 @@ impl State {
                             );
 
                             if new_hover != self.store.heatmap_hovered_cell {
-                                self.dispatch(
-                                    actions::Action::SetHeatmapHoveredCell {
-                                        cell: new_hover,
-                                    },
-                                );
+                                self.dispatch(actions::Action::SetHeatmapHoveredCell {
+                                    cell: new_hover,
+                                });
                             }
                         });
                     });
             });
     }
 
-    fn weight_editor(
-        &mut self,
-        ui: &mut egui::Ui,
-        node_idx: NodeIndex,
-    ) {
+    fn weight_editor(&mut self, ui: &mut egui::Ui, node_idx: NodeIndex) {
         // Weight editor
         ui.horizontal(|ui| {
             ui.label("Weight:");
@@ -1899,8 +1688,7 @@ impl State {
                 .node(node_idx)
                 .map(|n| n.payload().weight)
                 .unwrap_or(1.0);
-            let is_focused =
-                self.store.weight_editor.node() == Some(node_idx);
+            let is_focused = self.store.weight_editor.node() == Some(node_idx);
             let mut weight_str = if is_focused {
                 self.store.weight_editor.value()
             } else {
@@ -1908,39 +1696,25 @@ impl State {
             };
 
             let response = ui
-                .with_layout(
-                    egui::Layout::right_to_left(egui::Align::Center),
-                    |ui| {
-                        ui.add_space(ui.spacing().item_spacing.x);
-                        let text_width =
-                            ui.available_width().max(80.0);
-                        ui.add(
-                            egui::TextEdit::singleline(
-                                &mut weight_str,
-                            )
-                            .desired_width(text_width),
-                        )
-                    },
-                )
+                .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(ui.spacing().item_spacing.x);
+                    let text_width = ui.available_width().max(80.0);
+                    ui.add(egui::TextEdit::singleline(&mut weight_str).desired_width(text_width))
+                })
                 .inner;
             if response.gained_focus() || response.changed() {
-                self.dispatch(
-                    actions::Action::UpdateStateNodeWeightEditor {
-                        node_idx,
-                        value: weight_str,
-                    },
-                );
+                self.dispatch(actions::Action::UpdateStateNodeWeightEditor {
+                    node_idx,
+                    value: weight_str,
+                });
             };
             if response.lost_focus()
-                && let Ok(new_weight) =
-                    self.store.weight_editor.parse()
+                && let Ok(new_weight) = self.store.weight_editor.parse()
             {
-                self.dispatch(
-                    actions::Action::UpdateStateNodeWeight {
-                        node_idx,
-                        new_weight: new_weight.max(0.0),
-                    },
-                );
+                self.dispatch(actions::Action::UpdateStateNodeWeight {
+                    node_idx,
+                    new_weight: new_weight.max(0.0),
+                });
             }
         });
     }
@@ -1953,18 +1727,14 @@ impl State {
         on_update: impl FnOnce(NodeIndex, String) -> actions::Action,
         on_commit: impl FnOnce(NodeIndex, String) -> actions::Action,
     ) {
-        let is_focused =
-            self.store.label_editor.node() == Some(node_idx);
+        let is_focused = self.store.label_editor.node() == Some(node_idx);
         let mut name_str = if is_focused {
             self.store.label_editor.value()
         } else {
             current_label
         };
         let text_width = ui.available_width().max(80.0);
-        let response = ui.add(
-            egui::TextEdit::singleline(&mut name_str)
-                .desired_width(text_width),
-        );
+        let response = ui.add(egui::TextEdit::singleline(&mut name_str).desired_width(text_width));
         if response.gained_focus() || response.changed() {
             self.dispatch(on_update(node_idx, name_str.clone()));
         }
@@ -2019,43 +1789,21 @@ impl State {
         }
     }
 
-    fn layout_settings_panel(
-        &mut self,
-        ui: &mut egui::Ui,
-        tab: ActiveTab,
-    ) {
+    fn layout_settings_panel(&mut self, ui: &mut egui::Ui, tab: ActiveTab) {
         egui::CollapsingHeader::new("Layout settings")
             .default_open(false)
             .show(ui, |ui| match tab {
                 ActiveTab::DynamicalSystem => {
-                    let settings = self
-                        .store
-                        .layout_settings
-                        .dynamical_system
-                        .clone();
-                    self.render_circular_layout_controls(
-                        ui, tab, settings,
-                    );
+                    let settings = self.store.layout_settings.dynamical_system.clone();
+                    self.render_circular_layout_controls(ui, tab, settings);
                 }
                 ActiveTab::ObservedDynamics => {
-                    let settings = self
-                        .store
-                        .layout_settings
-                        .observed_dynamics
-                        .clone();
-                    self.render_circular_layout_controls(
-                        ui, tab, settings,
-                    );
+                    let settings = self.store.layout_settings.observed_dynamics.clone();
+                    self.render_circular_layout_controls(ui, tab, settings);
                 }
                 ActiveTab::ObservableEditor => {
-                    let settings = self
-                        .store
-                        .layout_settings
-                        .observable_editor
-                        .clone();
-                    self.render_bipartite_layout_controls(
-                        ui, tab, settings,
-                    );
+                    let settings = self.store.layout_settings.observable_editor.clone();
+                    self.render_bipartite_layout_controls(ui, tab, settings);
                 }
             });
 
@@ -2240,12 +1988,9 @@ impl State {
     ) {
         let mut slider_value = value;
         let response = ui.add(
-            egui::Slider::new(
-                &mut slider_value,
-                range.min..=range.max,
-            )
-            .text(label)
-            .step_by(range.step),
+            egui::Slider::new(&mut slider_value, range.min..=range.max)
+                .text(label)
+                .step_by(range.step),
         );
         if response.changed() {
             self.dispatch(actions::Action::UpdateLayoutSetting {
@@ -2258,34 +2003,22 @@ impl State {
         }
     }
 
-    fn show_label_toggle(
-        &mut self,
-        ui: &mut egui::Ui,
-        tab: ActiveTab,
-        value: bool,
-    ) {
+    fn show_label_toggle(&mut self, ui: &mut egui::Ui, tab: ActiveTab, value: bool) {
         let mut show_labels = value;
         if ui.checkbox(&mut show_labels, "Show labels").changed() {
             self.dispatch(actions::Action::UpdateLayoutSetting {
                 tab,
-                change: actions::LayoutSettingChange::ShowLabels(
-                    show_labels,
-                ),
+                change: actions::LayoutSettingChange::ShowLabels(show_labels),
             });
         }
     }
 
-    fn reset_layout_for_tab(
-        &self,
-        ui: &mut egui::Ui,
-        tab: ActiveTab,
-    ) {
+    fn reset_layout_for_tab(&self, ui: &mut egui::Ui, tab: ActiveTab) {
         match tab {
             ActiveTab::ObservableEditor => {
                 reset_layout::<LayoutStateBipartite>(ui, None);
             }
-            ActiveTab::DynamicalSystem
-            | ActiveTab::ObservedDynamics => {
+            ActiveTab::DynamicalSystem | ActiveTab::ObservedDynamics => {
                 reset_layout::<LayoutStateCircular>(ui, None);
             }
         }

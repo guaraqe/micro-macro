@@ -5,8 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::graph_state::{
-    ObservableGraph, ObservableNode, ObservableNodeType, StateGraph,
-    StateNode,
+    ObservableGraph, ObservableNode, ObservableNodeType, StateGraph, StateNode,
 };
 use crate::layout_settings::LayoutSettings;
 
@@ -76,8 +75,7 @@ pub fn graph_to_serializable<
     let mut node_index_map = std::collections::HashMap::new();
 
     // Collect nodes and build index observable using the nodes_iter from Graph
-    for (new_idx, (node_idx, node)) in graph.nodes_iter().enumerate()
-    {
+    for (new_idx, (node_idx, node)) in graph.nodes_iter().enumerate() {
         nodes.push(SerializableNode {
             name: node.payload().name.clone(),
             weight: node.payload().weight,
@@ -98,9 +96,7 @@ pub fn graph_to_serializable<
     SerializableGraphState { nodes, edges }
 }
 
-pub fn serializable_to_graph(
-    state: &SerializableGraphState,
-) -> StateGraph {
+pub fn serializable_to_graph(state: &SerializableGraphState) -> StateGraph {
     let mut g = StateGraph::new();
     let mut node_indices = Vec::new();
 
@@ -145,8 +141,7 @@ pub fn observable_graph_to_serializable<
             ObservableNodeType::Source => {
                 // Source nodes reference StateGraph - store that reference
                 if let Some(state_idx) = obs_node.state_node_idx {
-                    source_to_state_idx
-                        .insert(node_idx, state_idx.index());
+                    source_to_state_idx.insert(node_idx, state_idx.index());
                 }
             }
             ObservableNodeType::Destination => {
@@ -167,12 +162,9 @@ pub fn observable_graph_to_serializable<
         let target_idx = edge_ref.target();
 
         // Source should be a Source node (maps to StateGraph index)
-        if let Some(&state_idx) = source_to_state_idx.get(&source_idx)
-        {
+        if let Some(&state_idx) = source_to_state_idx.get(&source_idx) {
             // Target should be a Destination node (maps to destination_nodes index)
-            if let Some(&dest_idx) =
-                dest_to_serial_idx.get(&target_idx)
-            {
+            if let Some(&dest_idx) = dest_to_serial_idx.get(&target_idx) {
                 edges.push(SerializableEdge {
                     source: state_idx,
                     target: dest_idx,
@@ -196,9 +188,7 @@ pub fn serializable_to_observable_graph(
 
     // First, add Source nodes (derived from StateGraph)
     let mut source_node_indices = Vec::new();
-    for (state_idx, state_node) in
-        state_graph.node_indices().zip(state_graph.node_weights())
-    {
+    for (state_idx, state_node) in state_graph.node_indices().zip(state_graph.node_weights()) {
         let obs_idx = g.add_node(ObservableNode {
             name: state_node.name.clone(),
             node_type: ObservableNodeType::Source,
@@ -234,27 +224,21 @@ pub fn serializable_to_observable_graph(
 // File I/O operations
 // ------------------------------------------------------------------
 
-pub fn save_to_file(
-    state: &SerializableState,
-    path: &Path,
-) -> Result<(), String> {
+pub fn save_to_file(state: &SerializableState, path: &Path) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&state)
         .map_err(|e| format!("Failed to serialize state: {}", e))?;
 
-    std::fs::write(path, json)
-        .map_err(|e| format!("Failed to write file: {}", e))?;
+    std::fs::write(path, json).map_err(|e| format!("Failed to write file: {}", e))?;
 
     Ok(())
 }
 
-pub fn load_from_file(
-    path: &Path,
-) -> Result<SerializableState, String> {
-    let json_str = std::fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
+pub fn load_from_file(path: &Path) -> Result<SerializableState, String> {
+    let json_str =
+        std::fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))?;
 
-    let state: SerializableState = serde_json::from_str(&json_str)
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+    let state: SerializableState =
+        serde_json::from_str(&json_str).map_err(|e| format!("Failed to parse JSON: {}", e))?;
 
     Ok(state)
 }
@@ -266,9 +250,7 @@ pub fn load_from_file(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph_view::{
-        setup_observable_graph_display, setup_state_graph_display,
-    };
+    use crate::graph_view::{setup_observable_graph_display, setup_state_graph_display};
 
     /// Helper to create a test observable graph with edges from each Source node
     fn create_test_graphs() -> (StateGraph, ObservableGraph) {
@@ -297,9 +279,7 @@ mod tests {
 
         // Add Source nodes (matching state graph, in same order)
         let mut source_indices = Vec::new();
-        for (state_idx, state_node) in
-            state_graph.node_indices().zip(state_graph.node_weights())
-        {
+        for (state_idx, state_node) in state_graph.node_indices().zip(state_graph.node_weights()) {
             let obs_idx = obs_graph.add_node(ObservableNode {
                 name: state_node.name.clone(),
                 node_type: ObservableNodeType::Source,
@@ -329,10 +309,7 @@ mod tests {
     }
 
     /// Helper to compare two SerializableState objects with tolerance for float comparison
-    fn assert_serializable_states_equal(
-        state1: &SerializableState,
-        state2: &SerializableState,
-    ) {
+    fn assert_serializable_states_equal(state1: &SerializableState, state2: &SerializableState) {
         // Compare dynamical system nodes
         assert_eq!(
             state1.dynamical_system.nodes.len(),
@@ -345,10 +322,7 @@ mod tests {
             .iter()
             .zip(&state2.dynamical_system.nodes)
         {
-            assert_eq!(
-                n1.name, n2.name,
-                "StateGraph node name mismatch"
-            );
+            assert_eq!(n1.name, n2.name, "StateGraph node name mismatch");
         }
 
         // Compare dynamical system edges
@@ -363,14 +337,8 @@ mod tests {
             .iter()
             .zip(&state2.dynamical_system.edges)
         {
-            assert_eq!(
-                e1.source, e2.source,
-                "StateGraph edge source mismatch"
-            );
-            assert_eq!(
-                e1.target, e2.target,
-                "StateGraph edge target mismatch"
-            );
+            assert_eq!(e1.source, e2.source, "StateGraph edge source mismatch");
+            assert_eq!(e1.target, e2.target, "StateGraph edge target mismatch");
             assert!(
                 (e1.weight - e2.weight).abs() < 0.001,
                 "StateGraph edge weight mismatch"
@@ -401,20 +369,9 @@ mod tests {
             state2.observable.edges.len(),
             "ObservableGraph edge count mismatch"
         );
-        for (e1, e2) in state1
-            .observable
-            .edges
-            .iter()
-            .zip(&state2.observable.edges)
-        {
-            assert_eq!(
-                e1.source, e2.source,
-                "ObservableGraph edge source mismatch"
-            );
-            assert_eq!(
-                e1.target, e2.target,
-                "ObservableGraph edge target mismatch"
-            );
+        for (e1, e2) in state1.observable.edges.iter().zip(&state2.observable.edges) {
+            assert_eq!(e1.source, e2.source, "ObservableGraph edge source mismatch");
+            assert_eq!(e1.target, e2.target, "ObservableGraph edge target mismatch");
             assert!(
                 (e1.weight - e2.weight).abs() < 0.001,
                 "ObservableGraph edge weight mismatch"
@@ -431,14 +388,12 @@ mod tests {
         let source_nodes: Vec<_> = obs_graph
             .node_indices()
             .filter(|&idx| {
-                obs_graph.node_weight(idx).unwrap().node_type
-                    == ObservableNodeType::Source
+                obs_graph.node_weight(idx).unwrap().node_type == ObservableNodeType::Source
             })
             .collect();
 
         for &source_idx in &source_nodes {
-            let outgoing_edges: Vec<_> =
-                obs_graph.edges(source_idx).collect();
+            let outgoing_edges: Vec<_> = obs_graph.edges(source_idx).collect();
             assert!(
                 !outgoing_edges.is_empty(),
                 "Source node {:?} has no outgoing edges",
@@ -450,10 +405,8 @@ mod tests {
         let state_display = setup_state_graph_display(&state_graph);
         let obs_display = setup_observable_graph_display(&obs_graph);
 
-        let state_serializable =
-            graph_to_serializable(&state_display);
-        let obs_serializable =
-            observable_graph_to_serializable(&obs_display);
+        let state_serializable = graph_to_serializable(&state_display);
+        let obs_serializable = observable_graph_to_serializable(&obs_display);
         let original_state = SerializableState {
             dynamical_system: state_serializable,
             observable: obs_serializable,
@@ -461,39 +414,26 @@ mod tests {
         };
 
         // Save to file
-        let temp_file =
-            std::env::temp_dir().join("rust_dyn_syst_test.json");
-        save_to_file(&original_state, &temp_file)
-            .expect("Failed to save file");
+        let temp_file = std::env::temp_dir().join("rust_dyn_syst_test.json");
+        save_to_file(&original_state, &temp_file).expect("Failed to save file");
 
         // Load from file
-        let loaded_state =
-            load_from_file(&temp_file).expect("Failed to load file");
+        let loaded_state = load_from_file(&temp_file).expect("Failed to load file");
 
         // Compare: original serializable vs loaded serializable
-        assert_serializable_states_equal(
-            &original_state,
-            &loaded_state,
-        );
+        assert_serializable_states_equal(&original_state, &loaded_state);
 
         // Convert back to graphs
-        let loaded_state_graph =
-            serializable_to_graph(&loaded_state.dynamical_system);
-        let loaded_obs_graph = serializable_to_observable_graph(
-            &loaded_state.observable,
-            &loaded_state_graph,
-        );
+        let loaded_state_graph = serializable_to_graph(&loaded_state.dynamical_system);
+        let loaded_obs_graph =
+            serializable_to_observable_graph(&loaded_state.observable, &loaded_state_graph);
 
         // Convert back to serializable again using setup_graph_display
-        let loaded_state_display =
-            setup_state_graph_display(&loaded_state_graph);
-        let loaded_obs_display =
-            setup_observable_graph_display(&loaded_obs_graph);
+        let loaded_state_display = setup_state_graph_display(&loaded_state_graph);
+        let loaded_obs_display = setup_observable_graph_display(&loaded_obs_graph);
 
-        let state_serializable2 =
-            graph_to_serializable(&loaded_state_display);
-        let obs_serializable2 =
-            observable_graph_to_serializable(&loaded_obs_display);
+        let state_serializable2 = graph_to_serializable(&loaded_state_display);
+        let obs_serializable2 = observable_graph_to_serializable(&loaded_obs_display);
         let reloaded_state = SerializableState {
             dynamical_system: state_serializable2,
             observable: obs_serializable2,
@@ -501,10 +441,7 @@ mod tests {
         };
 
         // Compare: loaded serializable vs re-serialized
-        assert_serializable_states_equal(
-            &loaded_state,
-            &reloaded_state,
-        );
+        assert_serializable_states_equal(&loaded_state, &reloaded_state);
 
         // Cleanup
         std::fs::remove_file(&temp_file).ok();

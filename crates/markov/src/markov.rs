@@ -15,9 +15,7 @@ where
     X: Ord + Clone,
     Y: Ord + Clone,
 {
-    pub fn from_matrix(
-        matrix: Matrix<X, Y>,
-    ) -> Result<Self, BuildError> {
+    pub fn from_matrix(matrix: Matrix<X, Y>) -> Result<Self, BuildError> {
         let nrows = matrix.x_ix_map.len();
         let ncols = matrix.y_ix_map.len();
 
@@ -47,15 +45,14 @@ where
 
     /// Enumerate all (row_label, col_label, value) triplets.
     pub fn enumerate(&self) -> impl Iterator<Item = (X, Y, f64)> + '_ {
-        self.matrix.values.iter().filter_map(
-            move |(val, (row_idx, col_idx))| {
-                let row_label =
-                    self.matrix.x_ix_map.value_of(row_idx)?;
-                let col_label =
-                    self.matrix.y_ix_map.value_of(col_idx)?;
+        self.matrix
+            .values
+            .iter()
+            .filter_map(move |(val, (row_idx, col_idx))| {
+                let row_label = self.matrix.x_ix_map.value_of(row_idx)?;
+                let col_label = self.matrix.y_ix_map.value_of(col_idx)?;
                 Some((row_label.clone(), col_label.clone(), *val))
-            },
-        )
+            })
     }
 }
 
@@ -112,28 +109,17 @@ where
 
     /// Compute the detailed balance deviation.
     /// Φ = (1/2) Σ_ij |π_i P_ij - π_j P_ji|
-    pub fn detailed_balance_deviation(
-        &self,
-        stationary: &Prob<X>,
-    ) -> Matrix<X, X> {
-        let transition =
-            self.matrix.map_rows(&stationary.vector, |v, p| v * p);
+    pub fn detailed_balance_deviation(&self, stationary: &Prob<X>) -> Matrix<X, X> {
+        let transition = self.matrix.map_rows(&stationary.vector, |v, p| v * p);
 
         let transpose = transition.transpose();
 
         transition.binop(&transpose, |x, y| x - y)
     }
 
-    pub fn detailed_balance_deviation_sum(
-        &self,
-        stationary: &Prob<X>,
-    ) -> f64 {
+    pub fn detailed_balance_deviation_sum(&self, stationary: &Prob<X>) -> f64 {
         let matrix = self.detailed_balance_deviation(stationary);
-        matrix
-            .values
-            .iter()
-            .map(|(v, _)| v.abs() / 2.0)
-            .sum()
+        matrix.values.iter().map(|(v, _)| v.abs() / 2.0).sum()
     }
 }
 
@@ -189,25 +175,13 @@ mod tests {
         let result = prob.dot(&markov);
 
         // Expected calculation:
-        let p1 =
-            result.prob(&1).expect("Result should have outcome 1");
-        let p2 =
-            result.prob(&2).expect("Result should have outcome 2");
+        let p1 = result.prob(&1).expect("Result should have outcome 1");
+        let p2 = result.prob(&2).expect("Result should have outcome 2");
 
-        assert!(
-            (p1 - 0.51).abs() < 1e-10,
-            "P(1) should be 0.51, got {}",
-            p1
-        );
-        assert!(
-            (p2 - 0.49).abs() < 1e-10,
-            "P(2) should be 0.49, got {}",
-            p2
-        );
+        assert!((p1 - 0.51).abs() < 1e-10, "P(1) should be 0.51, got {}", p1);
+        assert!((p2 - 0.49).abs() < 1e-10, "P(2) should be 0.49, got {}", p2);
 
-        println!(
-            "✓ Left multiplication (prob · markov) test passed!"
-        );
+        println!("✓ Left multiplication (prob · markov) test passed!");
         println!(
             "  Input: alice={}, bob={}, chico={}",
             prob.prob(&"alice").unwrap(),

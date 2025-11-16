@@ -5,7 +5,6 @@ use std::rc::Rc;
 
 use crate::ix_map::IxMap;
 
-
 //##########################################################
 // Struct
 //##########################################################
@@ -44,7 +43,10 @@ where
 
         let ix_map = IxMap::from_distinct_sorted(keys);
 
-        Self { values, ix_map: Rc::new(ix_map) }
+        Self {
+            values,
+            ix_map: Rc::new(ix_map),
+        }
     }
 
     // Build from an manual association list
@@ -98,11 +100,8 @@ where
 
     /// Enumerate all (label, value) pairs.
     pub fn enumerate(&self) -> impl Iterator<Item = (X, f64)> + '_ {
-        (0..self.values.len()).filter_map(move |i| {
-            self.ix_map
-                .value_of(i)
-                .map(|x| (x.clone(), self.values[i]))
-        })
+        (0..self.values.len())
+            .filter_map(move |i| self.ix_map.value_of(i).map(|x| (x.clone(), self.values[i])))
     }
 
     pub fn norm(&self) -> f64 {
@@ -130,9 +129,7 @@ where
         .fold(0.0, |acc, x| if x > acc { x } else { acc })
 }
 
-pub fn orthonormalize<X>(
-    vectors: Vec<Vector<X>>,
-) -> Vec<Vector<X>>
+pub fn orthonormalize<X>(vectors: Vec<Vector<X>>) -> Vec<Vector<X>>
 where
     X: Clone + Ord,
 {
@@ -261,7 +258,7 @@ mod tests {
 
         assert!(max_difference(&result[0], &expected0) < 1e-10);
         assert!(max_difference(&result[1], &expected1) < 1e-10);
-        assert_eq!(rank(result),2);
+        assert_eq!(rank(result), 2);
     }
 
     #[test]
@@ -275,8 +272,6 @@ mod tests {
 
         assert!(max_difference(&result[0], &expected0) < 1e-10);
         assert!(max_difference(&result[1], &expected1) < 1e-10);
-        assert_eq!(rank(result),1);
+        assert_eq!(rank(result), 1);
     }
 }
-
-

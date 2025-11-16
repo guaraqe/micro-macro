@@ -27,8 +27,7 @@ impl State {
     pub fn flush_actions(&mut self) {
         let actions = std::mem::take(&mut self.action_queue);
         for action in actions {
-            let mut effects =
-                actions::update(&mut self.store, action);
+            let mut effects = actions::update(&mut self.store, action);
             self.effect_queue.append(&mut effects);
         }
     }
