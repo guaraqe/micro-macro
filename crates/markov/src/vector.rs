@@ -184,39 +184,6 @@ where
     rank
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_orthonormalize_full() {
-        let v1 = Vector::from_assoc(vec![(0, 5.0), (1, 0.0)]);
-        let v2 = Vector::from_assoc(vec![(0, 4.0), (1, 3.0)]);
-        let result = orthonormalize(vec![v1, v2]);
-
-        let expected0 = Vector::from_assoc(vec![(0, 1.0), (1, 0.0)]);
-        let expected1 = Vector::from_assoc(vec![(0, 0.0), (1, 1.0)]);
-
-        assert!(max_difference(&result[0], &expected0) < 1e-10);
-        assert!(max_difference(&result[1], &expected1) < 1e-10);
-        assert_eq!(rank(result),2);
-    }
-
-    #[test]
-    fn test_orthonormalize_not_full() {
-        let v1 = Vector::from_assoc(vec![(0, 5.0), (1, 0.0)]);
-        let v2 = Vector::from_assoc(vec![(0, 4.0), (1, 0.0)]);
-        let result = orthonormalize(vec![v1, v2]);
-
-        let expected0 = Vector::from_assoc(vec![(0, 1.0), (1, 0.0)]);
-        let expected1 = Vector::from_assoc(vec![(0, 0.0), (1, 0.0)]);
-
-        assert!(max_difference(&result[0], &expected0) < 1e-10);
-        assert!(max_difference(&result[1], &expected1) < 1e-10);
-        assert_eq!(rank(result),1);
-    }
-}
-
 //##########################################################
 // Traits
 //##########################################################
@@ -280,7 +247,6 @@ where
     N: Float + ScalarOperand,
 {
     type Output = Vector<X, N>;
-
     fn mul(self, rhs: N) -> Self::Output {
         Vector {
             ix_map: self.ix_map.clone(),
@@ -295,7 +261,6 @@ where
     N: Float + ScalarOperand,
 {
     type Output = Vector<X, N>;
-
     fn div(self, rhs: N) -> Self::Output {
         Vector {
             ix_map: self.ix_map.clone(),
@@ -303,3 +268,42 @@ where
         }
     }
 }
+
+//##########################################################
+// Tests
+//##########################################################
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_orthonormalize_full() {
+        let v1 = Vector::from_assoc(vec![(0, 5.0), (1, 0.0)]);
+        let v2 = Vector::from_assoc(vec![(0, 4.0), (1, 3.0)]);
+        let result = orthonormalize(vec![v1, v2]);
+
+        let expected0 = Vector::from_assoc(vec![(0, 1.0), (1, 0.0)]);
+        let expected1 = Vector::from_assoc(vec![(0, 0.0), (1, 1.0)]);
+
+        assert!(max_difference(&result[0], &expected0) < 1e-10);
+        assert!(max_difference(&result[1], &expected1) < 1e-10);
+        assert_eq!(rank(result),2);
+    }
+
+    #[test]
+    fn test_orthonormalize_not_full() {
+        let v1 = Vector::from_assoc(vec![(0, 5.0), (1, 0.0)]);
+        let v2 = Vector::from_assoc(vec![(0, 4.0), (1, 0.0)]);
+        let result = orthonormalize(vec![v1, v2]);
+
+        let expected0 = Vector::from_assoc(vec![(0, 1.0), (1, 0.0)]);
+        let expected1 = Vector::from_assoc(vec![(0, 0.0), (1, 0.0)]);
+
+        assert!(max_difference(&result[0], &expected0) < 1e-10);
+        assert!(max_difference(&result[1], &expected1) < 1e-10);
+        assert_eq!(rank(result),1);
+    }
+}
+
+
