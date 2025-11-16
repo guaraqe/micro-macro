@@ -12,16 +12,16 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub enum LayoutSettingChange {
-    NodeRadius(f32),
-    LabelGap(f32),
-    LabelFontSize(f32),
+    NodeRadius(f64),
+    LabelGap(f64),
+    LabelFontSize(f64),
     ShowLabels(bool),
-    EdgeMinWidth(f32),
-    EdgeMaxWidth(f32),
-    CircularBaseRadius(f32),
-    LoopRadius(f32),
-    BipartiteLayerGap(f32),
-    BipartiteNodeGap(f32),
+    EdgeMinWidth(f64),
+    EdgeMaxWidth(f64),
+    CircularBaseRadius(f64),
+    LoopRadius(f64),
+    BipartiteLayerGap(f64),
+    BipartiteNodeGap(f64),
 }
 
 /// Actions that can be dispatched to modify the editor state
@@ -29,7 +29,7 @@ pub enum LayoutSettingChange {
 pub enum Action {
     // State Graph Node Actions
     /// Add a new node to the state graph
-    AddStateNode { name: String, weight: f32 },
+    AddStateNode { name: String, weight: f64 },
     /// Remove a node from the state graph
     RemoveStateNode { node_idx: NodeIndex },
     /// Rename a state graph node
@@ -42,7 +42,7 @@ pub enum Action {
     /// Update the weight of a state graph node
     UpdateStateNodeWeight {
         node_idx: NodeIndex,
-        new_weight: f32,
+        new_weight: f64,
     },
     /// Update the label editor for a state graph node
     UpdateStateNodeLabelEditor { node_idx: NodeIndex, value: String },
@@ -54,7 +54,7 @@ pub enum Action {
     AddStateEdge {
         source_idx: NodeIndex,
         target_idx: NodeIndex,
-        weight: f32,
+        weight: f64,
     },
     /// Remove an edge from the state graph (by edge index)
     RemoveStateEdgeByIndex { edge_idx: EdgeIndex },
@@ -62,7 +62,7 @@ pub enum Action {
     UpdateStateEdgeWeightFromHeatmap {
         source_idx: NodeIndex,
         target_idx: NodeIndex,
-        new_weight: f32,
+        new_weight: f64,
     },
 
     // Observable Graph Actions
@@ -90,7 +90,7 @@ pub enum Action {
     AddObservableEdge {
         source_idx: NodeIndex,
         target_idx: NodeIndex,
-        weight: f32,
+        weight: f64,
     },
     /// Remove a observable edge (by edge index)
     RemoveObservableEdgeByIndex { edge_idx: EdgeIndex },
@@ -98,7 +98,7 @@ pub enum Action {
     UpdateObservableEdgeWeightFromHeatmap {
         source_idx: NodeIndex,
         target_idx: NodeIndex,
-        new_weight: f32,
+        new_weight: f64,
     },
 
     // UI State Actions
@@ -229,8 +229,8 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                     },
                 );
 
-            if let Some(source_idx) = source_node_idx {
-                if let Some(node) = store
+            if let Some(source_idx) = source_node_idx
+                && let Some(node) = store
                     .observable
                     .graph
                     .get_mut()
@@ -239,7 +239,6 @@ pub fn update(store: &mut Store, action: Action) -> Vec<Effect> {
                     node.payload_mut().name = new_name.clone();
                     node.set_label(new_name);
                 }
-            }
 
             vec![]
         }

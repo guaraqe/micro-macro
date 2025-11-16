@@ -4,7 +4,7 @@ use petgraph::stable_graph::NodeIndex;
 pub type HeatmapData = (
     Vec<String>,           // x_labels
     Vec<String>,           // y_labels
-    Vec<Vec<Option<f32>>>, // matrix
+    Vec<Vec<Option<f64>>>, // matrix
     Vec<NodeIndex>,        // x_node_indices
     Vec<NodeIndex>,        // y_node_indices
 );
@@ -18,7 +18,7 @@ const COLOR_SCALE_LABEL_HEIGHT: f32 = 15.0;
 pub struct WeightChange {
     pub source_idx: NodeIndex,
     pub target_idx: NodeIndex,
-    pub new_weight: f32,
+    pub new_weight: f64,
 }
 
 pub struct EditingState {
@@ -27,9 +27,9 @@ pub struct EditingState {
 }
 
 /// Convert a normalized value [0.0, 1.0] to a Viridis color
-fn viridis(t: f32) -> egui::Color32 {
+fn viridis(t: f64) -> egui::Color32 {
     let c =
-        colorous::VIRIDIS.eval_continuous(t.clamp(0.0, 1.0) as f64);
+        colorous::VIRIDIS.eval_continuous(t.clamp(0.0, 1.0));
     egui::Color32::from_rgb(c.r, c.g, c.b)
 }
 
@@ -37,9 +37,9 @@ fn viridis(t: f32) -> egui::Color32 {
 /// Returns black for light backgrounds, white for dark backgrounds
 fn contrasting_text_color(bg: egui::Color32) -> egui::Color32 {
     // Calculate relative luminance using sRGB
-    let r = bg.r() as f32 / 255.0;
-    let g = bg.g() as f32 / 255.0;
-    let b = bg.b() as f32 / 255.0;
+    let r = bg.r() as f64 / 255.0;
+    let g = bg.g() as f64 / 255.0;
+    let b = bg.b() as f64 / 255.0;
 
     // Simplified luminance calculation
     let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
@@ -57,9 +57,9 @@ fn contrasting_text_color(bg: egui::Color32) -> egui::Color32 {
 /// Returns value between 0.0 and 1.0 for the Inferno color gradient
 /// Handles any weight value by finding where it fits in the sorted list
 fn calculate_color_position(
-    weight: f32,
-    sorted_weights: &[f32],
-) -> f32 {
+    weight: f64,
+    sorted_weights: &[f64],
+) -> f64 {
     if sorted_weights.is_empty() {
         return 0.5; // Middle color when no weights
     }
@@ -112,7 +112,7 @@ fn calculate_color_position(
         }
 
         let middle_idx = (first_idx + last_idx) / 2;
-        return middle_idx as f32 / (sorted_weights.len() - 1) as f32;
+        return middle_idx as f64 / (sorted_weights.len() - 1) as f64;
     }
 
     // Weight doesn't match exactly - interpolate position between indices
@@ -124,15 +124,15 @@ fn calculate_color_position(
     // Linear interpolation of the index position
     let ratio =
         (weight - lower_weight) / (upper_weight - lower_weight);
-    let interpolated_idx = lower_idx as f32 + ratio;
+    let interpolated_idx = lower_idx as f64 + ratio;
 
-    interpolated_idx / (sorted_weights.len() - 1) as f32
+    interpolated_idx / (sorted_weights.len() - 1) as f64
 }
 
 /// Render a horizontal color scale showing the Inferno gradient with uniformly spaced weight values
 fn render_color_scale(
     ui: &mut egui::Ui,
-    sorted_weights: &[f32],
+    sorted_weights: &[f64],
     scale_width: f32,
 ) {
     if sorted_weights.is_empty() {
@@ -165,7 +165,7 @@ fn render_color_scale(
             let x = rect_pos.x + t * scale_width;
 
             // Calculate uniform weight value at this position
-            let weight = min_weight + t * (max_weight - min_weight);
+            let weight = min_weight + (t as f64) * (max_weight - min_weight);
 
             // Get color for this weight value by looking up position in sorted list
             let color_t =
@@ -194,7 +194,7 @@ fn render_color_scale(
         ui.painter().add(egui::Shape::mesh(mesh));
 
         // Add tick marks and labels at 5 uniformly spaced weight positions
-        let label_positions = [0.0, 0.25, 0.5, 0.75, 1.0];
+        let label_positions: [f32; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
 
         ui.allocate_space(egui::Vec2::new(
             scale_width,
@@ -205,7 +205,7 @@ fn render_color_scale(
             let x = rect_pos.x + pos * scale_width;
 
             // Calculate uniform weight value at this position
-            let weight = min_weight + pos * (max_weight - min_weight);
+            let weight = min_weight + (pos as f64) * (max_weight - min_weight);
 
             // Draw tick mark
             let tick_top = rect_pos.y + COLOR_SCALE_HEIGHT;
@@ -237,7 +237,7 @@ pub fn show_heatmap(
     ui: &mut egui::Ui,
     x_labels: &[String],
     y_labels: &[String],
-    matrix: &[Vec<Option<f32>>],
+    matrix: &[Vec<Option<f64>>],
     x_node_indices: &[NodeIndex], // Maps x position (columns) to target NodeIndex
     y_node_indices: &[NodeIndex], // Maps y position (rows) to source NodeIndex
     prev_hovered_cell: Option<(usize, usize)>,
@@ -250,7 +250,7 @@ pub fn show_heatmap(
 
     // Collect all non-zero weights for color interpolation
     // Missing edges (None values) are rendered as empty cells
-    let mut sorted_weights: Vec<f32> = matrix
+    let mut sorted_weights: Vec<f64> = matrix
         .iter()
         .flat_map(|row| row.iter())
         .filter_map(|&w| w)
@@ -403,7 +403,7 @@ pub fn show_heatmap(
 
                             // Handle Enter key - commit and exit editing
                             if enter_pressed {
-                                if let Ok(parsed_weight) = new_edit_buffer.parse::<f32>() {
+                                if let Ok(parsed_weight) = new_edit_buffer.parse::<f64>() {
                                     weight_change = Some(WeightChange {
                                         source_idx: y_node_indices[y_idx],
                                         target_idx: x_node_indices[x_idx],
@@ -415,7 +415,7 @@ pub fn show_heatmap(
                             }
                             // Handle Tab key - commit and move to next cell
                             else if tab_pressed {
-                                if let Ok(parsed_weight) = new_edit_buffer.parse::<f32>() {
+                                if let Ok(parsed_weight) = new_edit_buffer.parse::<f64>() {
                                     weight_change = Some(WeightChange {
                                         source_idx: y_node_indices[y_idx],
                                         target_idx: x_node_indices[x_idx],

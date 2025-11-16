@@ -1,5 +1,4 @@
 use ndarray::linalg::Dot;
-use num_traits::Float;
 
 use crate::matrix::Matrix;
 use crate::prob::Prob;
@@ -7,22 +6,18 @@ use crate::vector::max_difference;
 
 /// Row-stochastic Markov kernel
 #[derive(Debug, Clone)]
-pub struct Markov<X, Y, N> {
-    pub matrix: Matrix<X, Y, N>,
+pub struct Markov<X, Y> {
+    pub matrix: Matrix<X, Y>,
 }
 
-impl<X, Y, N> Markov<X, Y, N>
+impl<X, Y> Markov<X, Y>
 where
     X: Ord + Clone,
     Y: Ord + Clone,
-    N: Float + Default,
 {
     pub fn from_matrix(
-        matrix: Matrix<X, Y, N>,
-    ) -> Result<Self, BuildError>
-    where
-        N: std::ops::AddAssign,
-    {
+        matrix: Matrix<X, Y>,
+    ) -> Result<Self, BuildError> {
         let nrows = matrix.x_ix_map.len();
         let ncols = matrix.y_ix_map.len();
 
@@ -30,13 +25,13 @@ where
             return Err(BuildError::EmptyMatrix);
         }
 
-        if matrix.values.data().iter().any(|s| *s < N::zero()) {
+        if matrix.values.data().iter().any(|s| *s < 0.0) {
             return Err(BuildError::NegativeValue);
         }
 
         let row_sums = matrix.get_rows_sums();
 
-        if row_sums.values.iter().any(|s| *s <= N::zero()) {
+        if row_sums.values.iter().any(|s| *s <= 0.0) {
             return Err(BuildError::EmptyRow);
         }
 
@@ -46,15 +41,12 @@ where
     }
 
     /// To matrix
-    pub fn to_matrix(&self) -> &Matrix<X, Y, N> {
+    pub fn to_matrix(&self) -> &Matrix<X, Y> {
         &self.matrix
     }
 
     /// Enumerate all (row_label, col_label, value) triplets.
-    pub fn enumerate(&self) -> impl Iterator<Item = (X, Y, N)> + '_
-    where
-        N: Copy,
-    {
+    pub fn enumerate(&self) -> impl Iterator<Item = (X, Y, f64)> + '_ {
         self.matrix.values.iter().filter_map(
             move |(val, (row_idx, col_idx))| {
                 let row_label =
@@ -68,26 +60,17 @@ where
 }
 
 // Implement equilibrium computation for square matrices (A = B)
-impl<X, N> Markov<X, X, N>
+impl<X> Markov<X, X>
 where
     X: Ord + Clone,
-    N: Float
-        + Default
-        + ndarray::ScalarOperand
-        + 'static
-        + std::ops::AddAssign,
-    for<'r> &'r N: std::ops::Mul<&'r N, Output = N>,
 {
     /// Compute equilibrium distribution using power iteration.
     pub fn compute_equilibrium(
         &self,
-        initial: &Prob<X, N>,
-        tolerance: N,
+        initial: &Prob<X>,
+        tolerance: f64,
         max_iterations: usize,
-    ) -> Prob<X, N>
-    where
-        N: std::iter::Sum,
-    {
+    ) -> Prob<X> {
         let mut current = initial.clone();
 
         for _ in 0..max_iterations {
@@ -105,19 +88,19 @@ where
     }
 
     /// Compute the entropy rate of the Markov chain.
-    pub fn entropy_rate(&self, stationary: &Prob<X, N>) -> N {
+    pub fn entropy_rate(&self, stationary: &Prob<X>) -> f64 {
         let csr = self.matrix.values.to_csr();
-        let mut total = N::zero();
+        let mut total = 0.0;
 
         for i in 0..self.matrix.x_ix_map.len() {
             let pi = stationary.vector.values[i];
-            if pi <= N::zero() {
+            if pi <= 0.0 {
                 continue;
             }
 
             if let Some(row) = csr.outer_view(i) {
                 for &val in row.data().iter() {
-                    if val > N::zero() {
+                    if val > 0.0 {
                         total += pi * val * val.ln();
                     }
                 }
@@ -131,8 +114,8 @@ where
     /// Φ = (1/2) Σ_ij |π_i P_ij - π_j P_ji|
     pub fn detailed_balance_deviation(
         &self,
-        stationary: &Prob<X, N>,
-    ) -> Matrix<X, X, N> {
+        stationary: &Prob<X>,
+    ) -> Matrix<X, X> {
         let transition =
             self.matrix.map_rows(&stationary.vector, |v, p| v * p);
 
@@ -143,33 +126,25 @@ where
 
     pub fn detailed_balance_deviation_sum(
         &self,
-        stationary: &Prob<X, N>,
-    ) -> N
-    where
-        N: Float + std::iter::Sum,
-    {
+        stationary: &Prob<X>,
+    ) -> f64 {
         let matrix = self.detailed_balance_deviation(stationary);
         matrix
             .values
             .iter()
-            .map(|(v, _)| v.abs() / N::from(2.0).unwrap())
+            .map(|(v, _)| v.abs() / 2.0)
             .sum()
     }
 }
 
 // Implement Dot<Markov> for Prob: vector · matrix -> vector
-impl<X, Y, N> Dot<Markov<X, Y, N>> for Prob<X, N>
+impl<X, Y> Dot<Markov<X, Y>> for Prob<X>
 where
     X: Ord,
     Y: Ord + Clone,
-    N: Float
-        + std::ops::AddAssign
-        + std::iter::Sum
-        + ndarray::ScalarOperand,
-    for<'r> &'r N: std::ops::Mul<&'r N, Output = N>,
 {
-    type Output = Prob<Y, N>;
-    fn dot(&self, markov: &Markov<X, Y, N>) -> Prob<Y, N> {
+    type Output = Prob<Y>;
+    fn dot(&self, markov: &Markov<X, Y>) -> Prob<Y> {
         Prob::from_vector(self.vector.dot(&markov.matrix)).unwrap()
     }
 }

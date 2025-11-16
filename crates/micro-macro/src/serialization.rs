@@ -14,7 +14,7 @@ use crate::layout_settings::LayoutSettings;
 // Serialization structures
 // ------------------------------------------------------------------
 
-fn default_weight() -> f32 {
+fn default_weight() -> f64 {
     1.0
 }
 
@@ -22,14 +22,14 @@ fn default_weight() -> f32 {
 pub struct SerializableNode {
     name: String,
     #[serde(default = "default_weight")]
-    weight: f32,
+    weight: f64,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SerializableEdge {
     source: usize,
     target: usize,
-    weight: f32,
+    weight: f64,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -66,10 +66,10 @@ pub struct SerializableState {
 pub fn graph_to_serializable<
     Ty: EdgeType,
     Ix: IndexType,
-    Dn: DisplayNode<StateNode, f32, Ty, Ix>,
-    De: DisplayEdge<StateNode, f32, Ty, Ix, Dn>,
+    Dn: DisplayNode<StateNode, f64, Ty, Ix>,
+    De: DisplayEdge<StateNode, f64, Ty, Ix, Dn>,
 >(
-    graph: &Graph<StateNode, f32, Ty, Ix, Dn, De>,
+    graph: &Graph<StateNode, f64, Ty, Ix, Dn, De>,
 ) -> SerializableGraphState {
     let stable_graph = graph.g();
     let mut nodes = Vec::new();
@@ -128,10 +128,10 @@ pub fn serializable_to_graph(
 pub fn observable_graph_to_serializable<
     Ty: EdgeType,
     Ix: IndexType,
-    Dn: DisplayNode<ObservableNode, f32, Ty, Ix>,
-    De: DisplayEdge<ObservableNode, f32, Ty, Ix, Dn>,
+    Dn: DisplayNode<ObservableNode, f64, Ty, Ix>,
+    De: DisplayEdge<ObservableNode, f64, Ty, Ix, Dn>,
 >(
-    graph: &Graph<ObservableNode, f32, Ty, Ix, Dn, De>,
+    graph: &Graph<ObservableNode, f64, Ty, Ix, Dn, De>,
 ) -> SerializableObservableState {
     let stable_graph = graph.g();
     let mut destination_nodes = Vec::new();

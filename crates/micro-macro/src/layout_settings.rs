@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 /// Common slider metadata so bounds live in one place.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SliderRange {
-    pub min: f32,
-    pub max: f32,
-    pub step: f32,
+    pub min: f64,
+    pub max: f64,
+    pub step: f64,
 }
 
 impl SliderRange {
-    pub const fn new(min: f32, max: f32, step: f32) -> Self {
+    pub const fn new(min: f64, max: f64, step: f64) -> Self {
         Self { min, max, step }
     }
 }
@@ -109,9 +109,9 @@ impl BipartiteTabLayoutSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeVisualSettings {
-    pub node_radius: f32,
-    pub label_gap: f32,
-    pub label_font_size: f32,
+    pub node_radius: f64,
+    pub label_gap: f64,
+    pub label_font_size: f64,
     pub show_labels: bool,
 }
 
@@ -137,8 +137,8 @@ impl NodeVisualSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EdgeThicknessSettings {
-    pub min_width: f32,
-    pub max_width: f32,
+    pub min_width: f64,
+    pub max_width: f64,
 }
 
 impl Default for EdgeThicknessSettings {
@@ -152,32 +152,32 @@ impl Default for EdgeThicknessSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CircularLayoutSettings {
-    pub base_radius: f32,
+    pub base_radius: f64,
     #[serde(default = "CircularLayoutSettings::default_loop_radius")]
-    pub loop_radius: f32,
+    pub loop_radius: f64,
 }
 
 impl CircularLayoutSettings {
-    pub fn new(base_radius: f32) -> Self {
+    pub fn new(base_radius: f64) -> Self {
         Self {
             base_radius,
             loop_radius: Self::default_loop_radius(),
         }
     }
 
-    pub const fn default_loop_radius() -> f32 {
+    pub const fn default_loop_radius() -> f64 {
         3.0
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BipartiteLayoutSettings {
-    pub layer_gap: f32,
-    pub node_gap: f32,
+    pub layer_gap: f64,
+    pub node_gap: f64,
 }
 
 impl BipartiteLayoutSettings {
-    pub fn new(layer_gap: f32, node_gap: f32) -> Self {
+    pub fn new(layer_gap: f64, node_gap: f64) -> Self {
         Self {
             layer_gap,
             node_gap,

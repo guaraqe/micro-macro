@@ -20,7 +20,7 @@ pub trait HasName {
 #[derive(Clone)]
 pub struct StateNode {
     pub name: String,
-    pub weight: f32,
+    pub weight: f64,
 }
 
 impl HasName for StateNode {
@@ -29,7 +29,7 @@ impl HasName for StateNode {
     }
 }
 
-pub type StateGraph = StableGraph<StateNode, f32>;
+pub type StateGraph = StableGraph<StateNode, f64>;
 
 pub fn default_state_graph() -> StateGraph {
     let mut g = StateGraph::new();
@@ -79,7 +79,7 @@ impl HasName for ObservableNode {
     }
 }
 
-pub type ObservableGraph = StableGraph<ObservableNode, f32>;
+pub type ObservableGraph = StableGraph<ObservableNode, f64>;
 
 pub fn default_observable_graph(
     source_graph: &StateGraph,
@@ -126,7 +126,7 @@ pub fn default_observable_graph(
 pub struct ObservedNode {
     pub name: String,
     pub observable_node_idx: NodeIndex,
-    pub weight: f32,
+    pub weight: f64,
 }
 
 impl HasName for ObservedNode {
@@ -135,7 +135,7 @@ impl HasName for ObservedNode {
     }
 }
 
-pub type ObservedGraph = StableGraph<ObservedNode, f32>;
+pub type ObservedGraph = StableGraph<ObservedNode, f64>;
 
 pub fn calculate_observed_graph(
     state_graph: &StateGraphDisplay,
@@ -183,7 +183,7 @@ pub fn calculate_observed_graph(
                             observed_graph.node_mut(obs_idx)
                         {
                             node_mut.payload_mut().weight =
-                                weight as f32;
+                                weight;
                         }
                     }
 
@@ -217,7 +217,7 @@ pub fn calculate_observed_graph(
                             observed_graph.add_edge(
                                 source_idx,
                                 target_idx,
-                                weight as f32,
+                                weight,
                             );
                         }
                     }
@@ -256,7 +256,7 @@ pub fn calculate_observed_graph(
 pub fn calculate_observed_graph_from_observable_display<Dn, De>(
     observable_display: &egui_graphs::Graph<
         ObservableNode,
-        f32,
+        f64,
         petgraph::Directed,
         petgraph::graph::DefaultIx,
         Dn,
@@ -266,13 +266,13 @@ pub fn calculate_observed_graph_from_observable_display<Dn, De>(
 where
     Dn: egui_graphs::DisplayNode<
             ObservableNode,
-            f32,
+            f64,
             petgraph::Directed,
             petgraph::graph::DefaultIx,
         >,
     De: egui_graphs::DisplayEdge<
             ObservableNode,
-            f32,
+            f64,
             petgraph::Directed,
             petgraph::graph::DefaultIx,
             Dn,
@@ -315,9 +315,9 @@ pub enum StatisticsError {
 
 #[derive(Clone)]
 pub struct InputStatistics {
-    pub state_prob: Prob<NodeIndex, f64>,
-    pub state_markov: Markov<NodeIndex, NodeIndex, f64>,
-    pub observable_markov: Markov<NodeIndex, NodeIndex, f64>,
+    pub state_prob: Prob<NodeIndex>,
+    pub state_markov: Markov<NodeIndex, NodeIndex>,
+    pub observable_markov: Markov<NodeIndex, NodeIndex>,
 }
 
 pub fn compute_input_statistics(
@@ -332,7 +332,7 @@ pub fn compute_input_statistics(
     // 2. Build Prob from state node weights
     let state_weights: Vec<(NodeIndex, f64)> = state_graph
         .nodes_iter()
-        .map(|(idx, node)| (idx, node.payload().weight as f64))
+        .map(|(idx, node)| (idx, node.payload().weight))
         .collect();
 
     let state_prob =
@@ -343,7 +343,7 @@ pub fn compute_input_statistics(
     let state_edges: Vec<(NodeIndex, NodeIndex, f64)> = state_g
         .edge_references()
         .map(|e| {
-            (e.source(), e.target(), *e.weight().payload() as f64)
+            (e.source(), e.target(), (*e.weight().payload()))
         })
         .collect();
 
@@ -357,7 +357,7 @@ pub fn compute_input_statistics(
         observable_g
             .edge_references()
             .map(|e| {
-                (e.source(), e.target(), *e.weight().payload() as f64)
+                (e.source(), e.target(), (*e.weight().payload()))
             })
             .collect();
 
@@ -373,15 +373,15 @@ pub fn compute_input_statistics(
 
 #[derive(Clone)]
 pub struct OutputStatistics {
-    pub observed_prob: Prob<NodeIndex, f64>,
-    pub observed_markov: Markov<NodeIndex, NodeIndex, f64>,
+    pub observed_prob: Prob<NodeIndex>,
+    pub observed_markov: Markov<NodeIndex, NodeIndex>,
 }
 
 pub fn compute_output_statistics(
     input_statistics: &InputStatistics,
 ) -> Result<OutputStatistics, StatisticsError> {
     // Compute observed probability: p · F
-    let observed_prob: Prob<NodeIndex, f64> = input_statistics
+    let observed_prob: Prob<NodeIndex> = input_statistics
         .state_prob
         .dot(&input_statistics.observable_markov);
 
@@ -397,7 +397,7 @@ pub fn compute_output_statistics(
 
 pub fn compute_observable_markov(
     statistics: &InputStatistics,
-) -> Result<Markov<NodeIndex, NodeIndex, f64>, StatisticsError> {
+) -> Result<Markov<NodeIndex, NodeIndex>, StatisticsError> {
     // Extract destination observable node indices (columns of observable_markov)
     let dest_nodes: Vec<NodeIndex> =
         (0..statistics.observable_markov.matrix.y_ix_map.len())

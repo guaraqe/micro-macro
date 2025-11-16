@@ -1,36 +1,31 @@
 use ndarray::linalg::Dot;
-use num_traits::Float;
 
 use crate::vector::Vector;
 
 /// Probability vector with a bidirectional map for labels X.
 #[derive(Debug, Clone)]
-pub struct Prob<X, N> {
-    pub vector: Vector<X, N>,
+pub struct Prob<X> {
+    pub vector: Vector<X>,
 }
 
-impl<X, N> Prob<X, N>
+impl<X> Prob<X>
 where
     X: Ord + Clone,
-    N: Float,
 {
     pub fn from_vector(
-        vector: Vector<X, N>,
-    ) -> Result<Self, BuildError>
-    where
-        N: std::iter::Sum + ndarray::ScalarOperand,
-    {
+        vector: Vector<X>,
+    ) -> Result<Self, BuildError> {
         if vector.is_empty() {
             return Err(BuildError::Empty);
         }
 
-        let has_negative = vector.values().any(|x| *x < N::zero());
+        let has_negative = vector.values().any(|x| *x < 0.0);
         if has_negative {
             return Err(BuildError::NegativeValue);
         }
 
-        let sum = vector.values().copied().sum();
-        if sum == N::zero() {
+        let sum: f64 = vector.values().copied().sum();
+        if sum == 0.0 {
             return Err(BuildError::ZeroSum);
         }
 
@@ -41,56 +36,52 @@ where
     }
 
     /// To vector
-    pub fn to_vector(&self) -> &Vector<X, N> {
+    pub fn to_vector(&self) -> &Vector<X> {
         &self.vector
     }
 
     /// Get P[X = x] if `x` is known; otherwise None.
-    pub fn prob(&self, x: &X) -> Option<N> {
+    pub fn prob(&self, x: &X) -> Option<f64> {
         self.vector.get(x)
     }
 
     /// Convert to a Vector.
-    pub fn to_vec(&self) -> crate::vector::Vector<X, N> {
+    pub fn to_vec(&self) -> crate::vector::Vector<X> {
         self.vector.clone()
     }
 
     /// Enumerate all (label, probability) pairs.
-    pub fn enumerate(&self) -> impl Iterator<Item = (X, N)> + '_
-    where
-        N: Copy,
-    {
+    pub fn enumerate(&self) -> impl Iterator<Item = (X, f64)> + '_ {
         self.vector.enumerate()
     }
 
     /// Compute Shannon entropy using natural logarithm.
-    pub fn entropy(&self) -> N {
+    pub fn entropy(&self) -> f64 {
         self.vector
             .values()
             .map(|&p| {
-                if p > N::zero() {
+                if p > 0.0 {
                     -(p * p.ln())
                 } else {
-                    N::zero()
+                    0.0
                 }
             })
-            .fold(N::zero(), |acc, x| acc + x)
+            .fold(0.0, |acc, x| acc + x)
     }
 
     /// Compute the effective number of states.
-    pub fn effective_states(&self) -> N {
+    pub fn effective_states(&self) -> f64 {
         self.entropy().exp()
     }
 }
 
 // Implement Dot<Prob> for Prob: vector · vector -> scalar
-impl<X, N> Dot<Prob<X, N>> for Prob<X, N>
+impl<X> Dot<Prob<X>> for Prob<X>
 where
     X: Ord + Clone + std::fmt::Debug,
-    N: Float + Default + ndarray::ScalarOperand + 'static,
 {
-    type Output = N;
-    fn dot(&self, rhs: &Prob<X, N>) -> N {
+    type Output = f64;
+    fn dot(&self, rhs: &Prob<X>) -> f64 {
         self.vector.dot(&rhs.vector)
     }
 }

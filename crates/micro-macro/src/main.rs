@@ -180,7 +180,7 @@ fn render_probability_chart(
     });
 }
 
-type NodeConnections = (Vec<(String, f32)>, Vec<(String, f32)>);
+type NodeConnections = (Vec<(String, f64)>, Vec<(String, f64)>);
 
 impl State {
     fn render_state_validation_panel(
@@ -285,9 +285,9 @@ impl State {
     ) -> NodeConnections
     where
         N: Clone + graph_state::HasName,
-        D: DisplayNode<N, f32, Directed, DefaultIx>,
+        D: DisplayNode<N, f64, Directed, DefaultIx>,
     {
-        let incoming: Vec<(String, f32)> = graph
+        let incoming: Vec<(String, f64)> = graph
             .edges_directed(node_idx, petgraph::Direction::Incoming)
             .map(|edge_ref| {
                 let other_idx = edge_ref.source();
@@ -300,7 +300,7 @@ impl State {
             })
             .collect();
 
-        let outgoing: Vec<(String, f32)> = graph
+        let outgoing: Vec<(String, f64)> = graph
             .edges_directed(node_idx, petgraph::Direction::Outgoing)
             .map(|edge_ref| {
                 let other_idx = edge_ref.target();
@@ -1976,8 +1976,8 @@ impl State {
 
     fn connections_widget(
         ui: &mut egui::Ui,
-        incoming: Vec<(String, f32)>,
-        outgoing: Vec<(String, f32)>,
+        incoming: Vec<(String, f64)>,
+        outgoing: Vec<(String, f64)>,
     ) {
         if !incoming.is_empty() {
             ui.label(format!("Incoming ({}):", incoming.len()));
@@ -2233,9 +2233,9 @@ impl State {
         ui: &mut egui::Ui,
         tab: ActiveTab,
         label: &str,
-        value: f32,
+        value: f64,
         range: layout_settings::SliderRange,
-        change: impl Fn(f32) -> actions::LayoutSettingChange,
+        change: impl Fn(f64) -> actions::LayoutSettingChange,
         requires_layout_reset: bool,
     ) {
         let mut slider_value = value;
@@ -2245,7 +2245,7 @@ impl State {
                 range.min..=range.max,
             )
             .text(label)
-            .step_by(range.step as f64),
+            .step_by(range.step),
         );
         if response.changed() {
             self.dispatch(actions::Action::UpdateLayoutSetting {

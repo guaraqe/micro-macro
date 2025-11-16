@@ -73,7 +73,7 @@ impl Order {
         N: Clone,
         D: egui_graphs::DisplayNode<
                 N,
-                f32,
+                f64,
                 petgraph::Directed,
                 petgraph::graph::DefaultIx,
             >,
@@ -89,14 +89,14 @@ impl Order {
 
 pub struct ProbabilityChart {
     pub labels: HashMap<NodeIndex, String>,
-    pub distribution: Prob<NodeIndex, f64>,
+    pub distribution: Prob<NodeIndex>,
     pub entropy: f64,
     pub effective_states: f64,
 }
 
 impl ProbabilityChart {
     pub fn new(
-        distribution: Prob<NodeIndex, f64>,
+        distribution: Prob<NodeIndex>,
         mut labels: HashMap<NodeIndex, String>,
     ) -> Self {
         if labels.is_empty() {
@@ -126,7 +126,7 @@ impl ProbabilityChart {
 pub struct StateData {
     pub order: Order,
     pub heatmap: HeatmapData,
-    pub sorted_weights: Vec<f32>,
+    pub sorted_weights: Vec<f64>,
     pub weight_distribution: ProbabilityChart,
     pub equilibrium_distribution: Option<ProbabilityChart>,
     pub entropy_rate: Option<f64>,
@@ -137,7 +137,7 @@ pub struct StateData {
 /// Combined observable data that is calculated together to ensure consistency
 pub struct ObservableData {
     pub heatmap: HeatmapData,
-    pub sorted_weights: Vec<f32>,
+    pub sorted_weights: Vec<f64>,
     pub validation_errors: Vec<ObservableValidationIssue>,
 }
 
@@ -146,7 +146,7 @@ pub struct ObservedData {
     pub order: Order,
     pub graph: ObservedGraphDisplay,
     pub heatmap: HeatmapData,
-    pub sorted_weights: Vec<f32>,
+    pub sorted_weights: Vec<f64>,
     pub weight_distribution: ProbabilityChart,
     pub equilibrium_from_state: Option<ProbabilityChart>,
     pub equilibrium_calculated: Option<ProbabilityChart>,
@@ -272,7 +272,7 @@ impl Cache {
                                         name == &node.payload().name
                                     })
                                     .map(|(_, weight)| {
-                                        (idx, *weight as f64)
+                                        (idx, (*weight))
                                     })
                             })
                             .collect();
@@ -416,7 +416,7 @@ impl Cache {
                 let heatmap = s.observed_heatmap_from_graph(&graph);
 
                 // Collect sorted weights from the graph we just created
-                let mut weights: Vec<f32> = graph
+                let mut weights: Vec<f64> = graph
                     .edges_iter()
                     .map(|(_, edge)| *edge.payload())
                     .collect();
@@ -440,7 +440,7 @@ impl Cache {
                         .map(|(_, node)| {
                             (
                                 node.payload().observable_node_idx,
-                                node.payload().weight as f64,
+                                node.payload().weight,
                             )
                         })
                         .collect();

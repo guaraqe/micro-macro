@@ -17,32 +17,32 @@ use petgraph::stable_graph::{IndexType, StableGraph};
 use petgraph::{Directed, EdgeType};
 use std::sync::RwLock;
 
-static EDGE_THICKNESS_BOUNDS: Lazy<RwLock<(f32, f32)>> =
+static EDGE_THICKNESS_BOUNDS: Lazy<RwLock<(f64, f64)>> =
     Lazy::new(|| RwLock::new((1.0, 3.0)));
-static LOOP_RADIUS: Lazy<RwLock<f32>> =
+static LOOP_RADIUS: Lazy<RwLock<f64>> =
     Lazy::new(|| RwLock::new(3.0));
 
-fn edge_thickness_bounds() -> (f32, f32) {
+fn edge_thickness_bounds() -> (f64, f64) {
     *EDGE_THICKNESS_BOUNDS.read().unwrap()
 }
 
-fn edge_thickness_default() -> f32 {
+fn edge_thickness_default() -> f64 {
     let (min, max) = edge_thickness_bounds();
     (min + max) * 0.5
 }
 
-pub fn set_edge_thickness_bounds(min: f32, max: f32) {
+pub fn set_edge_thickness_bounds(min: f64, max: f64) {
     let mut guard = EDGE_THICKNESS_BOUNDS.write().unwrap();
     let clamped_min = min.min(max);
     let clamped_max = max.max(clamped_min);
     *guard = (clamped_min, clamped_max);
 }
 
-fn loop_radius_value() -> f32 {
+fn loop_radius_value() -> f64 {
     *LOOP_RADIUS.read().unwrap()
 }
 
-pub fn set_loop_radius(radius: f32) {
+pub fn set_loop_radius(radius: f64) {
     let mut guard = LOOP_RADIUS.write().unwrap();
     *guard = radius.max(0.1);
 }
@@ -52,15 +52,15 @@ pub fn set_loop_radius(radius: f32) {
 // ------------------------------------------------------------------
 
 pub type GraphDisplay<N, D> =
-    Graph<N, f32, Directed, DefaultIx, D, WeightedEdgeShape>;
+    Graph<N, f64, Directed, DefaultIx, D, WeightedEdgeShape>;
 
 pub fn setup_graph_display<N, D>(
-    g: &StableGraph<N, f32>,
+    g: &StableGraph<N, f64>,
 ) -> GraphDisplay<N, D>
 where
     N: Clone,
     N: HasName,
-    D: DisplayNode<N, f32, Directed, DefaultIx>,
+    D: DisplayNode<N, f64, Directed, DefaultIx>,
 {
     let mut graph: GraphDisplay<N, D> = GraphDisplay::from(g);
     // Set labels and size for all nodes
@@ -81,19 +81,19 @@ where
 }
 
 pub fn setup_state_graph_display(
-    g: &StableGraph<StateNode, f32>,
+    g: &StableGraph<StateNode, f64>,
 ) -> StateGraphDisplay {
     setup_graph_display::<StateNode, CircularNodeShape>(g)
 }
 
 pub fn setup_observable_graph_display(
-    g: &StableGraph<ObservableNode, f32>,
+    g: &StableGraph<ObservableNode, f64>,
 ) -> ObservableGraphDisplay {
     setup_graph_display::<ObservableNode, BipartiteNodeShape>(g)
 }
 
 pub fn setup_observed_graph_display(
-    g: &StableGraph<ObservedNode, f32>,
+    g: &StableGraph<ObservedNode, f64>,
 ) -> ObservedGraphDisplay {
     setup_graph_display::<ObservedNode, CircularNodeShape>(g)
 }
@@ -115,7 +115,7 @@ pub type ObservedGraphDisplay =
 pub type StateGraphView<'a> = GraphView<
     'a,
     StateNode,
-    f32,
+    f64,
     Directed,
     DefaultIx,
     CircularNodeShape,
@@ -127,7 +127,7 @@ pub type StateGraphView<'a> = GraphView<
 pub type ObservableGraphView<'a> = GraphView<
     'a,
     ObservableNode,
-    f32,
+    f64,
     Directed,
     DefaultIx,
     BipartiteNodeShape,
@@ -139,7 +139,7 @@ pub type ObservableGraphView<'a> = GraphView<
 pub type ObservedGraphView<'a> = GraphView<
     'a,
     ObservedNode,
-    f32,
+    f64,
     Directed,
     DefaultIx,
     CircularNodeShape,
@@ -164,9 +164,9 @@ pub type ObservedGraphView<'a> = GraphView<
 /// - If only one weight in list, return 3.0 (middle thickness)
 /// - For duplicate weights, use averaged position
 fn calculate_edge_thickness(
-    weight: f32,
-    sorted_weights: &[f32],
-) -> f32 {
+    weight: f64,
+    sorted_weights: &[f64],
+) -> f64 {
     let (min_width, max_width) = edge_thickness_bounds();
     if sorted_weights.is_empty() {
         return edge_thickness_default();
@@ -201,7 +201,7 @@ fn calculate_edge_thickness(
 
     // Interpolate between configured min/max
     let n = sorted_weights.len();
-    let ratio = middle_idx as f32 / (n - 1) as f32;
+    let ratio = middle_idx as f64 / (n - 1) as f64;
     min_width + (max_width - min_width) * ratio
 }
 
@@ -209,17 +209,17 @@ fn calculate_edge_thickness(
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct WeightedEdgeShape {
     default_impl: DefaultEdgeShape,
-    weight: f32,
+    weight: f64,
     #[serde(skip)]
-    sorted_weights: Vec<f32>,
+    sorted_weights: Vec<f64>,
 }
 
-impl From<EdgeProps<f32>> for WeightedEdgeShape {
-    fn from(props: EdgeProps<f32>) -> Self {
+impl From<EdgeProps<f64>> for WeightedEdgeShape {
+    fn from(props: EdgeProps<f64>) -> Self {
         let weight = props.payload;
         let mut default_impl = DefaultEdgeShape::from(props);
         // Initialize with middle thickness - will be updated with global weights later
-        default_impl.width = edge_thickness_default();
+        default_impl.width = edge_thickness_default() as f32;
         Self {
             default_impl,
             weight,
@@ -232,13 +232,13 @@ impl<
     N: Clone,
     Ty: EdgeType,
     Ix: IndexType,
-    D: DisplayNode<N, f32, Ty, Ix>,
-> DisplayEdge<N, f32, Ty, Ix, D> for WeightedEdgeShape
+    D: DisplayNode<N, f64, Ty, Ix>,
+> DisplayEdge<N, f64, Ty, Ix, D> for WeightedEdgeShape
 {
     fn is_inside(
         &self,
-        start: &Node<N, f32, Ty, Ix, D>,
-        end: &Node<N, f32, Ty, Ix, D>,
+        start: &Node<N, f64, Ty, Ix, D>,
+        end: &Node<N, f64, Ty, Ix, D>,
         pos: egui::Pos2,
     ) -> bool {
         self.default_impl.is_inside(start, end, pos)
@@ -246,11 +246,11 @@ impl<
 
     fn shapes(
         &mut self,
-        start: &Node<N, f32, Ty, Ix, D>,
-        end: &Node<N, f32, Ty, Ix, D>,
+        start: &Node<N, f64, Ty, Ix, D>,
+        end: &Node<N, f64, Ty, Ix, D>,
         ctx: &DrawContext,
     ) -> Vec<egui::Shape> {
-        self.default_impl.loop_size = loop_radius_value();
+        self.default_impl.loop_size = loop_radius_value() as f32;
         let mut shapes = self.default_impl.shapes(start, end, ctx);
         if start.id() == end.id() {
             shapes = self.rotate_loop_shapes(start, ctx, shapes);
@@ -258,14 +258,14 @@ impl<
         shapes
     }
 
-    fn update(&mut self, state: &EdgeProps<f32>) {
+    fn update(&mut self, state: &EdgeProps<f64>) {
         self.weight = state.payload;
         // Recalculate width using global weight distribution
         self.default_impl.width = calculate_edge_thickness(
             self.weight,
             &self.sorted_weights,
-        );
-        DisplayEdge::<N, f32, Ty, Ix, D>::update(
+        ) as f32;
+        DisplayEdge::<N, f64, Ty, Ix, D>::update(
             &mut self.default_impl,
             state,
         );
@@ -273,8 +273,8 @@ impl<
 
     fn extra_bounds(
         &self,
-        start: &Node<N, f32, Ty, Ix, D>,
-        end: &Node<N, f32, Ty, Ix, D>,
+        start: &Node<N, f64, Ty, Ix, D>,
+        end: &Node<N, f64, Ty, Ix, D>,
     ) -> Option<(egui::Pos2, egui::Pos2)> {
         if start.id() == end.id() {
             return Some(self.loop_extra_bounds(start));
@@ -288,10 +288,10 @@ impl WeightedEdgeShape {
         N: Clone,
         Ty: EdgeType,
         Ix: IndexType,
-        D: DisplayNode<N, f32, Ty, Ix>,
+        D: DisplayNode<N, f64, Ty, Ix>,
     >(
         &self,
-        node: &Node<N, f32, Ty, Ix, D>,
+        node: &Node<N, f64, Ty, Ix, D>,
         ctx: &DrawContext,
         shapes: Vec<egui::Shape>,
     ) -> Vec<egui::Shape> {
@@ -310,7 +310,7 @@ impl WeightedEdgeShape {
         let base = Vec2::new(0.0, -1.0);
         let angle = Self::signed_angle(base, radial);
 
-        if angle.abs() < f32::EPSILON {
+        if angle.abs() < f64::EPSILON {
             return shapes;
         }
 
@@ -329,7 +329,7 @@ impl WeightedEdgeShape {
     fn rotate_shape_about(
         shape: Shape,
         center: Pos2,
-        angle: f32,
+        angle: f64,
     ) -> Shape {
         match shape {
             Shape::CubicBezier(mut cubic) => {
@@ -356,21 +356,23 @@ impl WeightedEdgeShape {
         }
     }
 
-    fn rotate_point(point: Pos2, center: Pos2, angle: f32) -> Pos2 {
+    fn rotate_point(point: Pos2, center: Pos2, angle: f64) -> Pos2 {
         let offset = point - center;
         let rotated = Self::rotate_vec(offset, angle);
         center + rotated
     }
 
-    fn rotate_vec(vec: Vec2, angle: f32) -> Vec2 {
+    fn rotate_vec(vec: Vec2, angle: f64) -> Vec2 {
         let (sin, cos) = angle.sin_cos();
+        let sin = sin as f32;
+        let cos = cos as f32;
         Vec2::new(
             vec.x * cos - vec.y * sin,
             vec.x * sin + vec.y * cos,
         )
     }
 
-    fn signed_angle(from: Vec2, to: Vec2) -> f32 {
+    fn signed_angle(from: Vec2, to: Vec2) -> f64 {
         let from_n = if from.length_sq() < f32::EPSILON {
             Vec2::ZERO
         } else {
@@ -386,7 +388,7 @@ impl WeightedEdgeShape {
         } else {
             let det = from_n.x * to_n.y - from_n.y * to_n.x;
             let dot = from_n.dot(to_n);
-            det.atan2(dot)
+            det.atan2(dot) as f64
         }
     }
 
@@ -394,14 +396,14 @@ impl WeightedEdgeShape {
         N: Clone,
         Ty: EdgeType,
         Ix: IndexType,
-        D: DisplayNode<N, f32, Ty, Ix>,
+        D: DisplayNode<N, f64, Ty, Ix>,
     >(
         &self,
-        node: &Node<N, f32, Ty, Ix, D>,
+        node: &Node<N, f64, Ty, Ix, D>,
     ) -> (Pos2, Pos2) {
         let radius = node_size(node, Vec2::new(1.0, 0.0));
         let order = self.default_impl.order as f32;
-        let loop_extent = radius * (loop_radius_value() + order);
+        let loop_extent = radius * (loop_radius_value() as f32 + order);
         let max_offset = loop_extent + radius;
         let center = node.location();
         let min =
@@ -419,10 +421,10 @@ impl WeightedEdgeShape {
 /// 2. Recalculates edge widths based on global weight distribution
 pub fn update_edge_thicknesses<N, D>(
     graph: &mut GraphDisplay<N, D>,
-    sorted_weights: Vec<f32>,
+    sorted_weights: Vec<f64>,
 ) where
     N: Clone,
-    D: DisplayNode<N, f32, Directed, DefaultIx>,
+    D: DisplayNode<N, f64, Directed, DefaultIx>,
 {
     // Get all edge indices first (to avoid borrowing issues)
     let edge_indices: Vec<_> =
@@ -438,7 +440,7 @@ pub fn update_edge_thicknesses<N, D>(
             // Recalculate width
             let weight = edge.display().weight;
             edge.display_mut().default_impl.width =
-                calculate_edge_thickness(weight, &sorted_weights);
+                calculate_edge_thickness(weight, &sorted_weights) as f32;
         }
     }
 }

@@ -123,8 +123,8 @@ impl NumberEditor {
 
     pub fn parse(
         &mut self,
-    ) -> Result<f32, std::num::ParseFloatError> {
-        self.value.parse::<f32>()
+    ) -> Result<f64, std::num::ParseFloatError> {
+        self.value.parse::<f64>()
     }
 }
 
@@ -354,11 +354,11 @@ impl Store {
         compute_generic_heatmap_data(observed)
     }
 
-    pub fn state_sorted_weights_uncached(&self) -> Vec<f32> {
+    pub fn state_sorted_weights_uncached(&self) -> Vec<f64> {
         collect_sorted_weights_from_display(self.state.graph.get())
     }
 
-    pub fn observable_sorted_weights_uncached(&self) -> Vec<f32> {
+    pub fn observable_sorted_weights_uncached(&self) -> Vec<f64> {
         collect_sorted_weights_from_display(
             self.observable.graph.get(),
         )
@@ -367,7 +367,7 @@ impl Store {
     // observed_sorted_weights_uncached removed - now collected directly from cached observed_graph
     // This eliminates redundant recalculation of the entire observed graph
 
-    pub fn state_node_weight_stats(&self) -> Vec<(String, f32)> {
+    pub fn state_node_weight_stats(&self) -> Vec<(String, f64)> {
         collect_state_node_weights(self.state.graph.get())
     }
 }
@@ -377,7 +377,7 @@ fn compute_generic_heatmap_data<N, D>(
 ) -> HeatmapData
 where
     N: Clone + HasName,
-    D: DisplayNode<N, f32, Directed, DefaultIx>,
+    D: DisplayNode<N, f64, Directed, DefaultIx>,
 {
     let mut nodes: Vec<_> = graph
         .nodes_iter()
@@ -486,12 +486,12 @@ fn compute_observable_heatmap_data(
 
 fn collect_sorted_weights_from_display<N, D>(
     graph: &graph_view::GraphDisplay<N, D>,
-) -> Vec<f32>
+) -> Vec<f64>
 where
     N: Clone,
-    D: DisplayNode<N, f32, Directed, DefaultIx>,
+    D: DisplayNode<N, f64, Directed, DefaultIx>,
 {
-    let mut weights: Vec<f32> = graph
+    let mut weights: Vec<f64> = graph
         .edges_iter()
         .map(|(_, edge)| *edge.payload())
         .collect();
@@ -504,8 +504,8 @@ where
 
 fn collect_state_node_weights(
     graph: &StateGraphDisplay,
-) -> Vec<(String, f32)> {
-    let mut pairs: Vec<(String, f32)> = graph
+) -> Vec<(String, f64)> {
+    let mut pairs: Vec<(String, f64)> = graph
         .nodes_iter()
         .map(|(_, node)| {
             let payload = node.payload();
@@ -514,7 +514,7 @@ fn collect_state_node_weights(
         .collect();
 
     // Normalize weights to probabilities
-    let total: f32 = pairs.iter().map(|(_, w)| w).sum();
+    let total: f64 = pairs.iter().map(|(_, w)| w).sum();
     if total > 0.0 {
         for (_, weight) in &mut pairs {
             *weight /= total;

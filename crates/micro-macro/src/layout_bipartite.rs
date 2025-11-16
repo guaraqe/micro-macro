@@ -65,9 +65,9 @@ impl LayoutState for LayoutStateBipartite {}
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct BipartiteSpacingConfig {
     /// Vertical spacing between nodes within a column
-    pub node_gap: f32,
+    pub node_gap: f64,
     /// Distance between Source and Destination columns
-    pub layer_gap: f32,
+    pub layer_gap: f64,
 }
 
 impl Default for BipartiteSpacingConfig {
@@ -152,23 +152,23 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
         let center_y = rect.center().y;
 
         let spacing = &self.state.spacing;
-        let half_layer = (spacing.layer_gap.max(40.0)) / 2.0;
+        let half_layer = ((spacing.layer_gap.max(40.0)) / 2.0) as f32;
         let source_x = center_x - half_layer;
         let dest_x = center_x + half_layer;
 
         place_column(
             g,
             &source_nodes,
-            source_x,
-            center_y,
+            source_x as f64,
+            center_y as f64,
             spacing.node_gap.max(5.0),
         );
 
         place_column(
             g,
             &dest_nodes,
-            dest_x,
-            center_y,
+            dest_x as f64,
+            center_y as f64,
             spacing.node_gap.max(5.0),
         );
 
@@ -183,9 +183,9 @@ impl Layout<LayoutStateBipartite> for LayoutBipartite {
 fn place_column<N, E, Ty, Ix, Dn, De>(
     g: &mut Graph<N, E, Ty, Ix, Dn, De>,
     nodes: &[(NodeIndex<Ix>, String)],
-    x: f32,
-    center_y: f32,
-    spacing: f32,
+    x: f64,
+    center_y: f64,
+    spacing: f64,
 ) where
     N: Clone,
     E: Clone,
@@ -197,12 +197,12 @@ fn place_column<N, E, Ty, Ix, Dn, De>(
     if nodes.is_empty() {
         return;
     }
-    let count = nodes.len() as f32;
+    let count = nodes.len() as f64;
     let start_y = center_y - ((count - 1.0) * spacing) / 2.0;
     for (i, (node_idx, _)) in nodes.iter().enumerate() {
         if let Some(node) = g.node_mut(*node_idx) {
-            let y = start_y + (i as f32) * spacing;
-            node.set_location(egui::Pos2::new(x, y));
+            let y = start_y + (i as f64) * spacing;
+            node.set_location(egui::Pos2::new(x as f32, y as f32));
         }
     }
 }

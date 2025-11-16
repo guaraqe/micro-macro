@@ -1,9 +1,10 @@
-use ndarray::{linalg::Dot, Array1, ScalarOperand};
-use num_traits::Float;
+use ndarray::{linalg::Dot, Array1};
 use std::collections::BTreeMap;
-use std::ops::{Add, AddAssign, Div, Mul, Sub};
+use std::ops::{Add, Div, Mul, Sub};
+use std::rc::Rc;
 
 use crate::ix_map::IxMap;
+
 
 //##########################################################
 // Struct
@@ -11,29 +12,25 @@ use crate::ix_map::IxMap;
 
 /// Vector with a bidirectional map for labels X.
 #[derive(Debug, Clone)]
-pub struct Vector<X, N> {
-    pub values: Array1<N>,
-    pub ix_map: IxMap<X>,
+pub struct Vector<X> {
+    pub values: Array1<f64>,
+    pub ix_map: Rc<IxMap<X>>,
 }
 
 //##########################################################
 // Impls
 //##########################################################
 
-impl<X, N> Vector<X, N>
+impl<X> Vector<X>
 where
     X: Ord + Clone,
-    N: Float,
 {
     // Build from an association list
-    pub fn from_assoc(assoc: impl IntoIterator<Item = (X, N)>) -> Self
-    where
-        N: AddAssign,
-    {
-        let mut map: BTreeMap<X, N> = BTreeMap::new();
+    pub fn from_assoc(assoc: impl IntoIterator<Item = (X, f64)>) -> Self {
+        let mut map: BTreeMap<X, f64> = BTreeMap::new();
 
         for (x, n) in assoc.into_iter() {
-            *map.entry(x).or_insert(N::zero()) += n;
+            *map.entry(x).or_insert(0.0) += n;
         }
 
         let size = map.len();
@@ -47,18 +44,15 @@ where
 
         let ix_map = IxMap::from_distinct_sorted(keys);
 
-        Self { values, ix_map }
+        Self { values, ix_map: Rc::new(ix_map) }
     }
 
     // Build from an manual association list
     pub fn unsafe_from_assoc<'a>(
-        ix_map: &IxMap<X>,
+        ix_map: &Rc<IxMap<X>>,
         ixes: impl IntoIterator<Item = &'a usize>,
-        vals: impl IntoIterator<Item = &'a N>,
-    ) -> Self
-    where
-        N: 'a,
-    {
+        vals: impl IntoIterator<Item = &'a f64>,
+    ) -> Self {
         let mut values = Array1::zeros(ix_map.len());
 
         for (r, v) in ixes.into_iter().zip(vals.into_iter()) {
@@ -82,7 +76,7 @@ where
     }
 
     /// Get value at label x if `x` is known; otherwise None.
-    pub fn get(&self, x: &X) -> Option<N> {
+    pub fn get(&self, x: &X) -> Option<f64> {
         self.ix_map
             .index_of(x)
             .and_then(|i| self.values.get(i))
@@ -92,24 +86,18 @@ where
     // Map each value, mutably
     pub fn mapv_inplace<F>(&mut self, f: F)
     where
-        F: FnMut(N) -> N,
+        F: FnMut(f64) -> f64,
     {
         self.values.mapv_inplace(f);
     }
 
     /// Enumerate all values.
-    pub fn values(&self) -> impl Iterator<Item = &N> + '_
-    where
-        N: Copy,
-    {
+    pub fn values(&self) -> impl Iterator<Item = &f64> + '_ {
         self.values.iter()
     }
 
     /// Enumerate all (label, value) pairs.
-    pub fn enumerate(&self) -> impl Iterator<Item = (X, N)> + '_
-    where
-        N: Copy,
-    {
+    pub fn enumerate(&self) -> impl Iterator<Item = (X, f64)> + '_ {
         (0..self.values.len()).filter_map(move |i| {
             self.ix_map
                 .value_of(i)
@@ -117,19 +105,13 @@ where
         })
     }
 
-    pub fn norm(&self) -> N
-    where
-        N: Float + std::iter::Sum,
-    {
-        self.values.iter().map(|x| *x * *x).sum::<N>().sqrt()
+    pub fn norm(&self) -> f64 {
+        self.values.iter().map(|x| *x * *x).sum::<f64>().sqrt()
     }
 
-    pub fn normalize(&mut self)
-    where
-        N: Float + std::iter::Sum,
-    {
+    pub fn normalize(&mut self) {
         let norm = self.norm();
-        if norm == N::zero() {
+        if norm == 0.0 {
             return;
         }
         self.mapv_inplace(|x| x / norm)
@@ -137,30 +119,28 @@ where
 }
 
 /// Compute the maximum absolute difference between two vectors.
-pub fn max_difference<X, N>(v1: &Vector<X, N>, v2: &Vector<X, N>) -> N
+pub fn max_difference<X>(v1: &Vector<X>, v2: &Vector<X>) -> f64
 where
     X: Clone + Ord,
-    N: Float,
 {
     let pairs = v1.values().zip(v2.values());
 
     pairs
         .map(|(a, b)| (*a - *b).abs())
-        .fold(N::zero(), |acc, x| if x > acc { x } else { acc })
+        .fold(0.0, |acc, x| if x > acc { x } else { acc })
 }
 
-pub fn orthonormalize<X, N>(
-    vectors: Vec<Vector<X, N>>,
-) -> Vec<Vector<X, N>>
+pub fn orthonormalize<X>(
+    vectors: Vec<Vector<X>>,
+) -> Vec<Vector<X>>
 where
     X: Clone + Ord,
-    N: Clone + Float + std::iter::Sum + ndarray::ScalarOperand,
 {
-    let mut bases: Vec<Vector<X, N>> = Vec::new();
+    let mut bases: Vec<Vector<X>> = Vec::new();
     for vector in vectors.iter() {
-        let mut result: Vector<X, N> = vector.clone();
+        let mut result: Vector<X> = vector.clone();
         for base in bases.iter() {
-            let proj: N = result.dot(base);
+            let proj: f64 = result.dot(base);
             result = &result - &(base * proj);
         }
         result.normalize();
@@ -169,15 +149,14 @@ where
     bases
 }
 
-pub fn rank<X, N>(vectors: Vec<Vector<X, N>>) -> usize
+pub fn rank<X>(vectors: Vec<Vector<X>>) -> usize
 where
     X: Clone + Ord,
-    N: Clone + Float + std::iter::Sum + ndarray::ScalarOperand,
 {
     let mut rank = 0;
     let bases = orthonormalize(vectors);
     for base in bases.iter() {
-        if base.norm() > N::from(1e-10).unwrap() {
+        if base.norm() > 1e-10 {
             rank += 1;
         }
     }
@@ -188,24 +167,22 @@ where
 // Traits
 //##########################################################
 
-impl<X, N> Dot<Vector<X, N>> for Vector<X, N>
+impl<X> Dot<Vector<X>> for Vector<X>
 where
     X: Ord,
-    N: Float + ndarray::ScalarOperand,
 {
-    type Output = N;
-    fn dot(&self, rhs: &Vector<X, N>) -> N {
+    type Output = f64;
+    fn dot(&self, rhs: &Vector<X>) -> f64 {
         self.values.dot(&rhs.values)
     }
 }
 
-impl<'a, 'b, X, N> Add<&'b Vector<X, N>> for &'a Vector<X, N>
+impl<'b, X> Add<&'b Vector<X>> for &Vector<X>
 where
     X: Clone,
-    N: Float,
 {
-    type Output = Vector<X, N>;
-    fn add(self, rhs: &'b Vector<X, N>) -> Self::Output {
+    type Output = Vector<X>;
+    fn add(self, rhs: &'b Vector<X>) -> Self::Output {
         Vector {
             ix_map: self.ix_map.clone(),
             values: &self.values + &rhs.values,
@@ -213,13 +190,12 @@ where
     }
 }
 
-impl<'a, 'b, X, N> Sub<&'b Vector<X, N>> for &'a Vector<X, N>
+impl<'b, X> Sub<&'b Vector<X>> for &Vector<X>
 where
     X: Clone,
-    N: Float,
 {
-    type Output = Vector<X, N>;
-    fn sub(self, rhs: &'b Vector<X, N>) -> Self::Output {
+    type Output = Vector<X>;
+    fn sub(self, rhs: &'b Vector<X>) -> Self::Output {
         Vector {
             ix_map: self.ix_map.clone(),
             values: &self.values - &rhs.values,
@@ -227,13 +203,12 @@ where
     }
 }
 
-impl<'a, 'b, X, N> Mul<&'b Vector<X, N>> for &'a Vector<X, N>
+impl<'b, X> Mul<&'b Vector<X>> for &Vector<X>
 where
     X: Clone,
-    N: Float,
 {
-    type Output = Vector<X, N>;
-    fn mul(self, rhs: &'b Vector<X, N>) -> Self::Output {
+    type Output = Vector<X>;
+    fn mul(self, rhs: &'b Vector<X>) -> Self::Output {
         Vector {
             ix_map: self.ix_map.clone(),
             values: &self.values * &rhs.values,
@@ -241,13 +216,12 @@ where
     }
 }
 
-impl<'a, X, N> Mul<N> for &'a Vector<X, N>
+impl<X> Mul<f64> for &Vector<X>
 where
     X: Clone,
-    N: Float + ScalarOperand,
 {
-    type Output = Vector<X, N>;
-    fn mul(self, rhs: N) -> Self::Output {
+    type Output = Vector<X>;
+    fn mul(self, rhs: f64) -> Self::Output {
         Vector {
             ix_map: self.ix_map.clone(),
             values: &self.values * rhs,
@@ -255,13 +229,12 @@ where
     }
 }
 
-impl<'a, X, N> Div<N> for &'a Vector<X, N>
+impl<X> Div<f64> for &Vector<X>
 where
     X: Clone,
-    N: Float + ScalarOperand,
 {
-    type Output = Vector<X, N>;
-    fn div(self, rhs: N) -> Self::Output {
+    type Output = Vector<X>;
+    fn div(self, rhs: f64) -> Self::Output {
         Vector {
             ix_map: self.ix_map.clone(),
             values: &self.values / rhs,

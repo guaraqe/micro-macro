@@ -11,20 +11,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::graph_state::{ObservableNode, ObservableNodeType};
 
-const CIRCULAR_RADIUS: f32 = 5.0;
-const CIRCULAR_LABEL_GAP: f32 = 10.0;
-const CIRCULAR_LABEL_FONT: f32 = 16.0;
-const BIPARTITE_RADIUS: f32 = 5.0;
-const BIPARTITE_LABEL_GAP: f32 = 8.0;
-const BIPARTITE_LABEL_FONT: f32 = 13.0;
+const CIRCULAR_RADIUS: f64 = 5.0;
+const CIRCULAR_LABEL_GAP: f64 = 10.0;
+const CIRCULAR_LABEL_FONT: f64 = 16.0;
+const BIPARTITE_RADIUS: f64 = 5.0;
+const BIPARTITE_LABEL_GAP: f64 = 8.0;
+const BIPARTITE_LABEL_FONT: f64 = 13.0;
 
 static LABEL_VISIBILITY: AtomicBool = AtomicBool::new(true);
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VisualParams {
-    pub radius: f32,
-    pub label_gap: f32,
-    pub label_font: f32,
+    pub radius: f64,
+    pub label_gap: f64,
+    pub label_font: f64,
 }
 
 impl Default for VisualParams {
@@ -60,9 +60,9 @@ pub fn set_label_visibility(always: bool) {
 }
 
 pub fn set_circular_visual_params(
-    radius: f32,
-    label_gap: f32,
-    label_font: f32,
+    radius: f64,
+    label_gap: f64,
+    label_font: f64,
 ) {
     let mut guard = CIRCULAR_VISUALS.write().unwrap();
     *guard = VisualParams {
@@ -73,9 +73,9 @@ pub fn set_circular_visual_params(
 }
 
 pub fn set_bipartite_visual_params(
-    radius: f32,
-    label_gap: f32,
-    label_font: f32,
+    radius: f64,
+    label_gap: f64,
+    label_font: f64,
 ) {
     let mut guard = BIPARTITE_VISUALS.write().unwrap();
     *guard = VisualParams {
@@ -102,8 +102,8 @@ fn label_top_left_for_direction(
     node_pos: Pos2,
     dir: Vec2,
     galley: &std::sync::Arc<egui::Galley>,
-    radius: f32,
-    gap: f32,
+    radius: f64,
+    gap: f64,
 ) -> Pos2 {
     let mut direction = dir;
     if direction.length_sq() < f32::EPSILON {
@@ -112,8 +112,8 @@ fn label_top_left_for_direction(
         direction = direction.normalized();
     }
 
-    let radius_screen = ctx.meta.canvas_to_screen_size(radius);
-    let gap_screen = ctx.meta.canvas_to_screen_size(gap);
+    let radius_screen = ctx.meta.canvas_to_screen_size(radius as f32);
+    let gap_screen = ctx.meta.canvas_to_screen_size(gap as f32);
     let support = 0.5
         * (direction.x.abs() * galley.size().x
             + direction.y.abs() * galley.size().y);
@@ -138,9 +138,9 @@ pub struct CircularNodeShape {
     hovered: bool,
     color: Option<Color32>,
     label_text: String,
-    radius: f32,
-    label_font: f32,
-    label_gap: f32,
+    radius: f64,
+    label_font: f64,
+    label_gap: f64,
 }
 
 impl<N: Clone> From<NodeProps<N>> for CircularNodeShape {
@@ -165,7 +165,7 @@ impl<N: Clone, E: Clone, Ty: EdgeType, Ix: IndexType>
     DisplayNode<N, E, Ty, Ix> for CircularNodeShape
 {
     fn closest_boundary_point(&self, dir: Vec2) -> Pos2 {
-        self.pos + dir.normalized() * self.radius
+        self.pos + dir.normalized() * (self.radius as f32)
     }
 
     fn shapes(&mut self, ctx: &DrawContext) -> Vec<Shape> {
@@ -173,7 +173,7 @@ impl<N: Clone, E: Clone, Ty: EdgeType, Ix: IndexType>
         let mut res = Vec::with_capacity(2);
         let center_screen = ctx.meta.canvas_to_screen_pos(self.pos);
         let radius_screen =
-            ctx.meta.canvas_to_screen_size(self.radius);
+            ctx.meta.canvas_to_screen_size(self.radius as f32);
         let color = self.effective_color(ctx);
         let stroke = self.effective_stroke();
 
@@ -208,7 +208,7 @@ impl<N: Clone, E: Clone, Ty: EdgeType, Ix: IndexType>
     }
 
     fn is_inside(&self, pos: Pos2) -> bool {
-        (pos - self.pos).length() <= self.radius
+        (pos - self.pos).length() <= (self.radius as f32)
     }
 }
 
@@ -256,7 +256,7 @@ impl CircularNodeShape {
         ctx.ctx.fonts_mut(|f| {
             f.layout_no_wrap(
                 self.label_text.clone(),
-                FontId::new(self.label_font, FontFamily::Monospace),
+                FontId::new(self.label_font as f32, FontFamily::Monospace),
                 color,
             )
         })
@@ -305,9 +305,9 @@ pub struct BipartiteNodeShape {
     color: Option<Color32>,
     label_text: String,
     side: LabelSide,
-    radius: f32,
-    label_font: f32,
-    label_gap: f32,
+    radius: f64,
+    label_font: f64,
+    label_gap: f64,
 }
 
 impl From<NodeProps<ObservableNode>> for BipartiteNodeShape {
@@ -333,7 +333,7 @@ impl<E: Clone, Ty: EdgeType, Ix: IndexType>
     DisplayNode<ObservableNode, E, Ty, Ix> for BipartiteNodeShape
 {
     fn closest_boundary_point(&self, dir: Vec2) -> Pos2 {
-        self.pos + dir.normalized() * self.radius
+        self.pos + dir.normalized() * (self.radius as f32)
     }
 
     fn shapes(&mut self, ctx: &DrawContext) -> Vec<Shape> {
@@ -341,7 +341,7 @@ impl<E: Clone, Ty: EdgeType, Ix: IndexType>
         let mut res = Vec::with_capacity(2);
         let center_screen = ctx.meta.canvas_to_screen_pos(self.pos);
         let radius_screen =
-            ctx.meta.canvas_to_screen_size(self.radius);
+            ctx.meta.canvas_to_screen_size(self.radius as f32);
         let color = self.effective_color(ctx);
         let stroke = self.effective_stroke();
 
@@ -377,7 +377,7 @@ impl<E: Clone, Ty: EdgeType, Ix: IndexType>
     }
 
     fn is_inside(&self, pos: Pos2) -> bool {
-        (pos - self.pos).length() <= self.radius
+        (pos - self.pos).length() <= (self.radius as f32)
     }
 }
 
@@ -425,7 +425,7 @@ impl BipartiteNodeShape {
         ctx.ctx.fonts_mut(|f| {
             f.layout_no_wrap(
                 self.label_text.clone(),
-                FontId::new(self.label_font, FontFamily::Monospace),
+                FontId::new(self.label_font as f32, FontFamily::Monospace),
                 color,
             )
         })

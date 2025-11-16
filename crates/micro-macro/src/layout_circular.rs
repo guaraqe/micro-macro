@@ -68,15 +68,15 @@ impl LayoutState for LayoutStateCircular {}
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SpacingConfig {
     /// Base radius when there are few nodes
-    pub base_radius: f32,
+    pub base_radius: f64,
     /// Additional radius per node (for auto-scaling)
-    pub radius_per_node: f32,
+    pub radius_per_node: f64,
     /// If set, overrides the auto-calculated radius
-    pub fixed_radius: Option<f32>,
+    pub fixed_radius: Option<f64>,
 }
 
 impl SpacingConfig {
-    pub fn with_fixed_radius(mut self, radius: f32) -> Self {
+    pub fn with_fixed_radius(mut self, radius: f64) -> Self {
         self.fixed_radius = Some(radius);
         self
     }
@@ -144,18 +144,18 @@ impl Layout<LayoutStateCircular> for LayoutCircular {
             fixed
         } else {
             spacing.base_radius
-                + (node_count as f32) * spacing.radius_per_node
+                + (node_count as f64) * spacing.radius_per_node
         };
 
         // Place nodes in a circle according to the order
         for (i, node_idx) in node_order.iter().enumerate() {
             // Start at top (-π/2) and go clockwise
-            let angle = -std::f32::consts::PI / 2.0
-                + (i as f32) * 2.0 * std::f32::consts::PI
-                    / (node_count as f32);
+            let angle = -std::f64::consts::PI / 2.0
+                + (i as f64) * 2.0 * std::f64::consts::PI
+                    / (node_count as f64);
 
-            let x = center_x + radius * angle.cos();
-            let y = center_y + radius * angle.sin();
+            let x = center_x + (radius as f32) * (angle.cos() as f32);
+            let y = center_y + (radius as f32) * (angle.sin() as f32);
 
             // Convert NodeIndex to the generic Ix type
             let idx = petgraph::stable_graph::NodeIndex::<Ix>::new(
