@@ -1,6 +1,7 @@
 [build]
 target = "index.html"
 dist = "web/dist"
+public_url = "/micro-macro/"
 
 [watch]
 ignore = ["web/dist"]
