@@ -16,6 +16,9 @@ build:
 build-wasm:
     cargo build -p micro-macro --target wasm32-unknown-unknown
 
+build-wasm-release:
+    cd crates/micro-macro && trunk build --release --dist web/dist-release --config Trunk.toml
+
 run:
     cargo run -p micro-macro --bin native
 
