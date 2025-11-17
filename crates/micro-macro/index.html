@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>micro-macro</title>
+    <link data-trunk rel="rust" data-target-name="micro_macro" data-wasm-opt="z" />
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #the_canvas_id {
+            width: 100%;
+            height: 100%;
+        }
+
+        .centered {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="the_canvas_id"></canvas>
+    <div class="centered" id="loading">
+        <p>Loading...</p>
+    </div>
+
+    <script data-trunk src="web/bootstrap.js"></script>
+</body>
+</html>

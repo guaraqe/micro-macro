@@ -13,6 +13,13 @@ mod state;
 mod store;
 mod versioned;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod native;
+#[cfg(target_arch = "wasm32")]
+pub mod web;
+#[cfg(target_arch = "wasm32")]
+pub use web::start;
+
 use crate::layout_settings::{
     BIPARTITE_LAYER_GAP_RANGE, BIPARTITE_NODE_GAP_RANGE, CIRCULAR_BASE_RADIUS_RANGE,
     EDGE_THICKNESS_MAX_RANGE, EDGE_THICKNESS_MIN_RANGE, LABEL_FONT_RANGE, LABEL_GAP_RANGE,
@@ -41,31 +48,23 @@ const EDGE_PREVIEW_COLOR: egui::Color32 = egui::Color32::from_rgb(100, 100, 255)
 const GRAPH_FIT_PADDING: f32 = 0.75;
 
 // ------------------------------------------------------------------
-// Initialization helpers
+// Public API
 // ------------------------------------------------------------------
 
-// ------------------------------------------------------------------
+/// Create a new app instance for use with eframe
+pub fn create_app(cc: &eframe::CreationContext<'_>) -> State {
+    // Set light theme
+    cc.egui_ctx.set_visuals(egui::Visuals::light());
 
-fn main() -> eframe::Result<()> {
-    let options = eframe::NativeOptions::default();
-    eframe::run_native(
-        "Graph Editor",
-        options,
-        Box::new(|cc| {
-            // Set light theme
-            cc.egui_ctx.set_visuals(egui::Visuals::light());
+    let (graph, observable_graph, layout_settings) = store::load_or_create_default_state();
 
-            let (graph, observable_graph, layout_settings) = store::load_or_create_default_state();
+    let observed_graph_raw =
+        calculate_observed_graph_from_observable_display(&observable_graph);
+    let observed_graph = setup_observed_graph_display(&observed_graph_raw);
 
-            let observed_graph_raw =
-                calculate_observed_graph_from_observable_display(&observable_graph);
-            let observed_graph = setup_observed_graph_display(&observed_graph_raw);
+    let store = store::Store::new(graph, observable_graph, observed_graph, layout_settings);
 
-            let store = store::Store::new(graph, observable_graph, observed_graph, layout_settings);
-
-            Ok(Box::new(State::new(store)))
-        }),
-    )
+    State::new(store)
 }
 
 // ------------------------------------------------------------------
@@ -528,23 +527,37 @@ impl eframe::App for State {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("Save").clicked() {
-                        ui.close();
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("JSON", &["json"])
-                            .save_file()
-                        {
-                            self.dispatch(actions::Action::SaveToFile { path });
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        if ui.button("Save").clicked() {
+                            ui.close();
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("JSON", &["json"])
+                                .save_file()
+                            {
+                                self.dispatch(actions::Action::SaveToFile { path });
+                            }
+                        }
+
+                        if ui.button("Load").clicked() {
+                            ui.close();
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("JSON", &["json"])
+                                .pick_file()
+                            {
+                                self.dispatch(actions::Action::LoadFromFile { path });
+                            }
                         }
                     }
 
-                    if ui.button("Load").clicked() {
-                        ui.close();
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("JSON", &["json"])
-                            .pick_file()
-                        {
-                            self.dispatch(actions::Action::LoadFromFile { path });
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        // Save is not supported on WASM per rfd documentation
+                        ui.label("(Save not available in browser)");
+
+                        if ui.button("Load").clicked() {
+                            ui.close();
+                            crate::web::open_project_dialog(ctx.clone());
                         }
                     }
                 });

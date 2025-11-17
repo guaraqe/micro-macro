@@ -23,19 +23,27 @@
         libGL
         vulkan-loader
       ];
-    in {
-      devShells.default = pkgs.mkShell {
-        packages = [
+
+      rustToolchain = fenix-pkgs.combine [
           (fenix-pkgs.complete.withComponents [
-                       "cargo"
+              "cargo"
               "clippy"
               "rust-src"
               "rustc"
               "rustfmt"
           ])
+          fenix-pkgs.targets.wasm32-unknown-unknown.latest.rust-std
+      ];
+
+    in {
+      devShells.default = pkgs.mkShell {
+        packages = [
+          rustToolchain
           fenix-pkgs.rust-analyzer
           pkgs.bacon
-          pkgs.evcxr
+          pkgs.binaryen
+          pkgs.trunk
+          pkgs.just
         ] ++ runLibs;
 
         # make the dynamic linker see the libs at runtime
